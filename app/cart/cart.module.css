@@ -1,0 +1,39 @@
+.page { min-height: 100vh; background: var(--bg); }
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--card); border-bottom: 0.5px solid var(--bd); }
+.title { font-size: 15px; font-weight: 600; }
+.body { max-width: 520px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.section { background: var(--card); border: 0.5px solid var(--bd); border-radius: 12px; padding: 16px; }
+.section h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--t1); }
+.cartRow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 0.5px solid var(--bd); }
+.cartRow:last-child { border: none; padding-bottom: 0; }
+.itemName { font-size: 13px; font-weight: 500; }
+.itemSub { font-size: 11px; color: var(--t2); margin-top: 2px; }
+.itemRight { display: flex; align-items: center; gap: 12px; }
+.itemTotal { font-size: 14px; font-weight: 500; min-width: 48px; text-align: right; }
+.qBtn { width: 26px; height: 26px; border: 0.5px solid var(--bd2); background: var(--bg); border-radius: 6px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; font-family: inherit; }
+.gpsBtn { display: flex; align-items: center; gap: 6px; width: 100%; padding: 10px 14px; background: var(--bl-l); color: var(--bl); border: 0.5px solid var(--bl); border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; justify-content: center; margin-bottom: 8px; }
+.gpsBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+.gpsDetected { background: var(--gr-l); border: 0.5px solid var(--gr); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #166534; margin-top: 6px; }
+.offerRow { display: flex; gap: 8px; }
+.offerInput { flex: 1; padding: 10px 12px; border: 0.5px solid var(--bd2); border-radius: 8px; background: var(--bg); color: var(--t1); font-size: 13px; font-family: inherit; outline: none; }
+.offerInput:focus { border-color: var(--or); }
+.offerApplied { background: var(--gr-l); border: 0.5px solid var(--gr); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #166534; margin-top: 8px; }
+.billRow { display: flex; justify-content: space-between; font-size: 13px; padding: 5px 0; }
+.total { font-size: 16px; font-weight: 600; border-top: 0.5px solid var(--bd); margin-top: 6px; padding-top: 10px; }
+.codNotice { background: var(--gr-l); border: 0.5px solid var(--gr); border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #166534; }
+.error { background: var(--rd-l); border: 0.5px solid var(--rd); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #991b1b; }
+.empty { text-align: center; padding: 60px 20px; color: var(--t2); }
+.successWrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+.successCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 16px; padding: 28px 24px; max-width: 380px; width: 100%; text-align: center; }
+.checkCircle { width: 60px; height: 60px; background: var(--gr-l); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px; color: var(--gr-d); border: 0.5px solid var(--gr); }
+.successCard h2 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+.successCard p { font-size: 13px; color: var(--t2); }
+.eta { margin-top: 4px; }
+.trackSteps { text-align: left; margin: 20px 0; }
+.trackStep { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
+.trackDot { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 2px; border: 2px solid var(--bd2); }
+.trackDot.done { background: var(--gr); border-color: var(--gr); }
+.trackDot.active { background: var(--or); border-color: var(--or); }
+.trackDot.wait { background: var(--bg); }
+.trackLabel { font-size: 13px; font-weight: 500; }
+.trackSub { font-size: 11px; color: var(--t2); margin-top: 2px; }

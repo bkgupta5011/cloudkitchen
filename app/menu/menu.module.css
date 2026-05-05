@@ -1,0 +1,62 @@
+.page { min-height: 100vh; padding-bottom: 80px; }
+
+.loading { display: flex; align-items: center; justify-content: center; height: 100vh; }
+
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--card); border-bottom: 0.5px solid var(--bd); position: sticky; top: 0; z-index: 100; gap: 10px; flex-wrap: wrap; }
+
+.logo { font-size: 16px; font-weight: 600; color: var(--or); }
+
+.navRight { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.greeting { font-size: 13px; color: var(--t2); }
+
+.kitchenBadge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+.kitchenBadge.open { background: var(--gr-l); color: var(--gr-d); }
+.kitchenBadge.closed { background: var(--rd-l); color: #991b1b; }
+
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.cartBtn { display: flex; align-items: center; gap: 5px; padding: 8px 14px; background: var(--or); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; position: relative; }
+.cartBadge { background: #fff; color: var(--or); border-radius: 50%; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+
+.hero { background: var(--or); padding: 24px 20px; color: #fff; }
+.hero h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+.hero p { font-size: 13px; opacity: 0.88; }
+
+.offerStrip { display: flex; gap: 10px; padding: 12px 20px; overflow-x: auto; scrollbar-width: none; }
+.offerStrip::-webkit-scrollbar { display: none; }
+.offerPill { display: flex; align-items: center; gap: 6px; background: var(--am-l); border: 0.5px solid var(--am); border-radius: 20px; padding: 6px 14px; white-space: nowrap; font-size: 12px; color: #92400e; flex-shrink: 0; }
+
+.catBar { display: flex; gap: 8px; padding: 12px 20px; overflow-x: auto; scrollbar-width: none; }
+.catBar::-webkit-scrollbar { display: none; }
+.catChip { padding: 6px 16px; border: 0.5px solid var(--bd2); border-radius: 20px; cursor: pointer; font-size: 12px; color: var(--t2); white-space: nowrap; background: transparent; transition: all 0.2s; flex-shrink: 0; font-family: inherit; }
+.catChip.active { background: var(--or); border-color: var(--or); color: #fff; }
+
+.menuGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 0 20px 20px; }
+
+.menuCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 12px; padding: 14px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+
+.cardLeft { flex: 1; }
+.cardTitle { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.cardTitle h4 { font-size: 14px; font-weight: 500; }
+.cardLeft p { font-size: 12px; color: var(--t2); line-height: 1.5; margin-bottom: 8px; }
+
+.priceRow { display: flex; align-items: center; gap: 6px; }
+.priceNew { font-size: 15px; font-weight: 600; color: var(--or); }
+.priceOld { font-size: 11px; color: var(--t3); text-decoration: line-through; }
+.discBadge { font-size: 10px; background: var(--gr-l); color: var(--gr-d); border-radius: 4px; padding: 2px 5px; font-weight: 600; }
+
+.cardRight { display: flex; flex-direction: column; align-items: center; gap: 8px; flex-shrink: 0; }
+.foodImg { width: 80px; height: 80px; border-radius: 10px; object-fit: cover; }
+.foodEmoji { width: 80px; height: 80px; border-radius: 10px; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 40px; }
+
+.addBtn { padding: 6px 14px; background: var(--or-l); color: var(--or); border: 0.5px solid var(--or); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; font-family: inherit; }
+.addBtn:hover { background: var(--or); color: #fff; }
+.addBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.qtyCtl { display: flex; align-items: center; gap: 6px; }
+.qtyCtl button { width: 26px; height: 26px; border: 0.5px solid var(--bd2); background: var(--bg); border-radius: 6px; cursor: pointer; font-size: 16px; color: var(--t1); display: flex; align-items: center; justify-content: center; font-family: inherit; }
+.qtyCtl span { font-size: 14px; font-weight: 500; min-width: 16px; text-align: center; }
+
+.cartBar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 0.5px solid var(--bd); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -4px 20px rgba(0,0,0,0.05); }
+.cartBar span { font-size: 14px; font-weight: 500; }

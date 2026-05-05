@@ -1,0 +1,135 @@
+.wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+
+.card {
+  background: var(--card);
+  border: 0.5px solid var(--bd);
+  border-radius: 16px;
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.logo {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.logo span {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.logo h1 {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--or);
+}
+
+.logo p {
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 3px;
+}
+
+.roleTabs {
+  display: flex;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 16px;
+  gap: 2px;
+}
+
+.roleTab {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--t2);
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.roleTab.active {
+  background: var(--card);
+  color: var(--or);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.modeToggle {
+  display: flex;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 16px;
+}
+
+.modeToggle button {
+  flex: 1;
+  padding: 7px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--t2);
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.modeToggle button.active {
+  background: var(--card);
+  color: var(--t1);
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.closedNotice {
+  background: #fef2f2;
+  border: 0.5px solid #fca5a5;
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+  color: #991b1b;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+
+.error {
+  background: var(--rd-l);
+  border: 0.5px solid var(--rd);
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.switchMode {
+  text-align: center;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.switchMode button {
+  background: none;
+  border: none;
+  color: var(--or);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+}

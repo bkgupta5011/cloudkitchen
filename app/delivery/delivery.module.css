@@ -1,0 +1,32 @@
+.page { min-height: 100vh; background: var(--bg); }
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--card); border-bottom: 0.5px solid var(--bd); flex-wrap: wrap; gap: 8px; }
+.logo { font-size: 15px; font-weight: 600; color: var(--bl); }
+.statsRow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 14px 16px; }
+.statCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 10px; padding: 12px; text-align: center; }
+.statVal { font-size: 22px; font-weight: 700; margin-bottom: 3px; }
+.statLabel { font-size: 11px; color: var(--t2); }
+.tabs { display: flex; background: var(--card); border-bottom: 0.5px solid var(--bd); }
+.tab { flex: 1; padding: 12px; border: none; background: transparent; cursor: pointer; font-size: 13px; color: var(--t2); font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 5px; transition: all 0.2s; }
+.tab.active { color: var(--bl); border-bottom: 2px solid var(--bl); font-weight: 600; }
+.tabBadge { background: var(--rd); color: #fff; border-radius: 10px; font-size: 10px; padding: 1px 5px; font-weight: 700; }
+.body { padding: 14px 16px; max-width: 540px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.empty { text-align: center; padding: 48px 20px; color: var(--t2); }
+.orderCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 12px; padding: 16px; }
+.orderHead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.orderId { font-size: 12px; font-weight: 700; color: var(--bl); }
+.custRow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.custAvatar { width: 36px; height: 36px; border-radius: 50%; background: var(--or-l); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--or); flex-shrink: 0; }
+.custName { font-size: 14px; font-weight: 600; }
+.custPhone { font-size: 12px; color: var(--bl); text-decoration: none; }
+.amount { margin-left: auto; text-align: right; font-size: 16px; font-weight: 700; color: var(--or); }
+.addrBox { display: flex; gap: 8px; align-items: flex-start; background: var(--bg); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.mapBtn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px; background: var(--bl); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; margin-bottom: 10px; font-family: inherit; }
+.actions { display: flex; gap: 8px; }
+.deliverBtn { background: var(--gr) !important; color: #fff !important; border-color: var(--gr) !important; }
+.periodRow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.periodBtn { padding: 6px 14px; border: 0.5px solid var(--bd); border-radius: 20px; cursor: pointer; font-size: 12px; color: var(--t2); background: transparent; font-family: inherit; transition: all 0.2s; }
+.periodBtn.active { background: var(--bl); border-color: var(--bl); color: #fff; }
+.earningsCard { background: var(--gr-l); border: 0.5px solid var(--gr); border-radius: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.historyTable { background: var(--card); border: 0.5px solid var(--bd); border-radius: 10px; overflow: hidden; }
+.histHead { display: grid; grid-template-columns: 60px 1fr 80px 80px; gap: 8px; padding: 10px 14px; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--t2); text-transform: uppercase; }
+.histRow { display: grid; grid-template-columns: 60px 1fr 80px 80px; gap: 8px; padding: 11px 14px; border-top: 0.5px solid var(--bd); align-items: center; }

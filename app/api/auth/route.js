@@ -2,6 +2,54 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
+import nodemailer from 'nodemailer'
+import crypto from 'crypto'
+
+async function ensureResetTable(sql) {
+  await sql`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      email VARCHAR(255) NOT NULL,
+      token VARCHAR(64) NOT NULL UNIQUE,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
+}
+
+async function sendResetEmail(toEmail, resetLink) {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  })
+  await transporter.sendMail({
+    from: `"Cloud Kitchen" <${process.env.GMAIL_USER}>`,
+    to: toEmail,
+    subject: '🔐 Password Reset - Cloud Kitchen',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+        <div style="text-align:center; margin-bottom:24px;">
+          <h2 style="color:#e85d04;">🍽️ Cloud Kitchen</h2>
+        </div>
+        <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
+        <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>
+        <div style="text-align:center; margin:28px 0;">
+          <a href="${resetLink}" style="background:#e85d04; color:#fff; padding:14px 32px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
+            🔑 Reset Password
+          </a>
+        </div>
+        <p style="color:#6b7280; font-size:13px;">Yeh link <strong>1 ghante</strong> mein expire ho jayega.</p>
+        <p style="color:#6b7280; font-size:13px;">Agar aapne yeh request nahi ki, toh is email ko ignore karein.</p>
+        <hr style="border:none;border-top:1px solid #e5e7eb; margin:20px 0;" />
+        <p style="color:#9ca3af; font-size:12px; text-align:center;">Cloud Kitchen &bull; Patna, Bihar</p>
+      </div>
+    `,
+  })
+}
 
 // Rate limiting: identifier -> { count, lockedUntil }
 const loginAttempts = new Map()
@@ -182,6 +230,84 @@ export async function POST(request) {
     const { verifyToken } = await import('@/lib/auth')
     const decoded = verifyToken(token)
     return NextResponse.json({ user: decoded })
+  }
+
+  // ── FORGOT PASSWORD ─────────────────────────────────────────────
+  if (action === 'forgot-password') {
+    const { email } = body
+    if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
+
+    await ensureResetTable(sql)
+
+    // Check if email exists in any table
+    const [cu] = await sql`SELECT email FROM users WHERE email = ${email} LIMIT 1`
+    const [ad] = await sql`SELECT email FROM admins WHERE email = ${email} LIMIT 1`
+    const [db] = await sql`SELECT email FROM delivery_boys WHERE email = ${email} LIMIT 1`
+
+    // Always return success (don't reveal if email exists — security)
+    if (!cu && !ad && !db) {
+      return NextResponse.json({ success: true })
+    }
+
+    // Generate secure token
+    const resetToken = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+
+    // Delete old tokens for this email
+    await sql`DELETE FROM password_reset_tokens WHERE email = ${email}`
+
+    // Save new token
+    await sql`
+      INSERT INTO password_reset_tokens (email, token, expires_at)
+      VALUES (${email}, ${resetToken}, ${expiresAt})
+    `
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://thefitbhaskar.in'
+    const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
+
+    try {
+      await sendResetEmail(email, resetLink)
+    } catch (e) {
+      console.error('Email send failed:', e.message)
+      return NextResponse.json({ error: 'Email send nahi ho saka. Gmail settings check karo.' }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  }
+
+  // ── RESET PASSWORD ──────────────────────────────────────────────
+  if (action === 'reset-password') {
+    const { token: resetToken, newPassword } = body
+    if (!resetToken || !newPassword) {
+      return NextResponse.json({ error: 'Token aur naya password required hai' }, { status: 400 })
+    }
+    if (newPassword.length < 6) {
+      return NextResponse.json({ error: 'Password kam se kam 6 characters ka hona chahiye' }, { status: 400 })
+    }
+
+    await ensureResetTable(sql)
+
+    const [tokenRow] = await sql`
+      SELECT * FROM password_reset_tokens
+      WHERE token = ${resetToken} AND used = false AND expires_at > NOW()
+      LIMIT 1
+    `
+    if (!tokenRow) {
+      return NextResponse.json({ error: 'Link invalid ya expire ho gaya hai. Dobara forgot password try karo.' }, { status: 400 })
+    }
+
+    const { email } = tokenRow
+    const newHash = await hashPassword(newPassword)
+
+    // Update password in correct table
+    await sql`UPDATE users SET password_hash = ${newHash} WHERE email = ${email}`
+    await sql`UPDATE admins SET password_hash = ${newHash} WHERE email = ${email}`
+    await sql`UPDATE delivery_boys SET password_hash = ${newHash} WHERE email = ${email}`
+
+    // Mark token as used
+    await sql`UPDATE password_reset_tokens SET used = true WHERE token = ${resetToken}`
+
+    return NextResponse.json({ success: true, message: 'Password badal gaya! Ab login karein.' })
   }
 
   return NextResponse.json({ error: 'Invalid action' }, { status: 400 })

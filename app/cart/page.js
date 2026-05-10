@@ -35,24 +35,30 @@ async function reverseGeocode(lat, lng) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
 }
 
-// Haversine distance
+// Haversine distance — returns null if any input is invalid
 function calcDist(lat1, lng1, lat2, lng2) {
+  if ([lat1, lng1, lat2, lng2].some(v => !Number.isFinite(v))) return null
   const R = 6371
   const dL = ((lat2 - lat1) * Math.PI) / 180
   const dG = ((lng2 - lng1) * Math.PI) / 180
   const a = Math.sin(dL / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dG / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return Number.isFinite(d) ? d : null
 }
 
+// Safe parseFloat — never returns NaN
+const pf = (v, fallback = 0) => { const n = parseFloat(v); return isNaN(n) ? fallback : n }
+
 function getCharge(km, pricing) {
-  const row = pricing.find(p => parseFloat(p.min_km) <= km && (p.max_km == null || parseFloat(p.max_km) > km))
+  if (!Number.isFinite(km) || !pricing?.length) return 0
+  const row = pricing.find(p => pf(p.min_km) <= km && (p.max_km == null || pf(p.max_km) > km))
   if (!row) {
     // Out of range — use highest tier
-    const last = [...pricing].sort((a, b) => parseFloat(b.min_km) - parseFloat(a.min_km))[0]
+    const last = [...pricing].sort((a, b) => pf(b.min_km) - pf(a.min_km))[0]
     if (!last) return 50
-    return parseFloat(last.base_charge) + Math.max(0, km - parseFloat(last.min_km)) * parseFloat(last.per_km_charge)
+    return pf(last.base_charge) + Math.max(0, km - pf(last.min_km)) * pf(last.per_km_charge)
   }
-  return parseFloat(row.base_charge) + Math.max(0, km - parseFloat(row.min_km)) * parseFloat(row.per_km_charge)
+  return pf(row.base_charge) + Math.max(0, km - pf(row.min_km)) * pf(row.per_km_charge)
 }
 
 // ── Map Picker Modal ──────────────────────────────────────────────
@@ -270,12 +276,13 @@ export default function CartPage() {
       fetch('/api/addresses').then(r => r.json()).catch(() => ({ addresses: [] })),
     ]).then(([settingsData, pricingData, addrData]) => {
       const s = settingsData.settings
-      const kLat = s?.lat ? parseFloat(s.lat) : kitchenLat
-      const kLng = s?.lng ? parseFloat(s.lng) : kitchenLng
-      const km   = s?.max_delivery_km ? parseFloat(s.max_delivery_km) : maxKm
+      // pf() never returns NaN — falls back to React state defaults if DB value is missing/bad
+      const kLat = pf(s?.lat, kitchenLat)
+      const kLng = pf(s?.lng, kitchenLng)
+      const km   = pf(s?.max_delivery_km, maxKm)
       if (s) {
         setKitchenLat(kLat); setKitchenLng(kLng); setMaxKm(km)
-        if (s.estimated_time) setEstimatedTime(parseInt(s.estimated_time))
+        if (s.estimated_time) setEstimatedTime(parseInt(s.estimated_time) || 45)
       }
       const pricing = pricingData.pricing || []
       pricingRef.current = pricing
@@ -285,12 +292,14 @@ export default function CartPage() {
       const def = addrs.find(a => a.is_default)
       if (def) {
         setAddress(def.address_text)
-        if (def.lat && def.lng) {
-          const la = parseFloat(def.lat), ln = parseFloat(def.lng)
+        const la = pf(def.lat, null), ln = pf(def.lng, null)
+        if (la !== null && ln !== null) {
           setLat(la); setLng(ln)
           const dist = calcDist(la, ln, kLat, kLng)
-          setDistanceKm(dist); setOutOfRange(dist > km)
-          if (pricing.length > 0) setDeliveryCharge(getCharge(dist, pricing))
+          if (dist !== null) {
+            setDistanceKm(dist); setOutOfRange(dist > km)
+            if (pricing.length > 0) setDeliveryCharge(getCharge(dist, pricing))
+          }
         }
       }
     })
@@ -298,8 +307,9 @@ export default function CartPage() {
 
   // Auto-recalculate delivery charge when lat/lng changes
   useEffect(() => {
-    if (lat && lng && kitchenLat && kitchenLng) {
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const dist = calcDist(lat, lng, kitchenLat, kitchenLng)
+      if (dist === null) return // bad kitchen coords — don't overwrite with null
       setDistanceKm(dist)
       setOutOfRange(dist > maxKm)
       const pricing = pricingRef.current
@@ -311,7 +321,7 @@ export default function CartPage() {
           setDeliveryCharge(getCharge(dist, pd.pricing || []))
         })
       }
-    } else if (!lat || !lng) {
+    } else {
       setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false)
     }
   }, [lat, lng, kitchenLat, kitchenLng, maxKm])
@@ -335,13 +345,18 @@ export default function CartPage() {
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)
   const discount = offerResult?.discount || 0
   const freeDelivery = offerResult?.freeDelivery || false
-  const effectiveDelivery = freeDelivery ? 0 : (deliveryCharge ?? 0)
+  const safeDelivery = Number.isFinite(deliveryCharge) ? deliveryCharge : 0
+  const effectiveDelivery = freeDelivery ? 0 : safeDelivery
   const total = Math.max(0, subtotal - discount) + effectiveDelivery
 
   // Map picker confirm — calculate charge immediately without relying on useEffect timing
   const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
-    setAddress(addr); setLat(la); setLng(ln)
-    const dist = calcDist(la, ln, kitchenLat, kitchenLng)
+    const la2 = pf(la, null), ln2 = pf(ln, null)
+    setAddress(addr)
+    if (la2 === null || ln2 === null) { setShowMapPicker(false); return }
+    setLat(la2); setLng(ln2)
+    const dist = calcDist(la2, ln2, kitchenLat, kitchenLng)
+    if (dist === null) { setShowMapPicker(false); return }
     setDistanceKm(dist)
     const oor = dist > maxKm
     setOutOfRange(oor)
@@ -501,9 +516,9 @@ export default function CartPage() {
               </button>
 
               {/* Location status */}
-              {lat && !outOfRange && (
+              {Number.isFinite(lat) && !outOfRange && (
                 <div className={styles.gpsDetected}>
-                  ✅ Location set · {distanceKm?.toFixed(1)} km kitchen se · Delivery: ₹{Math.round(deliveryCharge ?? 0)}
+                  ✅ Location set · {Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : '...'} km kitchen se · Delivery: ₹{Number.isFinite(deliveryCharge) ? Math.round(deliveryCharge) : '...'}
                 </div>
               )}
               {lat && outOfRange && (
@@ -558,11 +573,11 @@ export default function CartPage() {
               <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
               {discount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
               <div className={styles.billRow}>
-                <span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
+                <span>Delivery {Number.isFinite(distanceKm) ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
                 <span>
                   {freeDelivery
                     ? <span style={{ color:'var(--gr-d)', fontWeight:600 }}>FREE 🎉</span>
-                    : deliveryCharge === null
+                    : !Number.isFinite(deliveryCharge)
                       ? <span style={{ color:'var(--t2)', fontSize:12 }}>🗺️ Map se location select karo</span>
                       : `₹${Math.round(deliveryCharge)}`
                   }
@@ -571,21 +586,21 @@ export default function CartPage() {
               <div className={`${styles.billRow} ${styles.total}`}>
                 <span>Total</span>
                 <span style={{ color:'var(--or)' }}>
-                  {deliveryCharge === null && !freeDelivery ? `₹${subtotal - discount} + delivery` : `₹${total}`}
+                  {!freeDelivery && !Number.isFinite(deliveryCharge) ? `₹${subtotal - discount} + delivery` : `₹${total}`}
                 </span>
               </div>
             </div>
 
             <div className={styles.codNotice}>
-              {deliveryCharge === null && !freeDelivery
+              {!freeDelivery && !Number.isFinite(deliveryCharge)
                 ? '🗺️ Pehle map se apni location select karo — delivery charge calculate hoga'
                 : `💵 Cash on Delivery — Pay ₹${total} when food arrives`}
             </div>
 
             {error && <div className={styles.error}>{error}</div>}
 
-            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading || outOfRange}>
-              {loading ? <span className="spinner" /> : `Place Order · ₹${total}`}
+            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading || outOfRange || !Number.isFinite(deliveryCharge)}>
+              {loading ? <span className="spinner" /> : Number.isFinite(deliveryCharge) ? `Place Order · ₹${total}` : 'Select Delivery Location First'}
             </button>
           </>
         )}

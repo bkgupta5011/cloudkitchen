@@ -76,7 +76,7 @@ export default function DeliveryApplyPage() {
           <button onClick={() => router.push('/login')} style={{ background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'6px 12px', cursor:'pointer', fontSize:13 }}>← Back</button>
           <div>
             <h1 style={{ fontSize:20, fontWeight:800, margin:0 }}>🛵 Delivery Boy Application</h1>
-            <p style={{ fontSize:12, color:'#6b7280', margin:0 }}>HealthCare Cloud Kitchen · Patna</p>
+            <p style={{ fontSize:12, color:'#6b7280', margin:0 }}>FoodFi Cloud Kitchen · Patna</p>
           </div>
         </div>
 

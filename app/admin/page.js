@@ -707,7 +707,7 @@ export default function AdminPage() {
               <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1px solid var(--bdr)', gridColumn:'1/-1' }}>
                 <h3 style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>🏠 Basic Info</h3>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                  <div className="field"><label>Kitchen Name</label><input value={kitchenSettings.kitchen_name} onChange={e => setKitchenSettings({...kitchenSettings, kitchen_name:e.target.value})} placeholder="HealthCare Cloud Kitchen" /></div>
+                  <div className="field"><label>Kitchen Name</label><input value={kitchenSettings.kitchen_name} onChange={e => setKitchenSettings({...kitchenSettings, kitchen_name:e.target.value})} placeholder="FoodFi Cloud Kitchen" /></div>
                   <div className="field"><label>Phone Number</label><input value={kitchenSettings.phone} onChange={e => setKitchenSettings({...kitchenSettings, phone:e.target.value})} placeholder="+91 75469 83536" /></div>
                 </div>
                 <div className="field"><label>Address</label><input value={kitchenSettings.address} onChange={e => setKitchenSettings({...kitchenSettings, address:e.target.value})} placeholder="Road No 8, East Laxmi Nagar, Patna" /></div>

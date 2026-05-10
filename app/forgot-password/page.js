@@ -40,10 +40,13 @@ export default function ForgotPasswordPage() {
       <div className={styles.card}>
         <div className={styles.logo}>
           <FoodFiLogo size={56} style={{ borderRadius: 14, boxShadow: '0 4px 16px rgba(232,93,4,0.25)', marginBottom: 10 }} />
-          <h1 style={{ fontSize: 24, fontWeight: 800 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 2px 0', lineHeight: 1.1 }}>
             <span style={{ color: '#e85d04' }}>Food</span><span style={{ color: '#1f2937' }}>Fi</span>
           </h1>
-          <p>Password Reset</p>
+          <h2 style={{ fontSize: 24, fontWeight: 800, margin: '0 0 4px 0', color: '#1e293b', lineHeight: 1.1 }}>
+            Cloud Kitchen
+          </h2>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Password Reset</p>
         </div>
 
         {sent ? (

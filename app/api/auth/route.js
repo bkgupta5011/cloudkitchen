@@ -29,13 +29,14 @@ async function sendResetEmail(toEmail, resetLink) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'FoodFi Kitchen <noreply@foodfi.in>',
+      from: 'FoodFi Cloud Kitchen <noreply@foodfi.in>',
       to: toEmail,
-      subject: '🔐 Password Reset - FoodFi',
+      subject: '🔐 Password Reset - FoodFi Cloud Kitchen',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
           <div style="text-align:center; margin-bottom:24px;">
-            <h2 style="color:#e85d04;">🍽️ FoodFi Kitchen</h2>
+            <h2 style="color:#e85d04; margin:0; font-size:22px;">🍽️ FoodFi</h2>
+            <h3 style="color:#1e293b; margin:4px 0 0 0; font-size:18px;">Cloud Kitchen</h3>
           </div>
           <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
           <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>

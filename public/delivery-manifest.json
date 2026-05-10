@@ -9,8 +9,8 @@
   "orientation": "portrait",
   "categories": ["food", "logistics"],
   "icons": [
-    { "src": "/icons/delivery-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icons/delivery-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/icons/delivery-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/delivery-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
     { "name": "My Orders", "url": "/delivery", "description": "View assigned orders" }

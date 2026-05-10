@@ -4,12 +4,6 @@ export const metadata = {
   title: 'FoodFi — Fresh Food Delivered',
   description: 'Order fresh homemade food online. Cash on delivery.',
   manifest: '/manifest.json',
-  themeColor: '#e85d04',
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: 'default',
-    title: 'FoodFi',
-  },
 }
 
 export default function RootLayout({ children }) {
@@ -23,7 +17,9 @@ export default function RootLayout({ children }) {
         <meta name="theme-color" content="#e85d04" />
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/icon.svg" />
+        {/* iOS requires PNG — SVG not supported for apple-touch-icon */}
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png" />
       </head>
       <body>
         {children}

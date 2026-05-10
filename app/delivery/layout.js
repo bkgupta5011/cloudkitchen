@@ -8,8 +8,9 @@ export const metadata = {
 export default function DeliveryLayout({ children }) {
   return (
     <>
-      {/* Override manifest for delivery PWA */}
+      {/* Override manifest + apple-touch-icon for delivery PWA */}
       <link rel="manifest" href="/delivery-manifest.json" />
+      <link rel="apple-touch-icon" sizes="180x180" href="/icons/delivery-apple-icon.png" />
       {children}
     </>
   )

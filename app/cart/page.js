@@ -25,6 +25,7 @@ function loadGoogleMaps() {
 // Google reverse geocoding — GPS coords → detailed address
 async function reverseGeocode(lat, lng) {
   try {
+    fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'geocoding'}) }).catch(()=>{})
     const res = await fetch(
       `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}&language=en&region=IN`
     )
@@ -76,6 +77,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     let cancelled = false
     loadGoogleMaps().then(gmaps => {
       if (cancelled || !mapRef.current) return
+      fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'maps'}) }).catch(()=>{})
       const center = { lat: pickedLat, lng: pickedLng }
       const map = new gmaps.Map(mapRef.current, {
         center, zoom: 15,
@@ -125,6 +127,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
           fields: ['formatted_address', 'geometry']
         })
         autocomplete.addListener('place_changed', () => {
+          fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'places'}) }).catch(()=>{})
           const place = autocomplete.getPlace()
           if (!place.geometry) return
           const loc = place.geometry.location
@@ -259,28 +262,38 @@ export default function CartPage() {
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
+
+    // Load settings + pricing + addresses together so delivery charge can be computed immediately
     Promise.all([
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/admin?type=pricing').then(r => r.json()),
-    ]).then(([settingsData, pricingData]) => {
+      fetch('/api/addresses').then(r => r.json()).catch(() => ({ addresses: [] })),
+    ]).then(([settingsData, pricingData, addrData]) => {
       const s = settingsData.settings
+      const kLat = s?.lat ? parseFloat(s.lat) : kitchenLat
+      const kLng = s?.lng ? parseFloat(s.lng) : kitchenLng
+      const km   = s?.max_delivery_km ? parseFloat(s.max_delivery_km) : maxKm
       if (s) {
-        if (s.lat) setKitchenLat(parseFloat(s.lat))
-        if (s.lng) setKitchenLng(parseFloat(s.lng))
-        if (s.max_delivery_km) setMaxKm(parseFloat(s.max_delivery_km))
+        setKitchenLat(kLat); setKitchenLng(kLng); setMaxKm(km)
         if (s.estimated_time) setEstimatedTime(parseInt(s.estimated_time))
       }
-      pricingRef.current = pricingData.pricing || []
-    })
-    fetch('/api/addresses').then(r => r.json()).then(d => {
-      const addrs = d.addresses || []
+      const pricing = pricingData.pricing || []
+      pricingRef.current = pricing
+
+      const addrs = addrData.addresses || []
       setSavedAddresses(addrs)
       const def = addrs.find(a => a.is_default)
-      if (def && !address) {
+      if (def) {
         setAddress(def.address_text)
-        if (def.lat) { setLat(parseFloat(def.lat)); setLng(parseFloat(def.lng)) }
+        if (def.lat && def.lng) {
+          const la = parseFloat(def.lat), ln = parseFloat(def.lng)
+          setLat(la); setLng(ln)
+          const dist = calcDist(la, ln, kLat, kLng)
+          setDistanceKm(dist); setOutOfRange(dist > km)
+          if (pricing.length > 0) setDeliveryCharge(getCharge(dist, pricing))
+        }
       }
-    }).catch(() => {})
+    })
   }, [])
 
   // Auto-recalculate delivery charge when lat/lng changes
@@ -325,9 +338,25 @@ export default function CartPage() {
   const effectiveDelivery = freeDelivery ? 0 : (deliveryCharge ?? 0)
   const total = Math.max(0, subtotal - discount) + effectiveDelivery
 
-  // Map picker confirm
-  const handleMapConfirm = ({ address: addr, lat: la, lng: ln }) => {
+  // Map picker confirm — calculate charge immediately without relying on useEffect timing
+  const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
     setAddress(addr); setLat(la); setLng(ln)
+    const dist = calcDist(la, ln, kitchenLat, kitchenLng)
+    setDistanceKm(dist)
+    const oor = dist > maxKm
+    setOutOfRange(oor)
+    if (!oor) {
+      let pricing = pricingRef.current
+      if (!pricing.length) {
+        try {
+          const pd = await fetch('/api/admin?type=pricing').then(r => r.json())
+          pricing = pd.pricing || []; pricingRef.current = pricing
+        } catch {}
+      }
+      setDeliveryCharge(getCharge(dist, pricing))
+    } else {
+      setDeliveryCharge(null)
+    }
     setShowMapPicker(false)
   }
 

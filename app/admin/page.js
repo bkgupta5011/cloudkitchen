@@ -29,6 +29,7 @@ export default function AdminPage() {
   const [pendingBoys, setPendingBoys] = useState([])
   const [pricing, setPricing] = useState([])
   const [analytics, setAnalytics] = useState(null)
+  const [apiUsage, setApiUsage] = useState(null)
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddItem, setShowAddItem] = useState(false)
@@ -545,7 +546,7 @@ export default function AdminPage() {
         <div className={styles.sidebarLogo}>⚙️ Admin Panel</div>
         {SECTIONS.map(s => (
           <button key={s.id} className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`}
-            onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads() }}>
+            onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads(); if(s.id==='analytics') fetch('/api/track-usage').then(r=>r.json()).then(d=>setApiUsage(d)).catch(()=>{}) }}>
             {s.label}
             {s.badge === 'orders' && pendingCount > 0 && <span className={styles.sideBadge}>{pendingCount}</span>}
             {s.badge === 'apps' && pendingBoys.length > 0 && <span className={styles.sideBadge}>{pendingBoys.length}</span>}
@@ -1112,6 +1113,61 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+
+            {/* Google Maps API Usage */}
+            {apiUsage && !apiUsage.error && (() => {
+              const usedPct = Math.min(100, (apiUsage.monthCost / apiUsage.freeCredit) * 100)
+              const remaining = Math.max(0, apiUsage.freeCredit - apiUsage.monthCost)
+              const barColor = usedPct > 80 ? '#dc2626' : usedPct > 50 ? '#f59e0b' : '#16a34a'
+              return (
+                <div style={{ background:'var(--card)', borderRadius:16, padding:'20px 24px', border:'1px solid var(--bd)', marginBottom:16 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                    <h3 style={{ fontSize:14, fontWeight:700, margin:0 }}>🗺️ Google Maps API Credit Usage</h3>
+                    <span style={{ fontSize:11, color:'var(--t2)', background:'var(--bg)', borderRadius:8, padding:'3px 10px' }}>This Month</span>
+                  </div>
+
+                  {/* Credit bar */}
+                  <div style={{ marginBottom:16 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:6 }}>
+                      <span style={{ color:'var(--t2)' }}>Free Credit Used</span>
+                      <span style={{ fontWeight:700, color: barColor }}>${apiUsage.monthCost.toFixed(3)} / $200</span>
+                    </div>
+                    <div style={{ background:'var(--bg)', borderRadius:8, height:12, overflow:'hidden' }}>
+                      <div style={{ width:`${usedPct}%`, height:'100%', background:`linear-gradient(90deg, #16a34a, ${barColor})`, borderRadius:8, transition:'width 0.5s' }} />
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, marginTop:4, color:'var(--t2)' }}>
+                      <span>₹{Math.round(apiUsage.monthCost * 83)} (~INR)</span>
+                      <span style={{ color: remaining < 10 ? '#dc2626' : '#16a34a' }}>Remaining: ${remaining.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  {/* Today vs Month table */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, marginBottom:16 }}>
+                    {[
+                      { label:'🌐 Map Loads', key:'maps', price:'$0.007' },
+                      { label:'📍 Geocoding', key:'geocoding', price:'$0.005' },
+                      { label:'🔍 Autocomplete', key:'places', price:'$0.00283' },
+                    ].map(({ label, key, price }) => (
+                      <div key={key} style={{ background:'var(--bg)', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
+                        <div style={{ fontSize:11, color:'var(--t2)', marginBottom:4 }}>{label}</div>
+                        <div style={{ fontSize:18, fontWeight:700, color:'var(--t1)' }}>{(apiUsage.today[key]||0)}</div>
+                        <div style={{ fontSize:10, color:'var(--t2)' }}>today</div>
+                        <div style={{ fontSize:13, fontWeight:600, color:'var(--or)', marginTop:4 }}>{apiUsage.month[key]||0}</div>
+                        <div style={{ fontSize:10, color:'var(--t2)' }}>this month</div>
+                        <div style={{ fontSize:10, color:'var(--t3)', marginTop:2 }}>{price}/call</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Tips */}
+                  <div style={{ background: usedPct > 70 ? '#fef2f2' : '#f0fdf4', border:`1px solid ${usedPct>70?'#fca5a5':'#86efac'}`, borderRadius:10, padding:'10px 14px', fontSize:12, color: usedPct>70?'#dc2626':'#15803d', lineHeight:1.6 }}>
+                    {usedPct > 70
+                      ? `⚠️ API usage ${usedPct.toFixed(0)}% ho gayi — consider karo: map picker sirf delivery ke waqt load karo, GPS use karo zyada, reverse geocoding kam karo.`
+                      : `✅ Sab theek hai — ${(100-usedPct).toFixed(0)}% free credit bacha hai. Normal usage me mahine bhar free rahega.`}
+                  </div>
+                </div>
+              )
+            })()}
           </>
         )})()}
         {/* ── NOTICES ── */}

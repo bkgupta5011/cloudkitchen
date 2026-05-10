@@ -2,6 +2,50 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
+const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
+
+function loadGoogleMaps() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.maps) { resolve(window.google.maps); return }
+    const existing = document.getElementById('gmaps-script')
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.google.maps))
+      if (window.google?.maps) resolve(window.google.maps)
+      return
+    }
+    const script = document.createElement('script')
+    script.id = 'gmaps-script'
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`
+    script.async = true; script.defer = true
+    script.onload = () => resolve(window.google.maps)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+async function reverseGeocodeGoogle(lat, lng) {
+  try {
+    fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'geocoding'}) }).catch(()=>{})
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}&language=en&region=IN`
+    )
+    const data = await res.json()
+    if (data.results?.[0]) {
+      const result = data.results[0]
+      const comps = result.address_components || []
+      const get = (type) => comps.find(c => c.types.includes(type))?.long_name || ''
+      const area = [get('sublocality_level_1')||get('sublocality'), get('locality')].filter(Boolean).join(', ')
+      const pincode = get('postal_code')
+      return {
+        full: result.formatted_address,
+        area,
+        pincode,
+      }
+    }
+  } catch {}
+  return { full: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, area: '', pincode: '' }
+}
+
 export default function ProfilePage() {
   const router = useRouter()
   const [profile, setProfile] = useState(null)
@@ -17,11 +61,11 @@ export default function ProfilePage() {
   const [msgType, setMsgType] = useState('ok')
   const [addingAddr, setAddingAddr] = useState(false)
   const [gpsLoading, setGpsLoading] = useState(false)
-  const [mapReady, setMapReady] = useState(false)
   const [tab, setTab] = useState('profile')
   const mapRef = useRef(null)
-  const leafletMapRef = useRef(null)
-  const markerRef = useRef(null)
+  const gmapRef = useRef(null)      // Google Map instance
+  const markerRef = useRef(null)    // Google Marker instance
+  const searchInputRef = useRef(null) // Search box input element
 
   const [newAddr, setNewAddr] = useState({
     label: 'Home', recipient_name: '', recipient_phone: '',
@@ -31,79 +75,89 @@ export default function ProfilePage() {
 
   const showMsg = (text, type = 'ok') => { setMsg(text); setMsgType(type); setTimeout(() => setMsg(''), 4000) }
 
-  // Load Leaflet JS/CSS once
+  // Init Google Map when address form opens
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (window.L) { setMapReady(true); return }
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-    document.head.appendChild(link)
-    const script = document.createElement('script')
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
-    script.onload = () => setMapReady(true)
-    document.head.appendChild(script)
-  }, [])
-
-  // Init map when address form opens
-  useEffect(() => {
-    if (!addingAddr || !mapReady) return
+    if (!addingAddr) return
+    let cancelled = false
     const timer = setTimeout(() => {
-      if (!mapRef.current || leafletMapRef.current) return
-      const L = window.L
-      const defaultLat = 28.6139, defaultLng = 77.2090
-      const map = L.map(mapRef.current, { zoomControl: true }).setView([defaultLat, defaultLng], 13)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(map)
+      if (!mapRef.current || gmapRef.current) return
+      loadGoogleMaps().then(gmaps => {
+        if (cancelled || !mapRef.current) return
+        fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'maps'}) }).catch(()=>{})
 
-      const marker = L.marker([defaultLat, defaultLng], {
-        draggable: true,
-        icon: L.divIcon({ html: '<div style="font-size:28px;margin-top:-14px;margin-left:-10px;">📍</div>', iconSize: [28, 28], className: '' })
-      }).addTo(map)
+        const defaultLat = 25.5801392, defaultLng = 85.1569214
+        const center = { lat: defaultLat, lng: defaultLng }
+        const map = new gmaps.Map(mapRef.current, {
+          center, zoom: 14,
+          mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+          zoomControlOptions: { position: gmaps.ControlPosition.RIGHT_CENTER }
+        })
+        gmapRef.current = map
 
-      const onPick = async (lat, lng) => {
-        marker.setLatLng([lat, lng])
-        map.panTo([lat, lng])
-        setNewAddr(prev => ({ ...prev, lat, lng }))
-        await reverseGeocode(lat, lng)
-      }
+        const marker = new gmaps.Marker({
+          position: center, map, draggable: true,
+          animation: gmaps.Animation.DROP, title: 'Drag to your location'
+        })
+        markerRef.current = marker
 
-      marker.on('dragend', e => { const p = e.target.getLatLng(); onPick(p.lat, p.lng) })
-      map.on('click', e => onPick(e.latlng.lat, e.latlng.lng))
+        const onPick = async (lat, lng) => {
+          setNewAddr(prev => ({ ...prev, lat, lng }))
+          const geo = await reverseGeocodeGoogle(lat, lng)
+          setNewAddr(prev => ({
+            ...prev, lat, lng,
+            area: geo.area || prev.area,
+            pincode: geo.pincode || prev.pincode,
+            address_text: geo.full || prev.address_text,
+          }))
+        }
 
-      leafletMapRef.current = map
-      markerRef.current = marker
-    }, 100)
-    return () => clearTimeout(timer)
-  }, [addingAddr, mapReady])
+        marker.addListener('dragend', () => {
+          const pos = marker.getPosition()
+          onPick(pos.lat(), pos.lng())
+        })
+        map.addListener('click', (e) => {
+          marker.setPosition(e.latLng)
+          onPick(e.latLng.lat(), e.latLng.lng())
+        })
+
+        // Google Places Autocomplete search
+        if (searchInputRef.current) {
+          const autocomplete = new gmaps.places.Autocomplete(searchInputRef.current, {
+            componentRestrictions: { country: 'in' },
+            fields: ['formatted_address', 'geometry', 'address_components']
+          })
+          autocomplete.addListener('place_changed', () => {
+            fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'places'}) }).catch(()=>{})
+            const place = autocomplete.getPlace()
+            if (!place.geometry) return
+            const loc = place.geometry.location
+            map.setCenter(loc); map.setZoom(17)
+            marker.setPosition(loc)
+            const comps = place.address_components || []
+            const get = (type) => comps.find(c => c.types.includes(type))?.long_name || ''
+            const area = [get('sublocality_level_1')||get('sublocality'), get('locality')].filter(Boolean).join(', ')
+            const pincode = get('postal_code')
+            setNewAddr(prev => ({
+              ...prev,
+              lat: loc.lat(), lng: loc.lng(),
+              area: area || prev.area,
+              pincode: pincode || prev.pincode,
+              address_text: place.formatted_address,
+            }))
+          })
+        }
+      }).catch(() => {})
+    }, 150)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [addingAddr])
 
   // Cleanup map on close
   useEffect(() => {
-    if (!addingAddr && leafletMapRef.current) {
-      try { leafletMapRef.current.remove() } catch(e) {}
-      leafletMapRef.current = null
+    if (!addingAddr && gmapRef.current) {
+      gmapRef.current = null
       markerRef.current = null
     }
   }, [addingAddr])
-
-  const reverseGeocode = async (lat, lng) => {
-    try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=en`)
-      const d = await r.json()
-      const a = d.address || {}
-      const area = [a.road, a.neighbourhood, a.suburb, a.village].filter(Boolean).join(', ')
-      const landmark = a.amenity || a.tourism || a.shop || a.leisure || ''
-      setNewAddr(prev => ({
-        ...prev,
-        lat, lng,
-        area: area || prev.area,
-        pincode: a.postcode || prev.pincode,
-        landmark: landmark || prev.landmark,
-        address_text: d.display_name || prev.address_text,
-      }))
-    } catch(e) {}
-  }
 
   const getCurrentLocation = () => {
     if (!navigator.geolocation) { showMsg('GPS support nahi hai is browser me', 'err'); return }
@@ -112,14 +166,21 @@ export default function ProfilePage() {
       async (pos) => {
         const { latitude: lat, longitude: lng } = pos.coords
         setGpsLoading(false)
-        if (markerRef.current && leafletMapRef.current) {
-          markerRef.current.setLatLng([lat, lng])
-          leafletMapRef.current.setView([lat, lng], 16)
+        if (markerRef.current && gmapRef.current) {
+          const pos2 = new window.google.maps.LatLng(lat, lng)
+          gmapRef.current.setCenter(pos2); gmapRef.current.setZoom(17)
+          markerRef.current.setPosition(pos2)
         }
         setNewAddr(prev => ({ ...prev, lat, lng }))
-        await reverseGeocode(lat, lng)
+        const geo = await reverseGeocodeGoogle(lat, lng)
+        setNewAddr(prev => ({
+          ...prev, lat, lng,
+          area: geo.area || prev.area,
+          pincode: geo.pincode || prev.pincode,
+          address_text: geo.full || prev.address_text,
+        }))
       },
-      (err) => {
+      () => {
         setGpsLoading(false)
         showMsg('Location access deny hai. Browser settings se allow karo.', 'err')
       },
@@ -347,8 +408,16 @@ export default function ProfilePage() {
             {/* Add Address Form */}
             {addingAddr && (
               <div style={{ background: 'var(--card)', borderRadius: 14, border: '1.5px solid var(--or)' }}>
+                {/* Search bar */}
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
+                  <input
+                    ref={searchInputRef}
+                    placeholder="🔍 Address ya area search karo..."
+                    style={{ width: '100%', padding: '10px 13px', border: '1.5px solid var(--bd2)', borderRadius: 10, fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)', boxSizing: 'border-box' }}
+                  />
+                </div>
                 {/* Map */}
-                <div style={{ borderRadius: '14px 14px 0 0', overflow: 'hidden', position: 'relative' }}>
+                <div style={{ position: 'relative' }}>
                   <div ref={mapRef} style={{ width: '100%', height: 260 }} />
                   <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 }}>
                     <button type="button" onClick={getCurrentLocation}
@@ -360,7 +429,7 @@ export default function ProfilePage() {
 
                 <div style={{ padding: 20 }}>
                   <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
-                    📍 Map pe tap karo ya GPS button se location lo, phir details fill karo
+                    📍 Search karo, map pe tap karo, ya GPS se location lo — phir details fill karo
                   </div>
 
                   {/* Save As */}

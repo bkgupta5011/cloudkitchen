@@ -206,6 +206,26 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
   )
 }
 
+// Pleasant notification sound using Web Audio API
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const notes = [880, 1108, 1318] // A5 → C#6 → E6 (happy chord arpeggio)
+    notes.forEach((freq, i) => {
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'
+      o.frequency.value = freq
+      const start = ctx.currentTime + i * 0.13
+      g.gain.setValueAtTime(0, start)
+      g.gain.linearRampToValueAtTime(0.25, start + 0.04)
+      g.gain.exponentialRampToValueAtTime(0.001, start + 0.45)
+      o.start(start); o.stop(start + 0.46)
+    })
+  } catch {}
+}
+
 export default function OrdersPage() {
   const router = useRouter()
   usePushNotifications(true) // Subscribe so order status updates reach customer
@@ -218,6 +238,16 @@ export default function OrdersPage() {
   const [orderItems, setOrderItems] = useState({})
   const [reorderLoading, setReorderLoading] = useState(null)
   const pollRef = useRef(null)
+
+  // Listen for SW push messages → play sound
+  useEffect(() => {
+    if (!navigator.serviceWorker) return
+    const handler = (e) => {
+      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') playNotifSound()
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
 
   const loadOrders = () =>
     fetch('/api/orders').then(r => r.json()).then(d => setOrders(d.orders || []))

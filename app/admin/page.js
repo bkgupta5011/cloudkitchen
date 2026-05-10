@@ -5,17 +5,18 @@ import styles from './admin.module.css'
 import { usePushNotifications } from '@/lib/usePush'
 
 const SECTIONS = [
-  { id: 'orders',   label: '📋 Orders',           badge: 'orders' },
-  { id: 'menu',     label: '🍛 Menu Items' },
-  { id: 'offers',   label: '🏷️ Offers' },
-  { id: 'boys',     label: '🛵 Delivery Boys' },
-  { id: 'apps',     label: '📝 Applications',     badge: 'apps' },
-  { id: 'kitchen',  label: '⚙️ Kitchen Settings' },
-  { id: 'pricing',  label: '📏 KM Pricing' },
-  { id: 'customers',label: '👥 Customers' },
-  { id: 'support',  label: '💬 Support',           badge: 'support' },
-  { id: 'analytics',label: '📊 Analytics' },
-  { id: 'notices',  label: '📣 Notices' },
+  { id: 'orders',    label: '📋 Orders',           badge: 'orders' },
+  { id: 'menu',      label: '🍛 Menu Items' },
+  { id: 'offers',    label: '🏷️ Offers' },
+  { id: 'boys',      label: '🛵 Delivery Boys' },
+  { id: 'apps',      label: '📝 Applications',     badge: 'apps' },
+  { id: 'kitchen',   label: '⚙️ Kitchen Settings' },
+  { id: 'pricing',   label: '📏 KM Pricing' },
+  { id: 'customers', label: '👥 Customers' },
+  { id: 'support',   label: '💬 Support',           badge: 'support' },
+  { id: 'analytics', label: '📊 Analytics' },
+  { id: 'notices',   label: '📣 Notices' },
+  { id: 'broadcast', label: '📢 Broadcast' },
 ]
 
 export default function AdminPage() {
@@ -65,6 +66,9 @@ export default function AdminPage() {
   const [notifCount, setNotifCount] = useState(0)
   const [toast, setToast] = useState('')
   const [darkMode, setDarkMode] = useState(false)
+  const [broadcastForm, setBroadcastForm] = useState({ title: '', body: '', target: 'customer', url: '' })
+  const [broadcastSending, setBroadcastSending] = useState(false)
+  const [broadcastResult, setBroadcastResult] = useState(null)
   const lastOrderCount = useRef(0)
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
@@ -1236,6 +1240,159 @@ export default function AdminPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── BROADCAST ─────────────────────────────────────────── */}
+        {section === 'broadcast' && (
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>📢 Broadcast Notification</h2>
+            <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 24 }}>
+              Customers ya Delivery Boys ko seedha notification bhejo — phone pe baj ke aayegi!
+            </p>
+
+            {/* Target selector */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+              {[
+                { value: 'customer', label: '🧑‍💼 Sab Customers', color: '#e85d04', bg: '#fff7ed' },
+                { value: 'delivery', label: '🛵 Sab Delivery Boys', color: '#16a34a', bg: '#f0fdf4' },
+                { value: 'all',      label: '🌐 Sabko (All)',      color: '#3b82f6', bg: '#eff6ff' },
+              ].map(t => (
+                <button key={t.value}
+                  onClick={() => setBroadcastForm(p => ({ ...p, target: t.value }))}
+                  style={{
+                    padding: '10px 18px', borderRadius: 12, fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                    border: `2px solid ${broadcastForm.target === t.value ? t.color : 'var(--bd)'}`,
+                    background: broadcastForm.target === t.value ? t.bg : 'var(--card)',
+                    color: broadcastForm.target === t.value ? t.color : 'var(--t2)',
+                    transition: 'all 0.15s'
+                  }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Form */}
+            <div style={{ background: 'var(--card)', borderRadius: 16, padding: 24, border: '1px solid var(--bd)', marginBottom: 20 }}>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>
+                  📝 Notification Title *
+                </label>
+                <input
+                  value={broadcastForm.title}
+                  onChange={e => setBroadcastForm(p => ({ ...p, title: e.target.value }))}
+                  placeholder="e.g. 🎉 Special Offer Today!"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' }}
+                />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>
+                  💬 Message *
+                </label>
+                <textarea
+                  rows={3}
+                  value={broadcastForm.body}
+                  onChange={e => setBroadcastForm(p => ({ ...p, body: e.target.value }))}
+                  placeholder="e.g. Aaj sab orders pe FREE delivery! Jaldi karo — limited time 🔥"
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 14, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                />
+              </div>
+              <div style={{ marginBottom: 20 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>
+                  🔗 Click karne pe kahan jaaye? (optional)
+                </label>
+                <select
+                  value={broadcastForm.url}
+                  onChange={e => setBroadcastForm(p => ({ ...p, url: e.target.value }))}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 14, boxSizing: 'border-box', fontFamily: 'inherit' }}>
+                  <option value="">/ (Home)</option>
+                  <option value="/menu">🍽️ Menu</option>
+                  <option value="/orders">📦 My Orders</option>
+                  <option value="/delivery">🛵 Delivery App</option>
+                </select>
+              </div>
+
+              {/* Preview */}
+              {broadcastForm.title && (
+                <div style={{ background: '#1e293b', borderRadius: 14, padding: '14px 16px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                  <img src="/icons/icon-192.png" style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0 }} alt="" />
+                  <div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>FoodFi · Preview</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 3 }}>{broadcastForm.title}</div>
+                    <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.4 }}>{broadcastForm.body || '...'}</div>
+                  </div>
+                </div>
+              )}
+
+              <button
+                disabled={!broadcastForm.title || !broadcastForm.body || broadcastSending}
+                onClick={async () => {
+                  setBroadcastSending(true)
+                  setBroadcastResult(null)
+                  try {
+                    const res = await fetch('/api/push/send', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        role: broadcastForm.target,
+                        title: broadcastForm.title,
+                        body: broadcastForm.body,
+                        url: broadcastForm.url || '/',
+                        tag: `broadcast-${Date.now()}`,
+                        requireInteraction: false,
+                      })
+                    })
+                    const data = await res.json()
+                    setBroadcastResult(data)
+                    if (data.ok) setBroadcastForm(p => ({ ...p, title: '', body: '' }))
+                  } catch (e) {
+                    setBroadcastResult({ error: e.message })
+                  } finally {
+                    setBroadcastSending(false)
+                  }
+                }}
+                style={{
+                  width: '100%', padding: '14px', borderRadius: 12, border: 'none',
+                  background: (!broadcastForm.title || !broadcastForm.body || broadcastSending) ? '#d1d5db' : '#e85d04',
+                  color: '#fff', fontSize: 15, fontWeight: 700, cursor: (!broadcastForm.title || !broadcastForm.body || broadcastSending) ? 'not-allowed' : 'pointer',
+                  transition: 'background 0.2s'
+                }}>
+                {broadcastSending ? '📡 Bhej raha hoon...' : `📢 Bhejo — ${broadcastForm.target === 'customer' ? 'Sab Customers' : broadcastForm.target === 'delivery' ? 'Sab Delivery Boys' : 'Sabko'}`}
+              </button>
+            </div>
+
+            {/* Result */}
+            {broadcastResult && (
+              <div style={{
+                background: broadcastResult.ok ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${broadcastResult.ok ? '#86efac' : '#fca5a5'}`,
+                borderRadius: 12, padding: '14px 18px', display: 'flex', gap: 12, alignItems: 'center'
+              }}>
+                <span style={{ fontSize: 24 }}>{broadcastResult.ok ? '✅' : '❌'}</span>
+                <div>
+                  {broadcastResult.ok
+                    ? <><div style={{ fontWeight: 700, color: '#15803d', fontSize: 14 }}>Notification bhej diya!</div>
+                        <div style={{ fontSize: 12, color: '#166534' }}>
+                          {broadcastResult.sent} logon ko mili · {broadcastResult.failed || 0} failed
+                        </div></>
+                    : <div style={{ color: '#dc2626', fontSize: 14 }}>Error: {broadcastResult.error}</div>
+                  }
+                </div>
+              </div>
+            )}
+
+            {/* Tips */}
+            <div style={{ background: 'var(--card)', borderRadius: 14, padding: 18, border: '1px solid var(--bd)', marginTop: 20 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 12px' }}>💡 Tips</h3>
+              {[
+                '🔔 Notification tabhi milegi jab customer/delivery boy ne notification allow ki ho',
+                '📱 Phone locked hone par bhi notification aayegi aur awaaz bajegi',
+                '⚡ "Sab Customers" choose karo offers aur updates ke liye',
+                '🛵 "Sab Delivery Boys" choose karo kitchen instructions ke liye',
+              ].map((tip, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 8, lineHeight: 1.5 }}>{tip}</div>
+              ))}
+            </div>
           </div>
         )}
       </main>

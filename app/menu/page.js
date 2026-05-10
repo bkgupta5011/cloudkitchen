@@ -5,6 +5,24 @@ import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
 
+// Pleasant notification sound
+function playNotifSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)()
+    const notes = [880, 1108, 1318]
+    notes.forEach((freq, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.type = 'sine'; o.frequency.value = freq
+      const s = ctx.currentTime + i * 0.13
+      g.gain.setValueAtTime(0, s)
+      g.gain.linearRampToValueAtTime(0.25, s + 0.04)
+      g.gain.exponentialRampToValueAtTime(0.001, s + 0.45)
+      o.start(s); o.stop(s + 0.46)
+    })
+  } catch {}
+}
+
 // ── Star display helper ───────────────────────────────────────────────
 function StarDisplay({ avg, count }) {
   if (!avg || count < 1) return null
@@ -117,6 +135,16 @@ export default function MenuPage() {
   useEffect(() => {
     const saved = localStorage.getItem('ck_theme')
     if (saved) document.documentElement.setAttribute('data-theme', saved)
+  }, [])
+
+  // Listen for SW push messages → play sound
+  useEffect(() => {
+    if (!navigator.serviceWorker) return
+    const handler = (e) => {
+      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') playNotifSound()
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
   }, [])
 
   if (loading) return <div className={styles.loading}><div className="spinner" /></div>

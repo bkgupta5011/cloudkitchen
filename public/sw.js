@@ -1,6 +1,6 @@
 // FoodFi Service Worker — Push Notifications + PWA Cache
 
-const CACHE = 'foodfi-v1'
+const CACHE = 'foodfi-v2'
 const OFFLINE_URL = '/'
 
 // Install — cache essential pages
@@ -25,13 +25,13 @@ self.addEventListener('activate', (e) => {
 // Fetch — network first, fallback to cache
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return
-  if (e.request.url.includes('/api/')) return // never cache API calls
+  if (e.request.url.includes('/api/')) return
   e.respondWith(
     fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match(OFFLINE_URL)))
   )
 })
 
-// Push — show notification
+// Push — show notification + tell open pages to play sound
 self.addEventListener('push', (e) => {
   if (!e.data) return
   let payload
@@ -46,10 +46,21 @@ self.addEventListener('push', (e) => {
     requireInteraction: payload.requireInteraction || false,
     data: { url: payload.url || '/' },
     actions: payload.actions || [],
-    vibrate: [200, 100, 200],
+    vibrate: [200, 100, 200, 100, 200],
   }
 
-  e.waitUntil(self.registration.showNotification(payload.title || 'FoodFi', options))
+  e.waitUntil(
+    Promise.all([
+      // Show the notification
+      self.registration.showNotification(payload.title || 'FoodFi', options),
+      // Tell all open pages to play sound
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+        list.forEach(client => {
+          client.postMessage({ type: 'PLAY_NOTIFICATION_SOUND', payload })
+        })
+      })
+    ])
+  )
 })
 
 // Notification click — open relevant page
@@ -58,7 +69,6 @@ self.addEventListener('notificationclick', (e) => {
   const url = e.notification.data?.url || '/'
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      // If app already open, focus it and navigate
       for (const client of list) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus()
@@ -66,7 +76,6 @@ self.addEventListener('notificationclick', (e) => {
           return
         }
       }
-      // Otherwise open new window
       if (clients.openWindow) return clients.openWindow(url)
     })
   )

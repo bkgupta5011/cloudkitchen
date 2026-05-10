@@ -33,6 +33,8 @@ export async function POST(request) {
     let subs = []
     if (userId) {
       subs = await sql`SELECT * FROM push_subscriptions WHERE user_id = ${String(userId)}`
+    } else if (role === 'all') {
+      subs = await sql`SELECT * FROM push_subscriptions`
     } else if (role) {
       subs = await sql`SELECT * FROM push_subscriptions WHERE role = ${role}`
     }

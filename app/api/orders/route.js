@@ -241,9 +241,9 @@ export async function PATCH(request) {
   if (!orderId) return NextResponse.json({ error: 'Order ID required' }, { status: 400 })
 
   if (user.role === 'admin') {
-    const updates = {}
-    if (status) updates.status = status
-    if (deliveryBoyId) updates.delivery_boy_id = deliveryBoyId
+    // Fetch current status BEFORE update — to prevent double earnings
+    const [before] = await sql`SELECT status, delivery_boy_id FROM orders WHERE id = ${orderId}`
+    const wasAlreadyDelivered = before?.status === 'delivered'
 
     const [order] = await sql`
       UPDATE orders
@@ -281,13 +281,13 @@ export async function PATCH(request) {
       }
     }
 
-    // Update delivery boy earnings if delivered
-    if (status === 'delivered' && order.delivery_boy_id) {
+    // Update earnings ONLY if it wasn't already delivered (prevent double counting)
+    if (status === 'delivered' && !wasAlreadyDelivered && order.delivery_boy_id) {
       const earned = parseFloat(order.delivery_charge || 0) * 0.7
       await sql`
         UPDATE delivery_boys
-        SET total_earnings  = total_earnings + ${earned},
-            payment_due     = payment_due + ${earned}
+        SET total_earnings = total_earnings + ${earned},
+            payment_due   = payment_due + ${earned}
         WHERE id = ${order.delivery_boy_id}
       `
     }
@@ -302,6 +302,11 @@ export async function PATCH(request) {
       return NextResponse.json({ error: 'Not allowed' }, { status: 403 })
     }
 
+    // Fetch current status BEFORE update — prevent double earnings
+    const [before] = await sql`SELECT status FROM orders WHERE id = ${orderId} AND delivery_boy_id = ${user.id}`
+    if (!before) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
+    const wasAlreadyDelivered = before.status === 'delivered'
+
     const [order] = await sql`
       UPDATE orders
       SET status = ${status},
@@ -311,8 +316,8 @@ export async function PATCH(request) {
     `
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
-    if (status === 'delivered') {
-      // Update earnings — parseFloat to handle Neon returning NUMERIC as string
+    if (status === 'delivered' && !wasAlreadyDelivered) {
+      // Update earnings — only if wasn't already delivered (prevent double counting)
       const earned = parseFloat(order.delivery_charge || 0) * 0.7
       await sql`
         UPDATE delivery_boys

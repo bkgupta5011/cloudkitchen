@@ -197,6 +197,7 @@ export default function DeliveryPage() {
   const [orders, setOrders]           = useState([])
   const [history, setHistory]         = useState([])
   const [stats, setStats]             = useState(null)
+  const [allTime, setAllTime]         = useState(null)
   const [boyInfo, setBoyInfo]         = useState(null)
   const [tab, setTab]                 = useState('orders')
   const [period, setPeriod]           = useState('today')
@@ -324,6 +325,7 @@ export default function DeliveryPage() {
     initialLoadDone.current = true
     setHistory(historyRes.orders || [])
     setStats(historyRes.stats)
+    setAllTime(historyRes.allTime || null)
     setPaymentHistory(historyRes.paymentHistory || [])
     const info = historyRes.boyInfo || profileRes.profile
     setBoyInfo(info)
@@ -336,6 +338,8 @@ export default function DeliveryPage() {
     const res = await fetch(`/api/delivery/history?period=${p}`).then(r => r.json())
     setHistory(res.orders || [])
     setStats(res.stats)
+    if (res.allTime) setAllTime(res.allTime)
+    if (res.boyInfo) setBoyInfo(res.boyInfo)
   }
 
   const toggleOnline = async () => {
@@ -360,14 +364,17 @@ export default function DeliveryPage() {
   const markDelivered = async (orderId) => {
     setDelivering(orderId)
     try {
-      await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ orderId, status:'delivered' }) })
+      const res = await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ orderId, status:'delivered' }) })
+      if (!res.ok) { showToast('❌ Try again'); return }
       setOrders(p => p.filter(o => o.id !== orderId))
-      showToast('🎉 Delivered! Cash collect karna mat bhoolo')
-      loadHistory(period)
-      // Refresh boyInfo for updated earnings
-      const pr = await fetch('/api/delivery/history?period=today').then(r => r.json())
+      showToast('🎉 Delivered! Cash collect karna mat bhoolo 💵')
+      // Wait 800ms for DB to commit before re-fetching earnings
+      await new Promise(r => setTimeout(r, 800))
+      const pr = await fetch(`/api/delivery/history?period=${period}`).then(r => r.json())
       setStats(pr.stats)
-      setBoyInfo(p => ({ ...p, total_earnings: pr.boyInfo?.total_earnings, payment_due: pr.boyInfo?.payment_due }))
+      setHistory(pr.orders || [])
+      if (pr.allTime) setAllTime(pr.allTime)
+      if (pr.boyInfo) setBoyInfo(pr.boyInfo)
     } catch { showToast('❌ Try again') }
     setDelivering(null)
   }
@@ -451,7 +458,7 @@ export default function DeliveryPage() {
       {/* ── QUICK STATS ── */}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, padding:'12px 14px' }}>
         {[
-          { val:`₹${Math.round(pf(stats?.total_earned))}`, label:'Today Earned', color:'#16a34a', bg:'#dcfce7' },
+          { val:`₹${Math.round(pf(stats?.total_earned))}`, label:'Aaj Kamaai', color:'#16a34a', bg:'#dcfce7' },
           { val: String(pf(stats?.total_deliveries,0)), label:'Delivered', color:'#2563eb', bg:'#dbeafe' },
           { val: String(pendingCount), label:'Active Now', color:'#e85d04', bg:'#fff7ed', badge: pendingCount > 0 },
         ].map(({ val, label, color, bg, badge }) => (
@@ -517,31 +524,36 @@ export default function DeliveryPage() {
               ))}
             </div>
 
-            {/* Big earnings card */}
+            {/* Big earnings card — period specific */}
             <div style={{ background:'linear-gradient(135deg,#052e16,#14532d)', borderRadius:20, padding:'24px 20px', marginBottom:14, color:'#fff' }}>
-              <div style={{ fontSize:12, color:'#86efac', marginBottom:8 }}>Period Earnings</div>
+              <div style={{ fontSize:12, color:'#86efac', marginBottom:4 }}>
+                {period==='today'?'Aaj ki Kamaai':period==='week'?'Is Hafte ki Kamaai':period==='month'?'Is Mahine ki Kamaai':'Sab Period ki Kamaai'}
+              </div>
               <div style={{ fontSize:42, fontWeight:800, letterSpacing:-1 }}>₹{Math.round(pf(stats?.total_earned))}</div>
-              <div style={{ fontSize:14, color:'#86efac', marginTop:6 }}>{pf(stats?.total_deliveries,0)} deliveries</div>
+              <div style={{ fontSize:13, color:'#86efac', marginTop:6 }}>
+                {pf(stats?.total_deliveries,0)} deliveries · Avg ₹{Math.round(pf(stats?.avg_delivery_charge)*0.7)} per delivery
+              </div>
             </div>
 
-            {/* Lifetime account */}
+            {/* All-time account — live calculated from orders */}
             <div style={{ background:'#fff', borderRadius:16, padding:'18px', marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
-              <div style={{ fontSize:12, fontWeight:700, color:'#64748b', marginBottom:12, letterSpacing:0.5 }}>💳 PAYMENT ACCOUNT</div>
+              <div style={{ fontSize:12, fontWeight:700, color:'#64748b', marginBottom:4, letterSpacing:0.5 }}>💳 PAYMENT ACCOUNT (All Time)</div>
+              <div style={{ fontSize:10, color:'#94a3b8', marginBottom:12 }}>Live calculation from orders — always accurate</div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:12 }}>
                 {[
-                  { label:'Total Earned', val:`₹${Math.round(pf(boyInfo?.total_earnings))}`, color:'#16a34a', bg:'#dcfce7' },
-                  { label:'Total Paid', val:`₹${Math.round(pf(boyInfo?.total_paid))}`, color:'#2563eb', bg:'#dbeafe' },
-                  { label:'Due', val:`₹${Math.round(pf(boyInfo?.payment_due))}`, color: pf(boyInfo?.payment_due)>0?'#dc2626':'#64748b', bg: pf(boyInfo?.payment_due)>0?'#fef2f2':'#f1f5f9' },
+                  { label:'Kul Kamaai', val:`₹${Math.round(pf(allTime?.total_earned ?? boyInfo?.total_earnings))}`, color:'#16a34a', bg:'#dcfce7' },
+                  { label:'Mila Hua', val:`₹${Math.round(pf(boyInfo?.total_paid))}`, color:'#2563eb', bg:'#dbeafe' },
+                  { label:'Baaki Hai', val:`₹${Math.round(pf(boyInfo?.payment_due))}`, color: pf(boyInfo?.payment_due)>0?'#dc2626':'#64748b', bg: pf(boyInfo?.payment_due)>0?'#fef2f2':'#f1f5f9' },
                 ].map(({ label, val, color, bg }) => (
                   <div key={label} style={{ background: bg, borderRadius:12, padding:'12px 8px', textAlign:'center' }}>
-                    <div style={{ fontSize:10, color:'#64748b', marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:10, color:'#64748b', marginBottom:4, fontWeight:600 }}>{label}</div>
                     <div style={{ fontSize:15, fontWeight:800, color }}>{val}</div>
                   </div>
                 ))}
               </div>
               {pf(boyInfo?.payment_due) > 0 && (
                 <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 12px', fontSize:12, color:'#92400e', textAlign:'center', fontWeight:600 }}>
-                  ⏳ Admin se ₹{Math.round(pf(boyInfo?.payment_due))} payment pending hai
+                  ⏳ Admin se ₹{Math.round(pf(boyInfo?.payment_due))} payment leni hai
                 </div>
               )}
             </div>

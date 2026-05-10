@@ -104,6 +104,34 @@ export async function GET(request) {
     FROM delivery_boys WHERE id = ${user.id}
   `
 
+  // Live recalculate total earnings from orders (source of truth — prevents drift)
+  const [liveCalc] = await sql`
+    SELECT
+      COALESCE(SUM(ROUND(delivery_charge::numeric * 0.7, 2)), 0) as live_total_earned,
+      COUNT(*) as live_total_deliveries
+    FROM orders
+    WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
+  `
+
+  // If stored total_earnings drifted from live calc — auto-correct it
+  const liveEarned = parseFloat(liveCalc?.live_total_earned || 0)
+  const storedEarned = parseFloat(boyInfo?.total_earnings || 0)
+  if (Math.abs(liveEarned - storedEarned) > 0.5) {
+    // Recalculate payment_due = live_earned - total_paid
+    const totalPaid = parseFloat(boyInfo?.total_paid || 0)
+    const correctedDue = Math.max(0, liveEarned - totalPaid)
+    await sql`
+      UPDATE delivery_boys
+      SET total_earnings = ${liveEarned},
+          payment_due    = ${correctedDue}
+      WHERE id = ${user.id}
+    `.catch(() => {})
+    if (boyInfo) {
+      boyInfo.total_earnings = liveEarned
+      boyInfo.payment_due = correctedDue
+    }
+  }
+
   // Payment history (last 10)
   let paymentHistory = []
   try {
@@ -114,5 +142,11 @@ export async function GET(request) {
     `
   } catch (e) {}
 
-  return NextResponse.json({ orders, stats, boyInfo, paymentHistory })
+  return NextResponse.json({
+    orders, stats, boyInfo, paymentHistory,
+    allTime: {
+      total_earned: parseFloat(liveCalc?.live_total_earned || 0),
+      total_deliveries: parseInt(liveCalc?.live_total_deliveries || 0),
+    }
+  })
 }

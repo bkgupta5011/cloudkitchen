@@ -2,9 +2,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './delivery.module.css'
+import { usePushNotifications } from '@/lib/usePush'
 
 export default function DeliveryPage() {
   const router = useRouter()
+  usePushNotifications(true) // Delivery boy gets new assignment notifications
   const [user, setUser] = useState(null)
   const [orders, setOrders] = useState([])
   const [history, setHistory] = useState([])

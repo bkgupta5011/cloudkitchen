@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './admin.module.css'
+import { usePushNotifications } from '@/lib/usePush'
 
 const SECTIONS = [
   { id: 'orders',   label: '📋 Orders',           badge: 'orders' },
@@ -19,6 +20,7 @@ const SECTIONS = [
 
 export default function AdminPage() {
   const router = useRouter()
+  usePushNotifications(true) // Admin always subscribes to push
   const [section, setSection] = useState('orders')
   const [kitchenOpen, setKitchenOpen] = useState(true)
   const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30 })

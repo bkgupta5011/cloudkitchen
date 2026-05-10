@@ -1,0 +1,19 @@
+{
+  "name": "FoodFi Kitchen",
+  "short_name": "FoodFi",
+  "description": "Fresh homemade food delivered to your door",
+  "start_url": "/menu",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#e85d04",
+  "orientation": "portrait",
+  "categories": ["food", "shopping"],
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Order Food", "url": "/menu", "description": "Browse menu and order" },
+    { "name": "My Orders", "url": "/orders", "description": "Track your orders" }
+  ]
+}

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './orders.module.css'
+import { usePushNotifications } from '@/lib/usePush'
 
 const STATUS_STEPS = ['pending','confirmed','preparing','out_for_delivery','delivered']
 const STATUS_LABEL = {
@@ -207,6 +208,7 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
 
 export default function OrdersPage() {
   const router = useRouter()
+  usePushNotifications(true) // Subscribe so order status updates reach customer
   const [orders, setOrders] = useState([])
   const [ratings, setRatings] = useState({})
   const [loading, setLoading] = useState(true)

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
+import { sendPushToRole, sendPushToUser } from '@/lib/push'
 
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
 export async function GET(request) {
@@ -215,6 +216,15 @@ export async function POST(request) {
     `
   }
 
+  // Notify all admins — new order arrived
+  sendPushToRole('admin', {
+    title: `🔔 Naya Order #${order.order_number}!`,
+    body: `₹${Math.round(order.total)} · ${items.map(i => i.name).join(', ').slice(0, 60)}`,
+    url: '/admin',
+    tag: 'new-order',
+    requireInteraction: true,
+  }).catch(() => {})
+
   return NextResponse.json({ order, orderNumber: order.order_number }, { status: 201 })
 }
 
@@ -244,6 +254,32 @@ export async function PATCH(request) {
       WHERE id = ${orderId}
       RETURNING *
     `
+
+    // Notify delivery boy when assigned
+    if (deliveryBoyId && order.id) {
+      sendPushToUser(String(deliveryBoyId), {
+        title: '📦 Naya Delivery Assignment!',
+        body: `Order #${order.order_number} — ₹${Math.round(order.total)} · Address: ${(order.delivery_address||'').slice(0,50)}`,
+        url: '/delivery',
+        tag: `delivery-${order.id}`,
+        requireInteraction: true,
+      }).catch(() => {})
+    }
+
+    // Notify customer of status change
+    if (status && order.user_id) {
+      const statusMessages = {
+        confirmed:        { title: '✅ Order Confirm Ho Gaya!', body: `Order #${order.order_number} kitchen ne accept kar liya — prepare ho raha hai` },
+        preparing:        { title: '👨‍🍳 Khana Ban Raha Hai!', body: `Order #${order.order_number} kitchen me prepare ho raha hai` },
+        out_for_delivery: { title: '🛵 Order Raste Me Hai!', body: `Order #${order.order_number} delivery boy le ja raha hai — thodi der me pahuch jayega` },
+        delivered:        { title: '🎉 Order Deliver Ho Gaya!', body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋` },
+        cancelled:        { title: '❌ Order Cancel Ho Gaya', body: `Order #${order.order_number} cancel ho gaya. Koi problem hai toh support se contact karo` },
+      }
+      const msg = statusMessages[status]
+      if (msg) {
+        sendPushToUser(String(order.user_id), { ...msg, url: '/orders', tag: `order-${order.id}` }).catch(() => {})
+      }
+    }
 
     // Update delivery boy earnings if delivered
     if (status === 'delivered' && order.delivery_boy_id) {

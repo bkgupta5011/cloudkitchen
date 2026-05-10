@@ -20,11 +20,25 @@ export default function CartPage() {
   const [error, setError] = useState('')
   const [placed, setPlaced] = useState(false)
   const [orderNum, setOrderNum] = useState(null)
+  const [kitchenLat, setKitchenLat] = useState(25.5801392)
+  const [kitchenLng, setKitchenLng] = useState(85.1569214)
+  const [maxKm, setMaxKm] = useState(5)
+  const [estimatedTime, setEstimatedTime] = useState(45)
+  const [outOfRange, setOutOfRange] = useState(false)
 
   useEffect(() => {
     const saved = sessionStorage.getItem('ck_cart')
     if (saved) setCart(JSON.parse(saved))
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
+    // Load kitchen settings for dynamic radius
+    fetch('/api/admin').then(r => r.json()).then(d => {
+      if (d.settings) {
+        if (d.settings.lat) setKitchenLat(parseFloat(d.settings.lat))
+        if (d.settings.lng) setKitchenLng(parseFloat(d.settings.lng))
+        if (d.settings.max_delivery_km) setMaxKm(parseFloat(d.settings.max_delivery_km))
+        if (d.settings.estimated_time) setEstimatedTime(parseInt(d.settings.estimated_time))
+      }
+    })
   }, [])
 
   const saveCart = (c) => { setCart(c); sessionStorage.setItem('ck_cart', JSON.stringify(c)) }
@@ -62,10 +76,9 @@ export default function CartPage() {
           const addr = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
           setAddress(addr)
           // Estimate distance (kitchen lat/lng - you can set your kitchen coords in env)
-          const kitchenLat = 25.5941 // Patna approx
-          const kitchenLng = 85.1376
           const dist = calcDist(latitude, longitude, kitchenLat, kitchenLng)
           setDistanceKm(dist)
+          setOutOfRange(dist > maxKm)
           // Get delivery charge
           const cr = await fetch(`/api/admin?type=pricing`)
           const pd = await cr.json()
@@ -106,6 +119,7 @@ export default function CartPage() {
   const placeOrder = async () => {
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
+    if (outOfRange) { setError(`Sorry, we only deliver within ${maxKm} km of our kitchen. Your location is too far.`); return }
     setLoading(true); setError('')
 
     try {
@@ -195,7 +209,8 @@ export default function CartPage() {
               <button className={styles.gpsBtn} onClick={detectGPS} disabled={gpsLoading}>
                 {gpsLoading ? <span className="spinner" /> : '📍'} {gpsLoading ? 'Detecting...' : 'Use My GPS Location'}
               </button>
-              {lat && <div className={styles.gpsDetected}>✓ Location detected · {distanceKm?.toFixed(1)} km from kitchen</div>}
+              {lat && !outOfRange && <div className={styles.gpsDetected}>✓ Location detected · {distanceKm?.toFixed(1)} km from kitchen</div>}
+              {lat && outOfRange && <div className={styles.outOfRange}>⚠️ You are {distanceKm?.toFixed(1)} km away — we only deliver within {maxKm} km</div>}
               <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
                 <label>Full Address</label>
                 <input

@@ -18,19 +18,10 @@ async function ensureResetTable(sql) {
 }
 
 async function sendResetEmail(toEmail, resetLink) {
-  const nodemailer = (await import('nodemailer')).default
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-    tls: { rejectUnauthorized: false },
-  })
-  await transporter.sendMail({
-    from: `"FoodFi Kitchen" <${process.env.GMAIL_USER}>`,
+  const { Resend } = await import('resend')
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  const { error } = await resend.emails.send({
+    from: 'FoodFi Kitchen <onboarding@resend.dev>',
     to: toEmail,
     subject: '🔐 Password Reset - FoodFi',
     html: `
@@ -52,6 +43,7 @@ async function sendResetEmail(toEmail, resetLink) {
       </div>
     `,
   })
+  if (error) throw new Error(error.message || 'Resend error')
 }
 
 // Rate limiting: identifier -> { count, lockedUntil }

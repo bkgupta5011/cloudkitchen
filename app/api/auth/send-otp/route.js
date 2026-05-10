@@ -17,42 +17,32 @@ async function ensureOtpTable(sql) {
   await sql`CREATE INDEX IF NOT EXISTS idx_phone_otps_phone ON phone_otps(phone)`.catch(() => {})
 }
 
-// Send OTP via MSG91
-async function sendOtpMsg91(mobile91, otp) {
-  const authkey = process.env.MSG91_AUTH_KEY
-  if (!authkey) throw new Error('MSG91 auth key not configured')
+// Send OTP via Fast2SMS Quick SMS (no DLT needed!)
+async function sendOtpFast2SMS(mobileDigits, otp) {
+  const apiKey = process.env.FAST2SMS_API_KEY
+  if (!apiKey) throw new Error('Fast2SMS API key not configured')
 
-  // MSG91 OTP API v5
-  const templateId = process.env.MSG91_TEMPLATE_ID // optional
+  const message = `FoodFi OTP: ${otp}. Valid 5 minutes. Do not share with anyone. - FoodFi Cloud Kitchen`
 
-  const body = {
-    mobile: mobile91,          // format: 919876543210
-    otp_length: 6,
-    otp_expiry: 5,             // 5 minutes
-    otp: otp,                  // we generate OTP, MSG91 sends it
-  }
-
-  if (templateId) {
-    body.template_id = templateId
-  } else {
-    body.message = `${otp} is your FoodFi OTP. Valid for 5 minutes. Do not share with anyone. - FoodFi Cloud Kitchen`
-  }
-
-  const res = await fetch('https://api.msg91.com/api/v5/otp', {
+  const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
     method: 'POST',
     headers: {
-      'authkey': authkey,
+      'authorization': apiKey,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      route: 'q',               // Quick SMS — no DLT required
+      message: message,
+      numbers: mobileDigits,    // 10-digit number only
+    })
   })
 
   const data = await res.json()
 
-  // MSG91 returns { type: "success", message: "3903579" } on success
-  if (data?.type !== 'success') {
-    const errMsg = data?.message || data?.error || JSON.stringify(data)
+  if (!data?.return) {
+    const errMsg = Array.isArray(data?.message)
+      ? data.message.join(', ')
+      : (data?.message || JSON.stringify(data))
     throw new Error(errMsg)
   }
   return data
@@ -80,16 +70,13 @@ export async function POST(request) {
 
     if (!phone) return NextResponse.json({ error: 'Phone number required' }, { status: 400 })
 
-    // Validate Indian phone — exactly 10 digits
     const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
     if (digits.length !== 10) {
       return NextResponse.json({ error: 'Valid 10-digit phone number do' }, { status: 400 })
     }
 
-    const normalizedPhone = '+91' + digits   // for our DB
-    const mobile91 = '91' + digits           // for MSG91 API (no +)
+    const normalizedPhone = '+91' + digits
 
-    // Rate limit
     const rate = checkOtpRate(normalizedPhone)
     if (rate.blocked) {
       return NextResponse.json({ error: `Bahut zyada OTP requests. ${rate.mins} minute baad try karo.` }, { status: 429 })
@@ -97,21 +84,21 @@ export async function POST(request) {
 
     await ensureOtpTable(sql)
 
-    // Delete old unverified OTPs for this phone
+    // Delete old unverified OTPs
     await sql`DELETE FROM phone_otps WHERE phone = ${normalizedPhone} AND verified = false`
 
     // Generate 6-digit OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000))
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
 
-    // Save OTP to DB first
+    // Save to DB
     await sql`
       INSERT INTO phone_otps (phone, otp, expires_at)
       VALUES (${normalizedPhone}, ${otp}, ${expiresAt})
     `
 
-    // Send via MSG91
-    await sendOtpMsg91(mobile91, otp)
+    // Send via Fast2SMS Quick SMS
+    await sendOtpFast2SMS(digits, otp)
 
     return NextResponse.json({ success: true, message: `OTP +91${digits} pe bhej diya gaya` })
 

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './cart.module.css'
 
@@ -11,7 +11,7 @@ export default function CartPage() {
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
   const [distanceKm, setDistanceKm] = useState(null)
-  const [deliveryCharge, setDeliveryCharge] = useState(30)
+  const [deliveryCharge, setDeliveryCharge] = useState(null) // null = "calculating..."
   const [offerCode, setOfferCode] = useState('')
   const [offerResult, setOfferResult] = useState(null)
   const [offerError, setOfferError] = useState('')
@@ -29,19 +29,25 @@ export default function CartPage() {
   const [savedAddresses, setSavedAddresses] = useState([])
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
+  const pricingRef = useRef([]) // pricing table data cache
 
   useEffect(() => {
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
-    // Load kitchen settings for dynamic radius
-    fetch('/api/admin').then(r => r.json()).then(d => {
-      if (d.settings) {
-        if (d.settings.lat) setKitchenLat(parseFloat(d.settings.lat))
-        if (d.settings.lng) setKitchenLng(parseFloat(d.settings.lng))
-        if (d.settings.max_delivery_km) setMaxKm(parseFloat(d.settings.max_delivery_km))
-        if (d.settings.estimated_time) setEstimatedTime(parseInt(d.settings.estimated_time))
+    // Load kitchen settings + pricing together
+    Promise.all([
+      fetch('/api/admin').then(r => r.json()),
+      fetch('/api/admin?type=pricing').then(r => r.json()),
+    ]).then(([settingsData, pricingData]) => {
+      const s = settingsData.settings
+      if (s) {
+        if (s.lat) setKitchenLat(parseFloat(s.lat))
+        if (s.lng) setKitchenLng(parseFloat(s.lng))
+        if (s.max_delivery_km) setMaxKm(parseFloat(s.max_delivery_km))
+        if (s.estimated_time) setEstimatedTime(parseInt(s.estimated_time))
       }
+      pricingRef.current = pricingData.pricing || []
     })
     // Load saved addresses
     fetch('/api/addresses').then(r => r.json()).then(d => {
@@ -56,6 +62,30 @@ export default function CartPage() {
       }
     }).catch(() => {})
   }, [])
+
+  // Auto-recalculate distance + delivery charge when lat/lng changes
+  useEffect(() => {
+    if (lat && lng && kitchenLat && kitchenLng) {
+      const dist = calcDist(lat, lng, kitchenLat, kitchenLng)
+      setDistanceKm(dist)
+      setOutOfRange(dist > maxKm)
+      // Use cached pricing if available, else fetch
+      const pricing = pricingRef.current
+      if (pricing.length > 0) {
+        setDeliveryCharge(getCharge(dist, pricing))
+      } else {
+        fetch('/api/admin?type=pricing').then(r => r.json()).then(pd => {
+          pricingRef.current = pd.pricing || []
+          setDeliveryCharge(getCharge(dist, pd.pricing || []))
+        })
+      }
+    } else if (!lat || !lng) {
+      // No location — reset
+      setDistanceKm(null)
+      setDeliveryCharge(null)
+      setOutOfRange(false)
+    }
+  }, [lat, lng, kitchenLat, kitchenLng, maxKm])
 
   const saveCart = (c) => { setCart(c); localStorage.setItem('ck_cart', JSON.stringify(c)) }
   const addItem = (id) => saveCart({ ...cart, [id]: (cart[id] || 0) + 1 })
@@ -76,7 +106,8 @@ export default function CartPage() {
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)
   const discount = offerResult?.discount || 0
   const freeDelivery = offerResult?.freeDelivery || false
-  const total = Math.max(0, subtotal - discount) + (freeDelivery ? 0 : deliveryCharge)
+  const effectiveDelivery = freeDelivery ? 0 : (deliveryCharge ?? 0)
+  const total = Math.max(0, subtotal - discount) + effectiveDelivery
 
   // GPS location detection
   const detectGPS = () => {
@@ -85,23 +116,16 @@ export default function CartPage() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude, longitude } = pos.coords
-        setLat(latitude); setLng(longitude)
         // Reverse geocode using Nominatim (free, no API key)
         try {
           const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`)
           const data = await res.json()
           const addr = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
           setAddress(addr)
-          // Estimate distance (kitchen lat/lng - you can set your kitchen coords in env)
-          const dist = calcDist(latitude, longitude, kitchenLat, kitchenLng)
-          setDistanceKm(dist)
-          setOutOfRange(dist > maxKm)
-          // Get delivery charge
-          const cr = await fetch(`/api/admin?type=pricing`)
-          const pd = await cr.json()
-          const charge = getCharge(dist, pd.pricing || [])
-          setDeliveryCharge(charge)
         } catch { setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`) }
+        // Setting lat/lng triggers useEffect which auto-calculates distance + charge
+        setLat(latitude)
+        setLng(longitude)
         setGpsLoading(false)
       },
       () => { alert('Could not get location. Please enter address manually.'); setGpsLoading(false) }
@@ -141,8 +165,14 @@ export default function CartPage() {
 
   const selectSavedAddress = (addr) => {
     setAddress(addr.address_text)
-    if (addr.lat) { setLat(parseFloat(addr.lat)); setLng(parseFloat(addr.lng)) }
-    else { setLat(null); setLng(null); setDistanceKm(null) }
+    if (addr.lat && addr.lng) {
+      // Setting lat/lng triggers useEffect → auto distance + charge calculation
+      setLat(parseFloat(addr.lat))
+      setLng(parseFloat(addr.lng))
+    } else {
+      // No GPS saved for this address
+      setLat(null); setLng(null); setDistanceKm(null); setDeliveryCharge(null)
+    }
   }
 
   const saveCurrentAddress = async () => {
@@ -324,18 +354,42 @@ export default function CartPage() {
               <h3>Bill Summary</h3>
               <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
               {discount > 0 && <div className={styles.billRow} style={{ color: 'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
-              <div className={styles.billRow}><span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span><span>{freeDelivery ? <span style={{ color: 'var(--gr-d)', fontWeight: 600 }}>FREE 🎉</span> : `₹${deliveryCharge}`}</span></div>
-              <div className={`${styles.billRow} ${styles.total}`}><span>Total</span><span style={{ color: 'var(--or)' }}>₹{total}</span></div>
+              <div className={styles.billRow}>
+                <span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
+                <span>
+                  {freeDelivery
+                    ? <span style={{ color: 'var(--gr-d)', fontWeight: 600 }}>FREE 🎉</span>
+                    : deliveryCharge === null
+                      ? <span style={{ color: 'var(--t2)', fontSize: 12 }}>📍 GPS use karo</span>
+                      : `₹${Math.round(deliveryCharge)}`
+                  }
+                </span>
+              </div>
+              <div className={`${styles.billRow} ${styles.total}`}>
+                <span>Total</span>
+                <span style={{ color: 'var(--or)' }}>
+                  {deliveryCharge === null && !freeDelivery ? `₹${subtotal - discount} + delivery` : `₹${total}`}
+                </span>
+              </div>
             </div>
 
             {/* COD notice */}
-            <div className={styles.codNotice}>💵 Cash on Delivery — Pay ₹{total} when food arrives at your door</div>
+            <div className={styles.codNotice}>
+              {deliveryCharge === null && !freeDelivery
+                ? '📍 GPS se location detect karo — delivery charge calculate hoga'
+                : `💵 Cash on Delivery — Pay ₹${total} when food arrives at your door`}
+            </div>
 
             {error && <div className={styles.error}>{error}</div>}
 
             <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading}>
               {loading ? <span className="spinner" /> : `Place Order · ₹${total}`}
             </button>
+            {deliveryCharge === null && !freeDelivery && (
+              <p style={{ fontSize: 11, color: 'var(--t2)', textAlign: 'center', marginTop: 6 }}>
+                ⚠️ GPS se sahi delivery charge calculate hoga. Bina GPS ke minimum charge lagega.
+              </p>
+            )}
           </>
         )}
       </div>

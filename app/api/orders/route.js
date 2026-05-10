@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { getDeliveryCharge, applyOffer } from '@/lib/utils'
+import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
 
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
 export async function GET(request) {
@@ -168,8 +168,10 @@ export async function POST(request) {
     })
   }
 
-  // Delivery charge
-  const deliveryCharge = distanceKm ? await getDeliveryCharge(distanceKm) : 30
+  // Delivery charge — pricing table se calculate karo (no hardcoded fallback)
+  const deliveryCharge = (distanceKm != null && distanceKm >= 0)
+    ? await getDeliveryCharge(parseFloat(distanceKm))
+    : await getMinDeliveryCharge()
 
   // Offer
   let discountAmount = 0

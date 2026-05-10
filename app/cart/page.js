@@ -1,8 +1,232 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './cart.module.css'
 
+const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
+
+// Load Google Maps script once
+function loadGoogleMaps() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.maps) { resolve(window.google.maps); return }
+    const existing = document.getElementById('gmaps-script')
+    if (existing) { existing.addEventListener('load', () => resolve(window.google.maps)); return }
+    const script = document.createElement('script')
+    script.id = 'gmaps-script'
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`
+    script.async = true
+    script.defer = true
+    script.onload = () => resolve(window.google.maps)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+// Google reverse geocoding — GPS coords → detailed address
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}&language=en&region=IN`
+    )
+    const data = await res.json()
+    if (data.results?.[0]) return data.results[0].formatted_address
+  } catch {}
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+}
+
+// Haversine distance
+function calcDist(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dL = ((lat2 - lat1) * Math.PI) / 180
+  const dG = ((lng2 - lng1) * Math.PI) / 180
+  const a = Math.sin(dL / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dG / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function getCharge(km, pricing) {
+  const row = pricing.find(p => parseFloat(p.min_km) <= km && (p.max_km == null || parseFloat(p.max_km) > km))
+  if (!row) {
+    // Out of range — use highest tier
+    const last = [...pricing].sort((a, b) => parseFloat(b.min_km) - parseFloat(a.min_km))[0]
+    if (!last) return 50
+    return parseFloat(last.base_charge) + Math.max(0, km - parseFloat(last.min_km)) * parseFloat(last.per_km_charge)
+  }
+  return parseFloat(row.base_charge) + Math.max(0, km - parseFloat(row.min_km)) * parseFloat(row.per_km_charge)
+}
+
+// ── Map Picker Modal ──────────────────────────────────────────────
+function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm, onConfirm, onClose }) {
+  const mapRef = useRef(null)
+  const mapInstanceRef = useRef(null)
+  const markerRef = useRef(null)
+  const searchRef = useRef(null)
+  const [pickedAddress, setPickedAddress] = useState('')
+  const [pickedLat, setPickedLat] = useState(initialLat || kitchenLat)
+  const [pickedLng, setPickedLng] = useState(initialLng || kitchenLng)
+  const [loading, setLoading] = useState(true)
+  const [gpsLoading, setGpsLoading] = useState(false)
+
+  const updatePin = useCallback(async (lat, lng) => {
+    setPickedLat(lat); setPickedLng(lng)
+    const addr = await reverseGeocode(lat, lng)
+    setPickedAddress(addr)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    loadGoogleMaps().then(gmaps => {
+      if (cancelled || !mapRef.current) return
+      const center = { lat: pickedLat, lng: pickedLng }
+      const map = new gmaps.Map(mapRef.current, {
+        center, zoom: 15,
+        mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+        zoomControlOptions: { position: gmaps.ControlPosition.RIGHT_CENTER }
+      })
+      mapInstanceRef.current = map
+
+      // Kitchen marker (static)
+      new gmaps.Marker({
+        position: { lat: kitchenLat, lng: kitchenLng },
+        map, title: '🍽️ FoodFi Kitchen',
+        icon: {
+          url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+          scaledSize: new gmaps.Size(32, 32)
+        }
+      })
+
+      // Delivery radius circle
+      new gmaps.Circle({
+        map, center: { lat: kitchenLat, lng: kitchenLng },
+        radius: maxKm * 1000,
+        strokeColor: '#e85d04', strokeOpacity: 0.4, strokeWeight: 2,
+        fillColor: '#e85d04', fillOpacity: 0.05
+      })
+
+      // Draggable delivery marker
+      const marker = new gmaps.Marker({
+        position: center, map, draggable: true, title: 'Drag to your location',
+        animation: gmaps.Animation.DROP
+      })
+      markerRef.current = marker
+      marker.addListener('dragend', () => {
+        const pos = marker.getPosition()
+        updatePin(pos.lat(), pos.lng())
+      })
+      map.addListener('click', (e) => {
+        const pos = e.latLng
+        marker.setPosition(pos)
+        updatePin(pos.lat(), pos.lng())
+      })
+
+      // Places search box
+      if (searchRef.current) {
+        const autocomplete = new gmaps.places.Autocomplete(searchRef.current, {
+          componentRestrictions: { country: 'in' },
+          fields: ['formatted_address', 'geometry']
+        })
+        autocomplete.addListener('place_changed', () => {
+          const place = autocomplete.getPlace()
+          if (!place.geometry) return
+          const loc = place.geometry.location
+          map.setCenter(loc); map.setZoom(16)
+          marker.setPosition(loc)
+          setPickedLat(loc.lat()); setPickedLng(loc.lng())
+          setPickedAddress(place.formatted_address)
+        })
+      }
+
+      // Initial reverse geocode
+      updatePin(pickedLat, pickedLng).then(() => setLoading(false))
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const useGPS = () => {
+    setGpsLoading(true)
+    if (!navigator.geolocation) { alert('GPS not supported'); setGpsLoading(false); return }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        const map = mapInstanceRef.current
+        const marker = markerRef.current
+        if (map && marker) {
+          const pos2 = new window.google.maps.LatLng(lat, lng)
+          map.setCenter(pos2); map.setZoom(16)
+          marker.setPosition(pos2)
+        }
+        await updatePin(lat, lng)
+        setGpsLoading(false)
+      },
+      () => { alert('GPS nahi mila — manually search karo'); setGpsLoading(false) }
+    )
+  }
+
+  const dist = calcDist(pickedLat, pickedLng, kitchenLat, kitchenLng)
+  const outOfRange = dist > maxKm
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#000a', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
+      <div style={{ background:'var(--card)', borderRadius:20, width:'100%', maxWidth:540, maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px #0006' }}>
+        {/* Header */}
+        <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:15 }}>📍 Delivery Location Select Karo</div>
+            <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Map pe click karo ya pin drag karo</div>
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'var(--t2)', lineHeight:1 }}>✕</button>
+        </div>
+
+        {/* Search bar */}
+        <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:8 }}>
+          <input
+            ref={searchRef}
+            placeholder="🔍 Address search karo..."
+            style={{ flex:1, padding:'9px 12px', border:'1.5px solid var(--bd2)', borderRadius:10, fontSize:13, outline:'none', background:'var(--bg)', color:'var(--t1)' }}
+          />
+          <button onClick={useGPS} disabled={gpsLoading}
+            style={{ padding:'8px 14px', background:'var(--bl-l)', color:'var(--bl)', border:'1.5px solid var(--bl)', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+            {gpsLoading ? '⏳' : '📍 GPS'}
+          </button>
+        </div>
+
+        {/* Map */}
+        <div ref={mapRef} style={{ flex:1, minHeight:300 }} />
+
+        {/* Footer */}
+        <div style={{ padding:'12px 14px', borderTop:'1px solid var(--bd)', background:'var(--card)' }}>
+          {loading ? (
+            <div style={{ fontSize:12, color:'var(--t2)', textAlign:'center' }}>⏳ Location load ho rahi hai...</div>
+          ) : (
+            <>
+              <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
+                {outOfRange
+                  ? `⚠️ Ye location hamare delivery zone se bahar hai (${dist.toFixed(1)} km — max ${maxKm} km)`
+                  : `✅ ${dist.toFixed(1)} km kitchen se · ${pickedAddress || 'Location selected'}`
+                }
+              </div>
+              <div style={{ fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.4, wordBreak:'break-word' }}>
+                {pickedAddress}
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={onClose} style={{ flex:1, padding:'10px', background:'var(--bg)', border:'1px solid var(--bd2)', borderRadius:10, fontSize:13, cursor:'pointer' }}>
+                  Cancel
+                </button>
+                <button
+                  disabled={outOfRange}
+                  onClick={() => onConfirm({ address: pickedAddress, lat: pickedLat, lng: pickedLng })}
+                  style={{ flex:2, padding:'10px', background: outOfRange ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: outOfRange ? 'not-allowed' : 'pointer' }}>
+                  ✅ Ye Location Use Karo
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Cart Page ────────────────────────────────────────────────
 export default function CartPage() {
   const router = useRouter()
   const [menuItems, setMenuItems] = useState([])
@@ -11,13 +235,12 @@ export default function CartPage() {
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
   const [distanceKm, setDistanceKm] = useState(null)
-  const [deliveryCharge, setDeliveryCharge] = useState(null) // null = "calculating..."
+  const [deliveryCharge, setDeliveryCharge] = useState(null)
   const [offerCode, setOfferCode] = useState('')
   const [offerResult, setOfferResult] = useState(null)
   const [offerError, setOfferError] = useState('')
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
-  const [gpsLoading, setGpsLoading] = useState(false)
   const [error, setError] = useState('')
   const [placed, setPlaced] = useState(false)
   const [orderNum, setOrderNum] = useState(null)
@@ -28,14 +251,14 @@ export default function CartPage() {
   const [outOfRange, setOutOfRange] = useState(false)
   const [savedAddresses, setSavedAddresses] = useState([])
   const [showAddressModal, setShowAddressModal] = useState(false)
+  const [showMapPicker, setShowMapPicker] = useState(false)
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
-  const pricingRef = useRef([]) // pricing table data cache
+  const pricingRef = useRef([])
 
   useEffect(() => {
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
-    // Load kitchen settings + pricing together
     Promise.all([
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/admin?type=pricing').then(r => r.json()),
@@ -49,27 +272,23 @@ export default function CartPage() {
       }
       pricingRef.current = pricingData.pricing || []
     })
-    // Load saved addresses
     fetch('/api/addresses').then(r => r.json()).then(d => {
       const addrs = d.addresses || []
       setSavedAddresses(addrs)
-      // Auto-fill default address
       const def = addrs.find(a => a.is_default)
       if (def && !address) {
         setAddress(def.address_text)
-        if (def.lat) setLat(parseFloat(def.lat))
-        if (def.lng) setLng(parseFloat(def.lng))
+        if (def.lat) { setLat(parseFloat(def.lat)); setLng(parseFloat(def.lng)) }
       }
     }).catch(() => {})
   }, [])
 
-  // Auto-recalculate distance + delivery charge when lat/lng changes
+  // Auto-recalculate delivery charge when lat/lng changes
   useEffect(() => {
     if (lat && lng && kitchenLat && kitchenLng) {
       const dist = calcDist(lat, lng, kitchenLat, kitchenLng)
       setDistanceKm(dist)
       setOutOfRange(dist > maxKm)
-      // Use cached pricing if available, else fetch
       const pricing = pricingRef.current
       if (pricing.length > 0) {
         setDeliveryCharge(getCharge(dist, pricing))
@@ -80,10 +299,7 @@ export default function CartPage() {
         })
       }
     } else if (!lat || !lng) {
-      // No location — reset
-      setDistanceKm(null)
-      setDeliveryCharge(null)
-      setOutOfRange(false)
+      setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false)
     }
   }, [lat, lng, kitchenLat, kitchenLng, maxKm])
 
@@ -109,68 +325,17 @@ export default function CartPage() {
   const effectiveDelivery = freeDelivery ? 0 : (deliveryCharge ?? 0)
   const total = Math.max(0, subtotal - discount) + effectiveDelivery
 
-  // GPS location detection
-  const detectGPS = () => {
-    setGpsLoading(true)
-    if (!navigator.geolocation) { alert('GPS not supported'); setGpsLoading(false); return }
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords
-        // Reverse geocode using Nominatim (free, no API key)
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`)
-          const data = await res.json()
-          const addr = data.display_name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
-          setAddress(addr)
-        } catch { setAddress(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`) }
-        // Setting lat/lng triggers useEffect which auto-calculates distance + charge
-        setLat(latitude)
-        setLng(longitude)
-        setGpsLoading(false)
-      },
-      () => { alert('Could not get location. Please enter address manually.'); setGpsLoading(false) }
-    )
-  }
-
-  function calcDist(lat1, lng1, lat2, lng2) {
-    const R = 6371
-    const dL = ((lat2 - lat1) * Math.PI) / 180
-    const dG = ((lng2 - lng1) * Math.PI) / 180
-    const a = Math.sin(dL/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dG/2)**2
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-  }
-
-  function getCharge(km, pricing) {
-    const row = pricing.find(p => p.min_km <= km && (p.max_km == null || p.max_km > km))
-    if (!row) return 50
-    return parseFloat(row.base_charge) + Math.max(0, km - row.min_km) * parseFloat(row.per_km_charge)
-  }
-
-  const applyOffer = async () => {
-    if (!offerCode.trim()) return
-    setOfferError('')
-    setOfferResult(null)
-    try {
-      const res = await fetch(`/api/offers?code=${encodeURIComponent(offerCode)}&subtotal=${subtotal}`)
-      const data = await res.json()
-      if (!data.valid) {
-        setOfferError(data.error || 'Invalid offer code')
-        return
-      }
-      setOfferResult({ discount: data.discount, freeDelivery: data.freeDelivery, code: data.code })
-    } catch {
-      setOfferError('Offer check nahi ho paya')
-    }
+  // Map picker confirm
+  const handleMapConfirm = ({ address: addr, lat: la, lng: ln }) => {
+    setAddress(addr); setLat(la); setLng(ln)
+    setShowMapPicker(false)
   }
 
   const selectSavedAddress = (addr) => {
     setAddress(addr.address_text)
     if (addr.lat && addr.lng) {
-      // Setting lat/lng triggers useEffect → auto distance + charge calculation
-      setLat(parseFloat(addr.lat))
-      setLng(parseFloat(addr.lng))
+      setLat(parseFloat(addr.lat)); setLng(parseFloat(addr.lng))
     } else {
-      // No GPS saved for this address
       setLat(null); setLng(null); setDistanceKm(null); setDeliveryCharge(null)
     }
   }
@@ -178,8 +343,7 @@ export default function CartPage() {
   const saveCurrentAddress = async () => {
     if (!address.trim()) return
     await fetch('/api/addresses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ label: newAddrLabel, address_text: address, lat, lng })
     })
     const d = await fetch('/api/addresses').then(r => r.json())
@@ -187,31 +351,35 @@ export default function CartPage() {
     setShowAddressModal(false)
   }
 
+  const applyOffer = async () => {
+    if (!offerCode.trim()) return
+    setOfferError(''); setOfferResult(null)
+    try {
+      const res = await fetch(`/api/offers?code=${encodeURIComponent(offerCode)}&subtotal=${subtotal}`)
+      const data = await res.json()
+      if (!data.valid) { setOfferError(data.error || 'Invalid offer code'); return }
+      setOfferResult({ discount: data.discount, freeDelivery: data.freeDelivery, code: data.code })
+    } catch { setOfferError('Offer check nahi ho paya') }
+  }
+
   const placeOrder = async () => {
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
-    if (outOfRange) { setError(`Sorry, we only deliver within ${maxKm} km of our kitchen. Your location is too far.`); return }
+    if (outOfRange) { setError(`Sorry, we only deliver within ${maxKm} km of our kitchen`); return }
     setLoading(true); setError('')
-
     try {
       const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: cartEntries.map(e => ({ id: e.item.id, qty: e.qty, name: e.item.name })),
-          deliveryAddress: address,
-          deliveryLat: lat,
-          deliveryLng: lng,
-          distanceKm,
-          offerCode: offerResult ? offerCode : null,
-          notes
+          deliveryAddress: address, deliveryLat: lat, deliveryLng: lng,
+          distanceKm, offerCode: offerResult ? offerCode : null, notes
         })
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error); return }
       localStorage.removeItem('ck_cart')
-      setOrderNum(data.orderNumber)
-      setPlaced(true)
+      setOrderNum(data.orderNumber); setPlaced(true)
     } catch { setError('Something went wrong') }
     finally { setLoading(false) }
   }
@@ -222,9 +390,9 @@ export default function CartPage() {
         <div className={styles.checkCircle}>✓</div>
         <h2>Order Placed!</h2>
         <p>Order #{orderNum} confirmed</p>
-        <p className={styles.eta}>Estimated delivery: 35–45 mins</p>
+        <p className={styles.eta}>Estimated delivery: {estimatedTime}–{estimatedTime + 10} mins</p>
         <div className={styles.trackSteps}>
-          {[['Order Confirmed', 'done', 'Just now'], ['Being Prepared', 'active', 'Kitchen is cooking'], ['Out for Delivery', 'wait', 'Soon'], ['Delivered', 'wait', 'Pay cash on arrival']].map(([label, state, sub]) => (
+          {[['Order Confirmed','done','Just now'],['Being Prepared','active','Kitchen is cooking'],['Out for Delivery','wait','Soon'],['Delivered','wait','Pay cash on arrival']].map(([label,state,sub]) => (
             <div key={label} className={styles.trackStep}>
               <div className={`${styles.trackDot} ${styles[state]}`} />
               <div><div className={styles.trackLabel}>{label}</div><div className={styles.trackSub}>{sub}</div></div>
@@ -247,9 +415,9 @@ export default function CartPage() {
       <div className={styles.body}>
         {cartEntries.length === 0 ? (
           <div className={styles.empty}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+            <div style={{ fontSize:48, marginBottom:12 }}>🛒</div>
             <p>Your cart is empty</p>
-            <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => router.push('/menu')}>Browse Menu</button>
+            <button className="btn btn-primary" style={{ marginTop:12 }} onClick={() => router.push('/menu')}>Browse Menu</button>
           </div>
         ) : (
           <>
@@ -263,9 +431,9 @@ export default function CartPage() {
                     <div className={styles.itemSub}>₹{discPrice(item)} × {qty}</div>
                   </div>
                   <div className={styles.itemRight}>
-                    <div className="qtyCtl" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <div style={{ display:'flex', gap:6, alignItems:'center' }}>
                       <button className={styles.qBtn} onClick={() => removeItem(item.id)}>−</button>
-                      <span style={{ fontWeight: 500, minWidth: 16, textAlign: 'center' }}>{qty}</span>
+                      <span style={{ fontWeight:500, minWidth:16, textAlign:'center' }}>{qty}</span>
                       <button className={styles.qBtn} onClick={() => addItem(item.id)}>+</button>
                     </div>
                     <span className={styles.itemTotal}>₹{discPrice(item) * qty}</span>
@@ -280,19 +448,16 @@ export default function CartPage() {
 
               {/* Saved addresses */}
               {savedAddresses.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 6, fontWeight: 600 }}>SAVED ADDRESSES</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ marginBottom:10 }}>
+                  <div style={{ fontSize:11, color:'var(--t2)', marginBottom:6, fontWeight:600 }}>SAVED ADDRESSES</div>
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
                     {savedAddresses.map(a => (
-                      <button key={a.id}
-                        onClick={() => selectSavedAddress(a)}
-                        style={{
-                          padding: '6px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-                          border: address === a.address_text ? '1.5px solid var(--or)' : '1px solid var(--bd)',
-                          background: address === a.address_text ? '#fff7ed' : 'var(--bg)',
-                          color: address === a.address_text ? 'var(--or)' : 'var(--t1)',
-                          fontWeight: address === a.address_text ? 600 : 400
-                        }}>
+                      <button key={a.id} onClick={() => selectSavedAddress(a)}
+                        style={{ padding:'6px 12px', borderRadius:20, fontSize:12, cursor:'pointer',
+                          border: address===a.address_text ? '1.5px solid var(--or)' : '1px solid var(--bd)',
+                          background: address===a.address_text ? '#fff7ed' : 'var(--bg)',
+                          color: address===a.address_text ? 'var(--or)' : 'var(--t1)',
+                          fontWeight: address===a.address_text ? 600 : 400 }}>
                         {a.is_default ? '⭐ ' : ''}{a.label}
                       </button>
                     ))}
@@ -300,22 +465,38 @@ export default function CartPage() {
                 </div>
               )}
 
-              <button className={styles.gpsBtn} onClick={detectGPS} disabled={gpsLoading}>
-                {gpsLoading ? <span className="spinner" /> : '📍'} {gpsLoading ? 'Detecting...' : 'Use My GPS Location'}
+              {/* Map picker button */}
+              <button className={styles.gpsBtn} onClick={() => setShowMapPicker(true)}
+                style={{ background:'linear-gradient(135deg,#e85d04,#f97316)', color:'#fff', border:'none', marginBottom:8 }}>
+                🗺️ Map se Location Select Karo
               </button>
-              {lat && !outOfRange && <div className={styles.gpsDetected}>✓ Location detected · {distanceKm?.toFixed(1)} km from kitchen</div>}
-              {lat && outOfRange && <div className={styles.outOfRange}>⚠️ You are {distanceKm?.toFixed(1)} km away — we only deliver within {maxKm} km</div>}
-              <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
-                <label>Full Address</label>
-                <input
+
+              {/* Location status */}
+              {lat && !outOfRange && (
+                <div className={styles.gpsDetected}>
+                  ✅ Location set · {distanceKm?.toFixed(1)} km kitchen se · Delivery: ₹{Math.round(deliveryCharge ?? 0)}
+                </div>
+              )}
+              {lat && outOfRange && (
+                <div className={styles.outOfRange}>
+                  ⚠️ Aap {distanceKm?.toFixed(1)} km door ho — hum sirf {maxKm} km tak deliver karte hain
+                </div>
+              )}
+
+              {/* Manual address input */}
+              <div className="field" style={{ marginTop:8, marginBottom:0 }}>
+                <label>Full Address (edit if needed)</label>
+                <textarea
                   value={address}
                   onChange={e => setAddress(e.target.value)}
-                  placeholder="Flat no, Street, Landmark, City - PIN"
+                  placeholder="Map se select karo ya manually likhein — Flat no, Street, Landmark, City"
+                  rows={2}
+                  style={{ resize:'vertical' }}
                 />
               </div>
               {address && !savedAddresses.find(a => a.address_text === address) && (
                 <button onClick={() => setShowAddressModal(true)}
-                  style={{ marginTop: 6, fontSize: 11, color: 'var(--or)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  style={{ marginTop:6, fontSize:11, color:'var(--or)', background:'none', border:'none', cursor:'pointer', padding:0 }}>
                   + Save this address for next time
                 </button>
               )}
@@ -325,25 +506,18 @@ export default function CartPage() {
             <div className={styles.section}>
               <h3>Offer Code</h3>
               <div className={styles.offerRow}>
-                <input
-                  className={styles.offerInput}
-                  value={offerCode}
+                <input className={styles.offerInput} value={offerCode}
                   onChange={e => { setOfferCode(e.target.value.toUpperCase()); setOfferError(''); if (!e.target.value) setOfferResult(null) }}
-                  placeholder="Enter code (e.g. WELCOME50)"
-                />
+                  placeholder="Enter code (e.g. WELCOME50)" />
                 <button className="btn btn-secondary" onClick={applyOffer}>Apply</button>
               </div>
-              {offerResult && (
-                <div className={styles.offerApplied}>
-                  ✓ {offerResult.code} applied — {offerResult.freeDelivery ? 'Free Delivery!' : `₹${offerResult.discount} off!`}
-                </div>
-              )}
-              {offerError && <div className={styles.error} style={{ marginTop: 6 }}>❌ {offerError}</div>}
+              {offerResult && <div className={styles.offerApplied}>✓ {offerResult.code} applied — {offerResult.freeDelivery ? 'Free Delivery!' : `₹${offerResult.discount} off!`}</div>}
+              {offerError && <div className={styles.error} style={{ marginTop:6 }}>❌ {offerError}</div>}
             </div>
 
             {/* Notes */}
             <div className={styles.section}>
-              <div className="field" style={{ marginBottom: 0 }}>
+              <div className="field" style={{ marginBottom:0 }}>
                 <label>Special Instructions (optional)</label>
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Less spicy, no onion, etc..." />
               </div>
@@ -353,68 +527,73 @@ export default function CartPage() {
             <div className={styles.section}>
               <h3>Bill Summary</h3>
               <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
-              {discount > 0 && <div className={styles.billRow} style={{ color: 'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
+              {discount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
               <div className={styles.billRow}>
                 <span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
                 <span>
                   {freeDelivery
-                    ? <span style={{ color: 'var(--gr-d)', fontWeight: 600 }}>FREE 🎉</span>
+                    ? <span style={{ color:'var(--gr-d)', fontWeight:600 }}>FREE 🎉</span>
                     : deliveryCharge === null
-                      ? <span style={{ color: 'var(--t2)', fontSize: 12 }}>📍 GPS use karo</span>
+                      ? <span style={{ color:'var(--t2)', fontSize:12 }}>🗺️ Map se location select karo</span>
                       : `₹${Math.round(deliveryCharge)}`
                   }
                 </span>
               </div>
               <div className={`${styles.billRow} ${styles.total}`}>
                 <span>Total</span>
-                <span style={{ color: 'var(--or)' }}>
+                <span style={{ color:'var(--or)' }}>
                   {deliveryCharge === null && !freeDelivery ? `₹${subtotal - discount} + delivery` : `₹${total}`}
                 </span>
               </div>
             </div>
 
-            {/* COD notice */}
             <div className={styles.codNotice}>
               {deliveryCharge === null && !freeDelivery
-                ? '📍 GPS se location detect karo — delivery charge calculate hoga'
-                : `💵 Cash on Delivery — Pay ₹${total} when food arrives at your door`}
+                ? '🗺️ Pehle map se apni location select karo — delivery charge calculate hoga'
+                : `💵 Cash on Delivery — Pay ₹${total} when food arrives`}
             </div>
 
             {error && <div className={styles.error}>{error}</div>}
 
-            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading}>
+            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading || outOfRange}>
               {loading ? <span className="spinner" /> : `Place Order · ₹${total}`}
             </button>
-            {deliveryCharge === null && !freeDelivery && (
-              <p style={{ fontSize: 11, color: 'var(--t2)', textAlign: 'center', marginTop: 6 }}>
-                ⚠️ GPS se sahi delivery charge calculate hoga. Bina GPS ke minimum charge lagega.
-              </p>
-            )}
           </>
         )}
       </div>
 
+      {/* Map Picker Modal */}
+      {showMapPicker && (
+        <MapPickerModal
+          initialLat={lat} initialLng={lng}
+          kitchenLat={kitchenLat} kitchenLng={kitchenLng}
+          maxKm={maxKm}
+          onConfirm={handleMapConfirm}
+          onClose={() => setShowMapPicker(false)}
+        />
+      )}
+
       {/* Save Address Modal */}
       {showAddressModal && (
-        <div style={{ position: 'fixed', inset: 0, background: '#0008', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}
-          onClick={e => e.target === e.currentTarget && setShowAddressModal(false)}>
-          <div style={{ background: 'var(--card)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360 }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>💾 Save Address</h3>
+        <div style={{ position:'fixed', inset:0, background:'#0008', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100, padding:16 }}
+          onClick={e => e.target===e.currentTarget && setShowAddressModal(false)}>
+          <div style={{ background:'var(--card)', borderRadius:16, padding:24, width:'100%', maxWidth:360 }}>
+            <h3 style={{ margin:'0 0 16px', fontSize:16 }}>💾 Save Address</h3>
             <div className="field">
               <label>Label</label>
-              <select value={newAddrLabel} onChange={e => setNewAddrLabel(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'var(--bg)', fontSize: 14 }}>
-                <option>Home</option>
-                <option>Work</option>
-                <option>Other</option>
+              <select value={newAddrLabel} onChange={e => setNewAddrLabel(e.target.value)}
+                style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid var(--bd)', background:'var(--bg)', fontSize:14 }}>
+                <option>Home</option><option>Work</option><option>Other</option>
               </select>
             </div>
             <div className="field">
               <label>Address</label>
-              <textarea value={address} readOnly rows={3} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bd)', fontSize: 13, resize: 'none', background: 'var(--bg)', boxSizing: 'border-box' }} />
+              <textarea value={address} readOnly rows={3}
+                style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:'1px solid var(--bd)', fontSize:13, resize:'none', background:'var(--bg)', boxSizing:'border-box' }} />
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddressModal(false)}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={saveCurrentAddress}>Save</button>
+            <div style={{ display:'flex', gap:8 }}>
+              <button className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowAddressModal(false)}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex:1 }} onClick={saveCurrentAddress}>Save</button>
             </div>
           </div>
         </div>

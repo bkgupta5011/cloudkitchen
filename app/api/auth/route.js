@@ -235,45 +235,45 @@ export async function POST(request) {
 
   // ── FORGOT PASSWORD ─────────────────────────────────────────────
   if (action === 'forgot-password') {
-    const { email } = body
-    if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
-
-    await ensureResetTable(sql)
-
-    // Check if email exists in any table
-    const [cu] = await sql`SELECT email FROM users WHERE email = ${email} LIMIT 1`
-    const [ad] = await sql`SELECT email FROM admins WHERE email = ${email} LIMIT 1`
-    const [db] = await sql`SELECT email FROM delivery_boys WHERE email = ${email} LIMIT 1`
-
-    // Always return success (don't reveal if email exists — security)
-    if (!cu && !ad && !db) {
-      return NextResponse.json({ success: true })
-    }
-
-    // Generate secure token
-    const resetToken = crypto.randomBytes(32).toString('hex')
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
-
-    // Delete old tokens for this email
-    await sql`DELETE FROM password_reset_tokens WHERE email = ${email}`
-
-    // Save new token
-    await sql`
-      INSERT INTO password_reset_tokens (email, token, expires_at)
-      VALUES (${email}, ${resetToken}, ${expiresAt})
-    `
-
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://thefitbhaskar.in'
-    const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
-
     try {
-      await sendResetEmail(email, resetLink)
-    } catch (e) {
-      console.error('Email send failed:', e.message, e.code)
-      return NextResponse.json({ error: `Email error: ${e.message}` }, { status: 500 })
-    }
+      const { email } = body
+      if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
-    return NextResponse.json({ success: true })
+      await ensureResetTable(sql)
+
+      // Check if email exists in any table
+      const [cu] = await sql`SELECT email FROM users WHERE email = ${email} LIMIT 1`
+      const [ad] = await sql`SELECT email FROM admins WHERE email = ${email} LIMIT 1`
+      const [db] = await sql`SELECT email FROM delivery_boys WHERE email = ${email} LIMIT 1`
+
+      // Always return success (don't reveal if email exists)
+      if (!cu && !ad && !db) {
+        return NextResponse.json({ success: true })
+      }
+
+      // Generate token using Web Crypto (works in all environments)
+      const tokenBytes = new Uint8Array(32)
+      crypto.getRandomValues(tokenBytes)
+      const resetToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+      // Delete old tokens, save new one
+      await sql`DELETE FROM password_reset_tokens WHERE email = ${email}`
+      await sql`
+        INSERT INTO password_reset_tokens (email, token, expires_at)
+        VALUES (${email}, ${resetToken}, ${expiresAt})
+      `
+
+      const baseUrl = 'https://foodfi.in'
+      const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
+
+      await sendResetEmail(email, resetLink)
+
+      return NextResponse.json({ success: true })
+    } catch (e) {
+      console.error('Forgot password error:', e)
+      return NextResponse.json({ error: `Error: ${e.message}` }, { status: 500 })
+    }
   }
 
   // ── RESET PASSWORD ──────────────────────────────────────────────

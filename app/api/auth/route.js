@@ -9,12 +9,16 @@ async function ensureResetTable(sql) {
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
       email VARCHAR(255) NOT NULL,
-      token VARCHAR(64) NOT NULL UNIQUE,
+      token UUID NOT NULL UNIQUE,
       expires_at TIMESTAMP NOT NULL,
       used BOOLEAN DEFAULT false,
       created_at TIMESTAMP DEFAULT NOW()
     )
   `
+  // If table exists with wrong token column type, fix it
+  try {
+    await sql`ALTER TABLE password_reset_tokens ALTER COLUMN token TYPE UUID USING token::UUID`
+  } catch(e) {}
 }
 
 async function sendResetEmail(toEmail, resetLink) {
@@ -251,10 +255,8 @@ export async function POST(request) {
         return NextResponse.json({ success: true })
       }
 
-      // Generate token using Web Crypto (works in all environments)
-      const tokenBytes = new Uint8Array(32)
-      crypto.getRandomValues(tokenBytes)
-      const resetToken = Array.from(tokenBytes).map(b => b.toString(16).padStart(2, '0')).join('')
+      // Generate token as UUID (compatible with all DB column types)
+      const resetToken = crypto.randomUUID()
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
       // Delete old tokens, save new one

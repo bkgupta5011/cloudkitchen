@@ -212,6 +212,10 @@ export default function DeliveryPage() {
   const [toast, setToast]             = useState('')
   const [showInstall, setShowInstall] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
+  const [deliveryNotifs, setDeliveryNotifs] = useState([])
+  const [notifUnread, setNotifUnread] = useState(0)
+  const notifPollRef = useRef(null)
+  const lastNotifCount = useRef(-1)
 
   const pollRef        = useRef(null)
   const alertCtxRef    = useRef(null)
@@ -265,6 +269,39 @@ export default function DeliveryPage() {
     }, 15000)
 
     return () => clearInterval(pollRef.current)
+  }, [])
+
+  // Notification polling for delivery boy
+  useEffect(() => {
+    const fetchNotifs = async () => {
+      try {
+        const d = await fetch('/api/notifications').then(r => r.json())
+        const notifs = d.notifications || []
+        const count = d.unreadCount || 0
+        if (count > lastNotifCount.current && lastNotifCount.current >= 0) {
+          // New notification arrived — play alert sound
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)()
+            const notes = [880, 1108, 1318]
+            notes.forEach((freq, i) => {
+              const o = ctx.createOscillator(), g = ctx.createGain()
+              o.connect(g); g.connect(ctx.destination)
+              o.type = 'sine'; o.frequency.value = freq
+              const s = ctx.currentTime + i * 0.13
+              g.gain.setValueAtTime(0, s); g.gain.linearRampToValueAtTime(0.25, s+0.04)
+              g.gain.exponentialRampToValueAtTime(0.001, s+0.45)
+              o.start(s); o.stop(s+0.46)
+            })
+          } catch {}
+        }
+        lastNotifCount.current = count
+        setNotifUnread(count)
+        setDeliveryNotifs(notifs)
+      } catch {}
+    }
+    fetchNotifs()
+    notifPollRef.current = setInterval(fetchNotifs, 20000)
+    return () => clearInterval(notifPollRef.current)
   }, [])
 
   // Show install banner after 3s if applicable
@@ -545,6 +582,70 @@ export default function DeliveryPage() {
           </div>
         )}
 
+        {/* ── ALERTS TAB ── */}
+        {tab === 'alerts' && (
+          <div style={{ padding:'0 14px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+              <h3 style={{ fontSize:15, fontWeight:800, margin:0 }}>🔔 Notifications</h3>
+              <div style={{ display:'flex', gap:8 }}>
+                {deliveryNotifs.some(n => !n.is_read) && (
+                  <button onClick={async () => {
+                    await fetch('/api/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}) })
+                    setDeliveryNotifs(prev => prev.map(n => ({ ...n, is_read:true })))
+                  }} style={{ fontSize:11, color:'#64748b', background:'#f1f5f9', border:'none', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontWeight:600 }}>
+                    Sab read ✓
+                  </button>
+                )}
+                {deliveryNotifs.some(n => n.is_read) && (
+                  <button onClick={async () => {
+                    await fetch('/api/notifications', { method:'DELETE' })
+                    setDeliveryNotifs(prev => prev.filter(n => !n.is_read))
+                  }} style={{ fontSize:11, color:'#dc2626', background:'#fef2f2', border:'none', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontWeight:600 }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {deliveryNotifs.length === 0 && (
+              <div style={{ textAlign:'center', padding:'60px 20px' }}>
+                <div style={{ fontSize:48, marginBottom:12 }}>🔕</div>
+                <div style={{ fontSize:14, color:'#94a3b8' }}>Koi notification nahi abhi</div>
+              </div>
+            )}
+
+            {deliveryNotifs.map(n => {
+              const timeAgo = (d) => {
+                const s = Math.floor((Date.now()-new Date(d))/1000)
+                if(s<60) return 'abhi abhi'
+                if(s<3600) return `${Math.floor(s/60)} min pehle`
+                if(s<86400) return `${Math.floor(s/3600)} ghante pehle`
+                return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})
+              }
+              return (
+                <div key={n.id}
+                  onClick={async () => {
+                    if (!n.is_read) {
+                      await fetch('/api/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ notifId:n.id }) })
+                      setDeliveryNotifs(prev => prev.map(x => x.id===n.id ? {...x, is_read:true} : x))
+                    }
+                  }}
+                  style={{ background:'#fff', borderRadius:14, padding:'14px 16px', marginBottom:10, display:'flex', gap:12, alignItems:'flex-start', cursor:'pointer', boxShadow:'0 1px 6px #0001', borderLeft:`4px solid ${n.is_read ? '#e2e8f0' : '#16a34a'}`, opacity: n.is_read ? 0.75 : 1 }}>
+                  <div style={{ width:38, height:38, borderRadius:'50%', background: n.is_read ? '#f1f5f9' : '#dcfce7', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                    {n.title?.startsWith('📦') ? '📦' : n.title?.startsWith('🛵') ? '🛵' : n.title?.startsWith('🎉') ? '🎉' : '🔔'}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13, fontWeight: n.is_read ? 500 : 700, color:'#1e293b', marginBottom:3 }}>{n.title}</div>
+                    {n.body && <div style={{ fontSize:12, color:'#64748b', lineHeight:1.4, marginBottom:4 }}>{n.body}</div>}
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{timeAgo(n.created_at)}</div>
+                  </div>
+                  {!n.is_read && <div style={{ width:8, height:8, borderRadius:'50%', background:'#16a34a', flexShrink:0, marginTop:6 }} />}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
         {/* ── PROFILE TAB ── */}
         {tab === 'profile' && boyInfo && (
           <div style={{ padding:'0 14px' }}>
@@ -645,18 +746,19 @@ export default function DeliveryPage() {
       </div>
 
       {/* ── BOTTOM NAVIGATION ── */}
-      <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #e2e8f0', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', boxShadow:'0 -4px 20px #0002', zIndex:200 }}>
+      <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #e2e8f0', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', boxShadow:'0 -4px 20px #0002', zIndex:200 }}>
         {[
-          { key:'orders', icon:'📋', label:'Orders', badge: pendingCount },
-          { key:'earnings', icon:'💰', label:'Earnings' },
+          { key:'orders',  icon:'📋', label:'Orders',  badge: pendingCount },
+          { key:'earnings',icon:'💰', label:'Earnings' },
+          { key:'alerts',  icon:'🔔', label:'Alerts',  badge: notifUnread },
           { key:'profile', icon:'👤', label:'Me' },
         ].map(({ key, icon, label, badge }) => (
-          <button key={key} onClick={() => setTab(key)}
+          <button key={key} onClick={() => { setTab(key); if(key==='alerts'){ setNotifUnread(0); lastNotifCount.current=0 } }}
             style={{ padding:'12px 8px 10px', border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative',
               color: tab===key ? '#16a34a' : '#94a3b8' }}>
             {badge > 0 && (
-              <div style={{ position:'absolute', top:8, right:'28%', background:'#dc2626', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {badge}
+              <div style={{ position:'absolute', top:8, right:'22%', background:'#dc2626', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {badge > 9 ? '9+' : badge}
               </div>
             )}
             <span style={{ fontSize:20 }}>{icon}</span>

@@ -1,9 +1,81 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
+
+// ── Notification Drawer (shared) ─────────────────────────────────────
+function NotificationDrawer({ onClose }) {
+  const [notifs, setNotifs] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const load = async () => {
+    const d = await fetch('/api/notifications').then(r => r.json())
+    setNotifs(d.notifications || [])
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  const markAllRead = async () => {
+    await fetch('/api/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({}) })
+    setNotifs(prev => prev.map(n => ({ ...n, is_read:true })))
+  }
+  const clearRead = async () => {
+    await fetch('/api/notifications', { method:'DELETE' })
+    setNotifs(prev => prev.filter(n => !n.is_read))
+  }
+  const timeAgo = (d) => {
+    const s = Math.floor((Date.now()-new Date(d))/1000)
+    if(s<60) return 'abhi abhi'
+    if(s<3600) return `${Math.floor(s/60)} min pehle`
+    if(s<86400) return `${Math.floor(s/3600)} ghante pehle`
+    return new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})
+  }
+  const unread = notifs.filter(n => !n.is_read).length
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'flex-end',justifyContent:'center',background:'#00000055'}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:'20px 20px 0 0',width:'100%',maxWidth:520,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 -4px 32px #0003'}}>
+        <div style={{padding:'16px 20px 12px',borderBottom:'1px solid #f3f4f6',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+          <div>
+            <h3 style={{margin:0,fontSize:16,fontWeight:800}}>🔔 Notifications</h3>
+            {unread>0&&<span style={{fontSize:11,color:'#e85d04',fontWeight:600}}>{unread} naye hain</span>}
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            {unread>0&&<button onClick={markAllRead} style={{fontSize:11,color:'#6b7280',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>Sab read karo</button>}
+            {notifs.some(n=>n.is_read)&&<button onClick={clearRead} style={{fontSize:11,color:'#ef4444',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>Clear</button>}
+            <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#6b7280'}}>✕</button>
+          </div>
+        </div>
+        <div style={{overflowY:'auto',flex:1,padding:'8px 0'}}>
+          {loading&&<div style={{textAlign:'center',padding:32,color:'#9ca3af',fontSize:14}}>⏳ Load ho raha hai...</div>}
+          {!loading&&notifs.length===0&&(
+            <div style={{textAlign:'center',padding:48}}>
+              <div style={{fontSize:40,marginBottom:8}}>🔕</div>
+              <div style={{fontSize:14,color:'#9ca3af'}}>Koi notification nahi hai abhi</div>
+            </div>
+          )}
+          {notifs.map(n=>(
+            <div key={n.id}
+              onClick={async()=>{ if(!n.is_read){await fetch('/api/notifications',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({notifId:n.id})}); setNotifs(prev=>prev.map(x=>x.id===n.id?{...x,is_read:true}:x))} }}
+              style={{padding:'14px 20px',display:'flex',gap:14,alignItems:'flex-start',cursor:'pointer',background:n.is_read?'#fff':'#fff7ed',borderBottom:'1px solid #f9fafb',borderLeft:n.is_read?'3px solid transparent':'3px solid #e85d04',transition:'background 0.2s'}}>
+              <div style={{width:40,height:40,borderRadius:'50%',background:n.is_read?'#f3f4f6':'#fee2e2',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>
+                {n.title?.startsWith('✅')?'✅':n.title?.startsWith('👨')?'👨‍🍳':n.title?.startsWith('🛵')?'🛵':n.title?.startsWith('🎉')?'🎉':n.title?.startsWith('❌')?'❌':'🔔'}
+              </div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:n.is_read?500:700,color:'#1a1a1a',marginBottom:3}}>{n.title}</div>
+                {n.body&&<div style={{fontSize:12,color:'#6b7280',lineHeight:1.4,marginBottom:4}}>{n.body}</div>}
+                <div style={{fontSize:11,color:'#9ca3af'}}>{timeAgo(n.created_at)}</div>
+              </div>
+              {!n.is_read&&<div style={{width:8,height:8,borderRadius:'50%',background:'#e85d04',flexShrink:0,marginTop:6}}/>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // Pleasant notification sound
 function playNotifSound() {
@@ -53,6 +125,10 @@ export default function MenuPage() {
   const [showInstallBanner, setShowInstallBanner] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
   const [itemRatings, setItemRatings] = useState({})
+  const [showNotifDrawer, setShowNotifDrawer] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const notifPollRef = useRef(null)
+  const lastUnreadRef = useRef(-1)
 
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
@@ -137,14 +213,33 @@ export default function MenuPage() {
     if (saved) document.documentElement.setAttribute('data-theme', saved)
   }, [])
 
-  // Listen for SW push messages → play sound
+  // Listen for SW push messages → play sound + refresh badge
   useEffect(() => {
     if (!navigator.serviceWorker) return
     const handler = (e) => {
-      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') playNotifSound()
+      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') {
+        playNotifSound()
+        fetch('/api/notifications').then(r => r.json()).then(d => setUnreadCount(d.unreadCount || 0)).catch(() => {})
+      }
     }
     navigator.serviceWorker.addEventListener('message', handler)
     return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
+
+  // Poll for unread notification count every 30s
+  useEffect(() => {
+    const fetchUnread = async () => {
+      try {
+        const d = await fetch('/api/notifications').then(r => r.json())
+        const count = d.unreadCount || 0
+        if (count > lastUnreadRef.current && lastUnreadRef.current >= 0) playNotifSound()
+        lastUnreadRef.current = count
+        setUnreadCount(count)
+      } catch {}
+    }
+    fetchUnread()
+    notifPollRef.current = setInterval(fetchUnread, 30000)
+    return () => clearInterval(notifPollRef.current)
   }, [])
 
   if (loading) return <div className={styles.loading}><div className="spinner" /></div>
@@ -165,6 +260,16 @@ export default function MenuPage() {
           </button>
           <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
           <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
+          {/* Notification Bell */}
+          <button onClick={() => { setShowNotifDrawer(true); setUnreadCount(0); lastUnreadRef.current = 0 }}
+            style={{ position:'relative', background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:16 }}>
+            🔔
+            {unreadCount > 0 && (
+              <span style={{ position:'absolute', top:-6, right:-6, background:'#e85d04', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
           {/* Install button — Android: native prompt, iOS: step-by-step modal */}
           {!isInstalled && (installPrompt || isIOS) && (
             <button
@@ -354,6 +459,9 @@ export default function MenuPage() {
 
       {/* Floating Support Chat */}
       <SupportChat />
+
+      {/* Notification Drawer */}
+      {showNotifDrawer && <NotificationDrawer onClose={() => setShowNotifDrawer(false)} />}
     </div>
   )
 }

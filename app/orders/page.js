@@ -4,6 +4,98 @@ import { useRouter } from 'next/navigation'
 import styles from './orders.module.css'
 import { usePushNotifications } from '@/lib/usePush'
 
+// ── Notification Drawer ───────────────────────────────────────────────
+function NotificationDrawer({ onClose }) {
+  const [notifs, setNotifs] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const load = async () => {
+    const d = await fetch('/api/notifications').then(r => r.json())
+    setNotifs(d.notifications || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [])
+
+  const markAllRead = async () => {
+    await fetch('/api/notifications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+    setNotifs(prev => prev.map(n => ({ ...n, is_read: true })))
+  }
+
+  const clearRead = async () => {
+    await fetch('/api/notifications', { method: 'DELETE' })
+    setNotifs(prev => prev.filter(n => !n.is_read))
+  }
+
+  const timeAgo = (d) => {
+    const s = Math.floor((Date.now() - new Date(d)) / 1000)
+    if (s < 60) return 'abhi abhi'
+    if (s < 3600) return `${Math.floor(s/60)} min pehle`
+    if (s < 86400) return `${Math.floor(s/3600)} ghante pehle`
+    return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })
+  }
+
+  const unread = notifs.filter(n => !n.is_read).length
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:520, maxHeight:'80vh', display:'flex', flexDirection:'column', boxShadow:'0 -4px 32px #0003' }}>
+        {/* Header */}
+        <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
+          <div>
+            <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>🔔 Notifications</h3>
+            {unread > 0 && <span style={{ fontSize:11, color:'#e85d04', fontWeight:600 }}>{unread} naye hain</span>}
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            {unread > 0 && <button onClick={markAllRead} style={{ fontSize:11, color:'#6b7280', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Sab read karo</button>}
+            {notifs.some(n => n.is_read) && <button onClick={clearRead} style={{ fontSize:11, color:'#ef4444', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Clear</button>}
+            <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#6b7280' }}>✕</button>
+          </div>
+        </div>
+
+        {/* List */}
+        <div style={{ overflowY:'auto', flex:1, padding:'8px 0' }}>
+          {loading && <div style={{ textAlign:'center', padding:32, color:'#9ca3af', fontSize:14 }}>⏳ Load ho raha hai...</div>}
+          {!loading && notifs.length === 0 && (
+            <div style={{ textAlign:'center', padding:48 }}>
+              <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
+              <div style={{ fontSize:14, color:'#9ca3af' }}>Koi notification nahi hai abhi</div>
+            </div>
+          )}
+          {notifs.map(n => (
+            <div key={n.id}
+              onClick={async () => {
+                if (!n.is_read) {
+                  await fetch('/api/notifications', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ notifId: n.id }) })
+                  setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x))
+                }
+              }}
+              style={{
+                padding:'14px 20px', display:'flex', gap:14, alignItems:'flex-start', cursor:'pointer',
+                background: n.is_read ? '#fff' : '#fff7ed',
+                borderBottom:'1px solid #f9fafb',
+                borderLeft: n.is_read ? '3px solid transparent' : '3px solid #e85d04',
+                transition:'background 0.2s'
+              }}>
+              <div style={{ width:40, height:40, borderRadius:'50%', background: n.is_read ? '#f3f4f6' : '#fee2e2', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>
+                {n.title?.startsWith('✅') ? '✅' : n.title?.startsWith('👨') ? '👨‍🍳' : n.title?.startsWith('🛵') ? '🛵' : n.title?.startsWith('🎉') ? '🎉' : n.title?.startsWith('❌') ? '❌' : '🔔'}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight: n.is_read ? 500 : 700, color:'#1a1a1a', marginBottom:3 }}>{n.title}</div>
+                {n.body && <div style={{ fontSize:12, color:'#6b7280', lineHeight:1.4, marginBottom:4 }}>{n.body}</div>}
+                <div style={{ fontSize:11, color:'#9ca3af' }}>{timeAgo(n.created_at)}</div>
+              </div>
+              {!n.is_read && <div style={{ width:8, height:8, borderRadius:'50%', background:'#e85d04', flexShrink:0, marginTop:6 }} />}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const STATUS_STEPS = ['pending','confirmed','preparing','out_for_delivery','delivered']
 const STATUS_LABEL = {
   pending:'⏳ Pending', confirmed:'✅ Confirmed', preparing:'👨‍🍳 Preparing',
@@ -237,13 +329,33 @@ export default function OrdersPage() {
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [orderItems, setOrderItems] = useState({})
   const [reorderLoading, setReorderLoading] = useState(null)
+  const [showNotifDrawer, setShowNotifDrawer] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const pollRef = useRef(null)
+  const notifPollRef = useRef(null)
+  const lastUnreadRef = useRef(0)
+
+  // Fetch unread notification count
+  const fetchUnread = async () => {
+    try {
+      const d = await fetch('/api/notifications').then(r => r.json())
+      const count = d.unreadCount || 0
+      // New notification arrived → play sound
+      if (count > lastUnreadRef.current && lastUnreadRef.current !== -1) playNotifSound()
+      lastUnreadRef.current = count
+      setUnreadCount(count)
+    } catch {}
+  }
 
   // Listen for SW push messages → play sound
   useEffect(() => {
     if (!navigator.serviceWorker) return
     const handler = (e) => {
-      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') playNotifSound()
+      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') {
+        playNotifSound()
+        // Refresh unread count
+        fetchUnread()
+      }
     }
     navigator.serviceWorker.addEventListener('message', handler)
     return () => navigator.serviceWorker.removeEventListener('message', handler)
@@ -274,7 +386,11 @@ export default function OrdersPage() {
     })
 
     pollRef.current = setInterval(loadOrders, 15000)
-    return () => clearInterval(pollRef.current)
+    // Poll for new notifications every 20s
+    lastUnreadRef.current = -1 // skip first sound
+    fetchUnread().then(() => { lastUnreadRef.current = unreadCount })
+    notifPollRef.current = setInterval(fetchUnread, 20000)
+    return () => { clearInterval(pollRef.current); clearInterval(notifPollRef.current) }
   }, [])
 
   const loadOrderItems = async (orderId) => {
@@ -327,9 +443,22 @@ export default function OrdersPage() {
         <div className={styles.navRight}>
           <button className={styles.navBtn} onClick={() => router.push('/menu')}>← Menu</button>
           <span className={styles.greeting}>Hi, {user?.name?.split(' ')[0]}</span>
+          {/* Notification Bell */}
+          <button onClick={() => { setShowNotifDrawer(true); setUnreadCount(0); lastUnreadRef.current = 0 }}
+            style={{ position:'relative', background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:16 }}>
+            🔔
+            {unreadCount > 0 && (
+              <span style={{ position:'absolute', top:-6, right:-6, background:'#e85d04', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
           <button className={styles.navBtn} onClick={logout}>Logout</button>
         </div>
       </nav>
+
+      {/* Notification Drawer */}
+      {showNotifDrawer && <NotificationDrawer onClose={() => setShowNotifDrawer(false)} />}
 
       <div className={styles.container}>
         <h2 className={styles.title}>My Orders</h2>

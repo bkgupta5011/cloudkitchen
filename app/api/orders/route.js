@@ -263,7 +263,7 @@ export async function PATCH(request) {
         url: '/delivery',
         tag: `delivery-${order.id}`,
         requireInteraction: true,
-      }).catch(() => {})
+      }, 'delivery').catch(() => {})
     }
 
     // Notify customer of status change
@@ -277,7 +277,7 @@ export async function PATCH(request) {
       }
       const msg = statusMessages[status]
       if (msg) {
-        sendPushToUser(String(order.user_id), { ...msg, url: '/orders', tag: `order-${order.id}` }).catch(() => {})
+        sendPushToUser(String(order.user_id), { ...msg, url: '/orders', tag: `order-${order.id}` }, 'customer').catch(() => {})
       }
     }
 
@@ -326,7 +326,7 @@ export async function PATCH(request) {
           title: '🎉 Order Deliver Ho Gaya!',
           body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋`,
           url: '/orders', tag: `order-${order.id}`
-        }).catch(() => {})
+        }, 'customer').catch(() => {})
       }
     }
 
@@ -335,7 +335,7 @@ export async function PATCH(request) {
         title: '🛵 Order Raste Me Hai!',
         body: `Order #${order.order_number} delivery boy le ja raha hai — thodi der me pahuch jayega`,
         url: '/orders', tag: `order-${order.id}`
-      }).catch(() => {})
+      }, 'customer').catch(() => {})
     }
 
     return NextResponse.json({ order })

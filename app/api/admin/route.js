@@ -18,6 +18,8 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS close_time VARCHAR DEFAULT '22:00'`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS estimated_time INT DEFAULT 45`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS auto_schedule BOOLEAN DEFAULT false`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS order_timeout_minutes INT DEFAULT 2`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS escalation_interval_sec INT DEFAULT 30`
   } catch (e) {}
 }
 
@@ -173,7 +175,8 @@ export async function GET(request) {
   await ensureKitchenColumns(sql)
   const [settings] = await sql`
     SELECT is_open, kitchen_name, address, phone, lat, lng,
-           max_delivery_km, open_time, close_time, estimated_time, auto_schedule
+           max_delivery_km, open_time, close_time, estimated_time, auto_schedule,
+           order_timeout_minutes, escalation_interval_sec
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -194,25 +197,29 @@ export async function PATCH(request) {
     await sql`INSERT INTO kitchen_settings (id, is_open) VALUES (1, true) ON CONFLICT (id) DO NOTHING`
 
     // Explicit numeric parsing to avoid Neon HTTP string-vs-number type issues
-    const kmVal   = data.max_delivery_km != null ? parseFloat(data.max_delivery_km)  : null
-    const etVal   = data.estimated_time  != null ? parseInt(data.estimated_time)     : null
-    const latVal  = data.lat             != null ? parseFloat(data.lat)              : null
-    const lngVal  = data.lng             != null ? parseFloat(data.lng)              : null
+    const kmVal      = data.max_delivery_km       != null ? parseFloat(data.max_delivery_km)      : null
+    const etVal      = data.estimated_time        != null ? parseInt(data.estimated_time)         : null
+    const latVal     = data.lat                   != null ? parseFloat(data.lat)                  : null
+    const lngVal     = data.lng                   != null ? parseFloat(data.lng)                  : null
+    const toVal      = data.order_timeout_minutes != null ? parseInt(data.order_timeout_minutes)  : null
+    const escVal     = data.escalation_interval_sec != null ? parseInt(data.escalation_interval_sec) : null
 
     const [settings] = await sql`
       UPDATE kitchen_settings SET
-        is_open          = COALESCE(${data.is_open        ?? null}, is_open),
-        kitchen_name     = COALESCE(${data.kitchen_name   ?? null}, kitchen_name),
-        address          = COALESCE(${data.address        ?? null}, address),
-        phone            = COALESCE(${data.phone          ?? null}, phone),
-        lat              = COALESCE(${latVal},  lat),
-        lng              = COALESCE(${lngVal},  lng),
-        max_delivery_km  = COALESCE(${kmVal},   max_delivery_km),
-        open_time        = COALESCE(${data.open_time      ?? null}, open_time),
-        close_time       = COALESCE(${data.close_time     ?? null}, close_time),
-        estimated_time   = COALESCE(${etVal},   estimated_time),
-        auto_schedule    = COALESCE(${data.auto_schedule  ?? null}, auto_schedule),
-        updated_at       = NOW()
+        is_open                 = COALESCE(${data.is_open        ?? null}, is_open),
+        kitchen_name            = COALESCE(${data.kitchen_name   ?? null}, kitchen_name),
+        address                 = COALESCE(${data.address        ?? null}, address),
+        phone                   = COALESCE(${data.phone          ?? null}, phone),
+        lat                     = COALESCE(${latVal},  lat),
+        lng                     = COALESCE(${lngVal},  lng),
+        max_delivery_km         = COALESCE(${kmVal},   max_delivery_km),
+        open_time               = COALESCE(${data.open_time      ?? null}, open_time),
+        close_time              = COALESCE(${data.close_time     ?? null}, close_time),
+        estimated_time          = COALESCE(${etVal},   estimated_time),
+        auto_schedule           = COALESCE(${data.auto_schedule  ?? null}, auto_schedule),
+        order_timeout_minutes   = COALESCE(${toVal},   order_timeout_minutes),
+        escalation_interval_sec = COALESCE(${escVal},  escalation_interval_sec),
+        updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `
     return NextResponse.json({ settings })

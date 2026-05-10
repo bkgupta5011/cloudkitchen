@@ -71,7 +71,49 @@ function StarRating({ orderId, existing, onDone }) {
   )
 }
 
-function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, onReorder, reorderLoading, onRated }) {
+function viewBill(order, items) {
+  const w = window.open('', '_blank', 'width=380,height=620')
+  const rows = (items || []).map(i =>
+    `<tr><td>${i.name}</td><td style="text-align:center">${i.quantity}</td><td style="text-align:right">₹${Math.round(i.subtotal ?? i.price * i.quantity)}</td></tr>`
+  ).join('')
+  w.document.write(`<html><head><title>Bill #${order.order_number}</title>
+    <style>
+      body{font-family:monospace;max-width:340px;margin:20px auto;font-size:13px}
+      h2{text-align:center;margin:0;font-size:16px}
+      p{text-align:center;color:#666;margin:4px 0;font-size:12px}
+      table{width:100%;border-collapse:collapse;margin:12px 0}
+      td,th{padding:5px 2px;font-size:12px}
+      th{text-align:left;border-bottom:1px solid #ccc}
+      hr{border:none;border-top:1px dashed #bbb;margin:10px 0}
+      .row{display:flex;justify-content:space-between;font-size:12px;margin:4px 0}
+      .total{font-size:15px;font-weight:bold;margin-top:8px}
+      .btn{display:block;margin:14px auto 0;width:100%;padding:10px;background:#e85d04;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer}
+      @media print{.btn{display:none}}
+    </style></head><body>
+    <h2>🍽️ FoodFi Cloud Kitchen</h2>
+    <p>${new Date(order.created_at).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</p>
+    <p>Bill #${order.order_number}</p>
+    <hr/>
+    <p style="text-align:left"><b>Customer:</b> ${order.customer_name || ''}</p>
+    <p style="text-align:left">📍 ${order.delivery_address || ''}</p>
+    <hr/>
+    <table>
+      <thead><tr><th>Item</th><th style="text-align:center">Qty</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="3" style="text-align:center;color:#999">—</td></tr>'}</tbody>
+    </table>
+    <hr/>
+    <div class="row"><span>Subtotal</span><span>₹${Math.round(order.subtotal)}</span></div>
+    ${order.discount_amount > 0 ? `<div class="row" style="color:green"><span>Discount</span><span>−₹${Math.round(order.discount_amount)}</span></div>` : ''}
+    <div class="row"><span>Delivery Charge</span><span>₹${Math.round(order.delivery_charge)}</span></div>
+    <hr/>
+    <div class="row total"><span>TOTAL (COD)</span><span>₹${Math.round(order.total)}</span></div>
+    <p style="margin-top:16px;font-size:12px">Shukriya aapke order ke liye! 🙏</p>
+    <button class="btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </body></html>`)
+  w.document.close()
+}
+
+function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, onBill, onReorder, reorderLoading, onRated }) {
   const stepIdx = STATUS_STEPS.indexOf(order.status)
   const isCancelled = order.status === 'cancelled'
   const isDelivered = order.status === 'delivered'
@@ -143,10 +185,16 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
         </div>
         <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
           <span className={styles.total}>₹{Math.round(order.total)}</span>
-          <button onClick={onReorder} disabled={reorderLoading}
-            style={{ background:'#fff7ed', color:'#e85d04', border:'1px solid #e85d04', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-            {reorderLoading ? '⏳' : '🔄 Reorder'}
-          </button>
+          <div style={{ display:'flex', gap:6 }}>
+            <button onClick={onBill}
+              style={{ background:'#f0fdf4', color:'#16a34a', border:'1px solid #86efac', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+              🧾 Bill
+            </button>
+            <button onClick={onReorder} disabled={reorderLoading}
+              style={{ background:'#fff7ed', color:'#e85d04', border:'1px solid #e85d04', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+              {reorderLoading ? '⏳' : '🔄 Reorder'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -206,6 +254,17 @@ export default function OrdersPage() {
     setExpandedOrder(orderId)
   }
 
+  const openBill = async (order) => {
+    // Load items if not already fetched
+    let its = orderItems[order.id]
+    if (!its) {
+      const data = await fetch(`/api/orders?id=${order.id}`).then(r => r.json())
+      its = data.order?.items || []
+      setOrderItems(prev => ({ ...prev, [order.id]: its }))
+    }
+    viewBill(order, its)
+  }
+
   const reorder = async (orderId) => {
     setReorderLoading(orderId)
     try {
@@ -262,6 +321,7 @@ export default function OrdersPage() {
                       expanded={expandedOrder===order.id} items={orderItems[order.id]}
                       rating={ratings[order.id]}
                       onExpand={() => loadOrderItems(order.id)}
+                      onBill={() => openBill(order)}
                       onReorder={() => reorder(order.id)}
                       reorderLoading={reorderLoading===order.id}
                       onRated={r => setRatings(prev => ({...prev, [order.id]:{rating:r}}))}
@@ -279,6 +339,7 @@ export default function OrdersPage() {
                       expanded={expandedOrder===order.id} items={orderItems[order.id]}
                       rating={ratings[order.id]}
                       onExpand={() => loadOrderItems(order.id)}
+                      onBill={() => openBill(order)}
                       onReorder={() => reorder(order.id)}
                       reorderLoading={reorderLoading===order.id}
                       onRated={r => setRatings(prev => ({...prev, [order.id]:{rating:r}}))}

@@ -21,7 +21,7 @@ export default function AdminPage() {
   const router = useRouter()
   const [section, setSection] = useState('orders')
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30 })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -66,8 +66,12 @@ export default function AdminPage() {
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
   const supportCtxRef = useRef(null)
+  const escalationCtxRef = useRef(null)
   const lastSupportUnread = useRef({})   // userId → unreadCount
   const activeChatUserRef = useRef(null) // activeChatUser ka current value (for closure use)
+  const escalatedOrderIds = useRef(new Set())   // escalation already triggered for these
+  const escalationTimerRef = useRef(null)        // repeating escalation interval
+  const kitchenSettingsRef = useRef({ order_timeout_minutes: 2, escalation_interval_sec: 30 }) // closure-safe copy
 
   const playLoudAlert = () => {
     try {
@@ -126,6 +130,26 @@ export default function AdminPage() {
     } catch {}
   }
 
+  // Escalation alarm — alag urgent tone (rapid triple beep, 1400Hz)
+  const playEscalationAlert = () => {
+    try {
+      if (escalationCtxRef.current) { try { escalationCtxRef.current.close() } catch {} }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      escalationCtxRef.current = ctx
+      // 3 rapid high-pitched beeps
+      for (let i = 0; i < 3; i++) {
+        const base = ctx.currentTime + i * 0.25
+        const osc = ctx.createOscillator(), g = ctx.createGain()
+        osc.type = 'square'; osc.frequency.value = 1400
+        osc.connect(g); g.connect(ctx.destination)
+        g.gain.setValueAtTime(1.0, base)
+        g.gain.exponentialRampToValueAtTime(0.001, base + 0.18)
+        osc.start(base); osc.stop(base + 0.20)
+      }
+      setTimeout(() => { try { ctx.close() } catch {}; escalationCtxRef.current = null }, 2000)
+    } catch {}
+  }
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
   useEffect(() => {
@@ -155,6 +179,31 @@ export default function AdminPage() {
         }
         lastOrderCount.current = activeCount
         setOrders(latest)
+
+        // ── Escalation check — pending orders not accepted within timeout ──
+        const timeoutMin = kitchenSettingsRef.current.order_timeout_minutes || 2
+        const nowMs = Date.now()
+        const overdueOrders = latest.filter(o =>
+          o.status === 'pending' &&
+          (nowMs - new Date(o.created_at)) > timeoutMin * 60 * 1000
+        )
+        for (const o of overdueOrders) {
+          if (!escalatedOrderIds.current.has(o.id)) {
+            escalatedOrderIds.current.add(o.id)
+            // Start repeating escalation alarm
+            playEscalationAlert()
+            setToast(`🚨 Order #${o.order_number} ${timeoutMin} min se pending! — Abhi accept karo!`)
+            setTimeout(() => setToast(''), 8000)
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification(`🚨 Order Miss Ho Raha Hai!`, { body: `Order #${o.order_number} kaafi der se pending hai. Abhi accept karo!`, icon: '/favicon.ico' })
+            }
+          }
+        }
+        // Accepted orders ko escalation set se hataao
+        const pendingIds = new Set(latest.filter(o => o.status === 'pending').map(o => o.id))
+        for (const id of [...escalatedOrderIds.current]) {
+          if (!pendingIds.has(id)) escalatedOrderIds.current.delete(id)
+        }
 
         const apps = appRes.boys || []
         if (lastAppCount.current > 0 && apps.length > lastAppCount.current) showToast('📝 Naya delivery boy application!')
@@ -192,7 +241,15 @@ export default function AdminPage() {
       } catch (e) {}
     }, 10000)
 
-    return () => clearInterval(interval)
+    // Escalation repeating alarm — escalation_interval_sec ke baad phir bajao agar order abhi bhi pending ho
+    const escInterval = setInterval(() => {
+      if (escalatedOrderIds.current.size > 0) {
+        playEscalationAlert()
+      }
+    }, (kitchenSettingsRef.current.escalation_interval_sec || 30) * 1000)
+    escalationTimerRef.current = escInterval
+
+    return () => { clearInterval(interval); clearInterval(escInterval) }
   }, [])
 
   const loadAll = async () => {
@@ -211,7 +268,9 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    setKitchenSettings({ kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false })
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30 }
+    setKitchenSettings(ks)
+    kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
     setOrders(loadedOrders)
     lastOrderCount.current = loadedOrders.filter(o => !['delivered','cancelled'].includes(o.status)).length
@@ -236,6 +295,7 @@ export default function AdminPage() {
 
   const saveKitchenSettings = async () => {
     await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', ...kitchenSettings }) })
+    kitchenSettingsRef.current = kitchenSettings  // sync ref
     showToast('✅ Kitchen settings save ho gayi!')
   }
 
@@ -544,8 +604,15 @@ export default function AdminPage() {
             </div>
             <div className={styles.table}>
               <div className={`${styles.tHead} ${styles.ordCols}`}><span>Order</span><span>Customer</span><span>Amount</span><span>Time</span><span>Status</span><span>Delivery Boy</span></div>
-              {filteredOrders.map(o => (
-                <div key={o.id} className={`${styles.tRow} ${styles.ordCols}`}>
+              {filteredOrders.map(o => {
+                const rowBg = {
+                  pending:          '#fffbeb',
+                  confirmed:        '#eff6ff',
+                  preparing:        '#f5f3ff',
+                  out_for_delivery: '#fff7ed',
+                }[o.status] || 'transparent'
+                return (
+                <div key={o.id} className={`${styles.tRow} ${styles.ordCols}`} style={{ background: rowBg }}>
                   <span className={styles.orderId} style={{ cursor:'pointer', textDecoration:'underline', color:'var(--bl)' }} onClick={() => openOrderDetail(o.id)}>#{o.order_number}</span>
                   <div>
                     <div style={{ fontWeight:500, fontSize:12 }}>{o.customer_name}</div>
@@ -571,7 +638,7 @@ export default function AdminPage() {
                     })()}
                   </div>
                 </div>
-              ))}
+              )})}
               {filteredOrders.length === 0 && <div style={{ padding:'24px', textAlign:'center', color:'var(--t2)' }}>Koi order nahi mila</div>}
             </div>
           </>
@@ -854,6 +921,26 @@ export default function AdminPage() {
                   <div className="field"><label>Close Time</label><input type="time" value={kitchenSettings.close_time} onChange={e => setKitchenSettings({...kitchenSettings, close_time:e.target.value})} /></div>
                 </div>
                 {kitchenSettings.auto_schedule && <p style={{ fontSize:11, color:'var(--gr-d)', marginTop:4 }}>✅ Kitchen {kitchenSettings.open_time} – {kitchenSettings.close_time} ke beech auto-open rahega</p>}
+              </div>
+
+              <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1.5px solid #fbbf24', gridColumn:'1/-1' }}>
+                <h3 style={{ fontSize:14, fontWeight:700, marginBottom:6 }}>🚨 Order Alert Timing</h3>
+                <p style={{ fontSize:11, color:'var(--t2)', marginBottom:14 }}>Agar admin ne order accept nahi kiya to system urgent alarm bajayega. Yahan se timings set karo.</p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <div className="field">
+                    <label>Order Timeout (minutes)</label>
+                    <input type="number" min="1" max="30" value={kitchenSettings.order_timeout_minutes} onChange={e => setKitchenSettings({...kitchenSettings, order_timeout_minutes:e.target.value})} />
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Order aane ke X minute baad accept na ho tab urgent alarm bajega</p>
+                  </div>
+                  <div className="field">
+                    <label>Escalation Repeat (seconds)</label>
+                    <input type="number" min="10" max="300" value={kitchenSettings.escalation_interval_sec} onChange={e => setKitchenSettings({...kitchenSettings, escalation_interval_sec:e.target.value})} />
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Har X seconds baad alarm repeat hoga jab tak order accept na ho</p>
+                  </div>
+                </div>
+                <p style={{ fontSize:11, color:'#92400e', background:'#fef3c7', borderRadius:8, padding:'8px 12px', margin:0 }}>
+                  💡 Save karne ke baad naye timings turant apply ho jayenge. Default: 2 min timeout, 30 sec repeat.
+                </p>
               </div>
             </div>
           </>

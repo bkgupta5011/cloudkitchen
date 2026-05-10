@@ -5,6 +5,24 @@ import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
 
+// ── Star display helper ───────────────────────────────────────────────
+function StarDisplay({ avg, count }) {
+  if (!avg || count < 1) return null
+  const full = Math.floor(avg)
+  const half = avg - full >= 0.4
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:3, marginTop:4 }}>
+      {[1,2,3,4,5].map(i => (
+        <span key={i} style={{ fontSize:12, lineHeight:1 }}>
+          {i <= full ? '⭐' : (i === full+1 && half) ? '✨' : '☆'}
+        </span>
+      ))}
+      <span style={{ fontSize:11, color:'#92400e', fontWeight:600 }}>{avg.toFixed(1)}</span>
+      <span style={{ fontSize:10, color:'#9ca3af' }}>({count})</span>
+    </div>
+  )
+}
+
 export default function MenuPage() {
   const router = useRouter()
   const [user, setUser] = useState(null)
@@ -16,6 +34,7 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
+  const [itemRatings, setItemRatings] = useState({})
 
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
@@ -44,12 +63,14 @@ export default function MenuPage() {
       fetch('/api/menu').then(r => r.json()),
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/admin?type=offers').then(r => r.json()),
-    ]).then(([authData, menuData, settingsData, offersData]) => {
+      fetch('/api/ratings?type=menu').then(r => r.json()).catch(() => ({ itemRatings: {} })),
+    ]).then(([authData, menuData, settingsData, offersData, ratingsData]) => {
       if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
       setUser(authData.user)
       setMenuItems(menuData.items || [])
       setKitchenOpen(settingsData.settings?.is_open ?? true)
       setOffers(offersData.offers || [])
+      setItemRatings(ratingsData.itemRatings || {})
       setLoading(false)
     })
   }, [])
@@ -251,6 +272,9 @@ export default function MenuPage() {
                 <div className={styles.cardTitle}>
                   <span className={`veg-dot ${item.is_veg ? 'veg' : 'nonveg'}`} />
                   <h4>{item.name}</h4>
+                  {itemRatings[item.id]?.avg >= 4.5 && itemRatings[item.id]?.count >= 3 && (
+                    <span style={{ fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>🏆 Most Loved</span>
+                  )}
                 </div>
                 <p>{item.description}</p>
                 <div className={styles.priceRow}>
@@ -262,6 +286,9 @@ export default function MenuPage() {
                     </>
                   )}
                 </div>
+                {itemRatings[item.id] && (
+                  <StarDisplay avg={itemRatings[item.id].avg} count={itemRatings[item.id].count} />
+                )}
               </div>
               <div className={styles.cardRight}>
                 {item.image_url

@@ -18,15 +18,40 @@ async function ensureRatingsTable(sql) {
   } catch (e) {}
 }
 
-// GET — check if order already rated (customer), or get all ratings (admin)
+// GET — check if order already rated | per-item averages (public) | admin stats
 export async function GET(request) {
   const sql = getDb()
   await ensureRatingsTable(sql)
+  const { searchParams } = new URL(request.url)
+  const type = searchParams.get('type')
+
+  // PUBLIC: per menu-item average ratings (used on menu page for all visitors)
+  if (type === 'menu') {
+    const rows = await sql`
+      SELECT
+        oi.menu_item_id,
+        ROUND(AVG(r.rating)::numeric, 1) as avg_rating,
+        COUNT(r.id) as count
+      FROM order_ratings r
+      JOIN order_items oi ON oi.order_id = r.order_id
+      WHERE oi.menu_item_id IS NOT NULL
+      GROUP BY oi.menu_item_id
+      HAVING COUNT(r.id) >= 1
+    `
+    const itemRatings = {}
+    rows.forEach(row => {
+      itemRatings[row.menu_item_id] = {
+        avg: parseFloat(row.avg_rating),
+        count: parseInt(row.count)
+      }
+    })
+    return NextResponse.json({ itemRatings })
+  }
+
   const token = request.cookies.get('ck_token')?.value
   const user = verifyToken(token)
   if (!user) return NextResponse.json({ error: 'Login required' }, { status: 401 })
 
-  const { searchParams } = new URL(request.url)
   const orderId = searchParams.get('orderId')
 
   if (orderId) {

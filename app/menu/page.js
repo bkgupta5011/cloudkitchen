@@ -62,9 +62,21 @@ export default function MenuPage() {
 
   const logout = async () => {
     await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) })
-    // Cart localStorage mein rehti hai — login ke baad wapas milegi
     router.push('/login')
   }
+
+  const toggleDark = () => {
+    const current = document.documentElement.getAttribute('data-theme')
+    const nd = current === 'dark' ? 'light' : 'dark'
+    document.documentElement.setAttribute('data-theme', nd)
+    localStorage.setItem('ck_theme', nd)
+  }
+
+  // Restore dark mode on load
+  useEffect(() => {
+    const saved = localStorage.getItem('ck_theme')
+    if (saved) document.documentElement.setAttribute('data-theme', saved)
+  }, [])
 
   if (loading) return <div className={styles.loading}><div className="spinner" /></div>
 
@@ -84,6 +96,9 @@ export default function MenuPage() {
           </button>
           <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
           <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
+          <button onClick={toggleDark} style={{ background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:15 }} title="Dark/Light mode">
+            {typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')==='dark' ? '☀️' : '🌙'}
+          </button>
           <button className="btn btn-secondary" onClick={logout} style={{ fontSize: 12, padding: '6px 10px' }}>Logout</button>
         </div>
       </nav>

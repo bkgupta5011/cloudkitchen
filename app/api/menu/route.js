@@ -3,9 +3,14 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 
+async function ensureStockColumn(sql) {
+  try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_count INT DEFAULT NULL` } catch {}
+}
+
 // GET - public, all available menu items
 export async function GET(request) {
   const sql = getDb()
+  await ensureStockColumn(sql)
   const { searchParams } = new URL(request.url)
   const category = searchParams.get('category')
   const adminAll = searchParams.get('admin') === 'true'
@@ -84,7 +89,8 @@ export async function PATCH(request) {
       is_veg = COALESCE(${fields.is_veg ?? null}, is_veg),
       image_url = COALESCE(${fields.image_url ?? null}, image_url),
       is_available = COALESCE(${fields.is_available ?? null}, is_available),
-      sort_order = COALESCE(${fields.sort_order ?? null}, sort_order)
+      sort_order = COALESCE(${fields.sort_order ?? null}, sort_order),
+      stock_count = CASE WHEN ${Object.prototype.hasOwnProperty.call(fields,'stock_count')} THEN ${fields.stock_count ?? null} ELSE stock_count END
     WHERE id = ${id}
     RETURNING *
   `

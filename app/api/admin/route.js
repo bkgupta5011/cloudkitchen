@@ -147,13 +147,26 @@ export async function GET(request) {
       FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'delivered'
     `
     const topItems = await sql`
-      SELECT oi.name, SUM(oi.quantity) as total_qty
+      SELECT oi.name, SUM(oi.quantity) as total_qty, SUM(oi.subtotal) as total_revenue
       FROM order_items oi JOIN orders o ON oi.order_id = o.id
-      WHERE o.created_at >= NOW() - INTERVAL '7 days'
-      GROUP BY oi.name ORDER BY total_qty DESC LIMIT 5
+      WHERE o.created_at >= NOW() - INTERVAL '30 days' AND o.status != 'cancelled'
+      GROUP BY oi.name ORDER BY total_qty DESC LIMIT 10
+    `
+    // Last 7 days revenue chart data (day by day)
+    const revenueChart = await sql`
+      SELECT
+        TO_CHAR(created_at::date, 'DD Mon') as day,
+        created_at::date as date,
+        COUNT(*) as orders,
+        COALESCE(SUM(total), 0) as revenue
+      FROM orders
+      WHERE created_at >= NOW() - INTERVAL '7 days'
+        AND status != 'cancelled'
+      GROUP BY created_at::date
+      ORDER BY date
     `
     const customerCount = await sql`SELECT COUNT(*) as count FROM users`
-    return NextResponse.json({ todayStats, weekStats, topItems, customerCount: customerCount[0].count })
+    return NextResponse.json({ todayStats, weekStats, topItems, revenueChart, customerCount: customerCount[0].count })
   }
 
   // Default: kitchen settings (public)

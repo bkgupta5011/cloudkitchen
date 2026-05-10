@@ -32,6 +32,43 @@ export async function GET(request) {
     return NextResponse.json({ order: { ...order, items } })
   }
 
+  // CSV Export (admin only)
+  const format = searchParams.get('format')
+  if (format === 'csv' && user.role === 'admin') {
+    const allOrders = await sql`
+      SELECT o.order_number, o.status, o.total, o.subtotal, o.discount_amount,
+        o.delivery_charge, o.delivery_address, o.distance_km, o.notes,
+        o.created_at, o.delivered_at,
+        u.name as customer_name, u.phone as customer_phone,
+        d.name as delivery_boy_name
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+      ORDER BY o.created_at DESC LIMIT 1000
+    `
+    const header = ['Order#','Status','Customer','Phone','Delivery Boy','Subtotal','Discount','Delivery','Total','Address','Distance(km)','Notes','Placed At','Delivered At']
+    const rows = allOrders.map(o => [
+      o.order_number, o.status,
+      `"${(o.customer_name||'').replace(/"/g,'')}"`,
+      o.customer_phone||'',
+      o.delivery_boy_name||'',
+      Math.round(o.subtotal), Math.round(o.discount_amount||0),
+      Math.round(o.delivery_charge), Math.round(o.total),
+      `"${(o.delivery_address||'').replace(/"/g,'')}"`,
+      o.distance_km||'',
+      `"${(o.notes||'').replace(/"/g,'')}"`,
+      o.created_at ? new Date(o.created_at).toLocaleString('en-IN') : '',
+      o.delivered_at ? new Date(o.delivered_at).toLocaleString('en-IN') : ''
+    ])
+    const csv = [header, ...rows].map(r => r.join(',')).join('\n')
+    return new Response('﻿' + csv, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="foodfi-orders-${new Date().toISOString().slice(0,10)}.csv"`
+      }
+    })
+  }
+
   let orders = []
 
   if (user.role === 'customer') {

@@ -61,6 +61,7 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [notifCount, setNotifCount] = useState(0)
   const [toast, setToast] = useState('')
+  const [darkMode, setDarkMode] = useState(false)
   const lastOrderCount = useRef(0)
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
@@ -398,6 +399,17 @@ export default function AdminPage() {
     router.push('/login')
   }
 
+  // Dark mode — localStorage se restore karo
+  useEffect(() => {
+    const saved = localStorage.getItem('ck_theme')
+    if (saved === 'dark') { setDarkMode(true); document.documentElement.setAttribute('data-theme','dark') }
+  }, [])
+  const toggleDark = () => {
+    const nd = !darkMode; setDarkMode(nd)
+    document.documentElement.setAttribute('data-theme', nd ? 'dark' : 'light')
+    localStorage.setItem('ck_theme', nd ? 'dark' : 'light')
+  }
+
   const filteredOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
   const pendingCount = orders.filter(o => !['delivered','cancelled'].includes(o.status)).length
   const unreadSupport = supportThreads.reduce((a, t) => a + parseInt(t.unread_count || 0), 0)
@@ -435,6 +447,10 @@ export default function AdminPage() {
                 🔔 {notifCount} New Order{notifCount > 1 ? 's' : ''}
               </div>
             )}
+            <button onClick={toggleDark} title="Dark Mode Toggle"
+              style={{ background:'none', border:'1px solid var(--bd2)', borderRadius:8, padding:'6px 10px', cursor:'pointer', fontSize:16 }}>
+              {darkMode ? '☀️' : '🌙'}
+            </button>
             <div className={styles.bigToggle}>
               <div className={`${styles.bigTrack} ${kitchenOpen ? styles.on : ''}`} onClick={toggleKitchen}><div className={styles.bigKnob} /></div>
               <span style={{ fontWeight:600, color: kitchenOpen ? 'var(--gr-d)' : 'var(--rd)', fontSize:14 }}>{kitchenOpen ? 'Open' : 'Closed'}</span>
@@ -454,6 +470,7 @@ export default function AdminPage() {
               <h2>Live Orders</h2>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
                 <button className="btn btn-primary" style={{ fontSize:12 }} onClick={() => setShowManualOrder(true)}>📞 Phone Order</button>
+                <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={() => window.open('/api/orders?format=csv')}>⬇️ CSV</button>
                 <div className={styles.filters}>
                   {['all','pending','preparing','out_for_delivery','delivered'].map(f => (
                     <button key={f} className={`${styles.fChip} ${statusFilter===f?styles.active:''}`} onClick={() => setStatusFilter(f)}>
@@ -522,9 +539,12 @@ export default function AdminPage() {
                       onChange={e => { if(e.target.files[0]) { setEditingItemId(item.id); uploadImage(e.target.files[0], url => updateMenuItemImage(item.id, url)) } }} />
                   </div>
 
-                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4, flexWrap:'wrap' }}>
                     <span className={`veg-dot ${item.is_veg?'veg':'nonveg'}`} />
                     <strong style={{ fontSize:12 }}>{item.name}</strong>
+                    {item.stock_count !== null && item.stock_count !== undefined && parseInt(item.stock_count) <= 5 && (
+                      <span style={{ background:'#fef2f2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>⚠️ {item.stock_count}</span>
+                    )}
                   </div>
                   <span className={styles.catTag}>{item.category}</span>
                   <div className={styles.priceEdit}>
@@ -532,8 +552,14 @@ export default function AdminPage() {
                     <input type="number" defaultValue={item.price} className={styles.priceInput} id={`price-${item.id}`} />
                     <label style={{ fontSize:11, color:'var(--t2)' }}>Disc%</label>
                     <input type="number" defaultValue={item.discount_percent} className={styles.priceInput} id={`disc-${item.id}`} />
+                    <label style={{ fontSize:11, color:'var(--t2)' }}>Stock</label>
+                    <input type="number" min="0" defaultValue={item.stock_count??''} placeholder="∞" className={styles.priceInput} id={`stock-${item.id}`} />
                   </div>
-                  <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px', marginBottom:8, width:'100%' }} onClick={() => updateItemPrice(item.id, document.getElementById(`price-${item.id}`).value, document.getElementById(`disc-${item.id}`).value)}>Save Price</button>
+                  <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px', marginBottom:8, width:'100%' }} onClick={async () => {
+                    const stockRaw = document.getElementById(`stock-${item.id}`).value
+                    await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:item.id, stock_count: stockRaw===''?null:parseInt(stockRaw) }) })
+                    updateItemPrice(item.id, document.getElementById(`price-${item.id}`).value, document.getElementById(`disc-${item.id}`).value)
+                  }}>Save</button>
                   <div className={styles.availToggle}>
                     <div className={`switch ${item.is_available?'on':''}`} onClick={() => toggleMenuItem(item.id, !item.is_available)} />
                     <span style={{ fontSize:12, color:'var(--t2)' }}>{item.is_available?'Available':'Unavailable'}</span>
@@ -871,28 +897,74 @@ export default function AdminPage() {
         )}
 
         {/* ── ANALYTICS ── */}
-        {section === 'analytics' && analytics && (
+        {section === 'analytics' && analytics && (() => {
+          const chart = analytics.revenueChart || []
+          const maxRev = Math.max(...chart.map(d => parseFloat(d.revenue)), 1)
+          return (
           <>
-            <div className={styles.sectionHead}><h2>Analytics</h2><span style={{ fontSize:12, color:'var(--t2)' }}>Last 7 days</span></div>
+            <div className={styles.sectionHead}>
+              <h2>📊 Analytics</h2>
+              <button className="btn btn-secondary" style={{fontSize:12}} onClick={() => window.open('/api/orders?format=csv')}>
+                ⬇️ Export CSV
+              </button>
+            </div>
+
+            {/* Summary cards */}
             <div className={styles.statsRow}>
-              {[['Total Orders (7d)',analytics.weekStats?.week_orders??'-',''],['Revenue (7d)',`₹${Math.round(analytics.weekStats?.week_revenue??0)}`,''],['Avg Order',`₹${Math.round((analytics.weekStats?.week_revenue??0)/Math.max(1,analytics.weekStats?.week_orders??1))}`,''],['Customers',analytics.customerCount??'-','']].map(([label,val])=>(
-                <div key={label} className={styles.statCard}><div className={styles.statLabel}>{label}</div><div className={styles.statVal}>{val}</div></div>
+              {[
+                ['Orders (7d)', analytics.weekStats?.week_orders??'-'],
+                ['Revenue (7d)', `₹${Math.round(analytics.weekStats?.week_revenue??0)}`],
+                ['Avg Order', `₹${Math.round((analytics.weekStats?.week_revenue??0)/Math.max(1,analytics.weekStats?.week_orders??1))}`],
+                ['Customers', analytics.customerCount??'-'],
+              ].map(([label,val]) => (
+                <div key={label} className={styles.statCard}>
+                  <div className={styles.statLabel}>{label}</div>
+                  <div className={styles.statVal}>{val}</div>
+                </div>
               ))}
             </div>
-            <div className={styles.table} style={{ padding:16 }}>
-              <h3 style={{ fontSize:14, fontWeight:600, marginBottom:12 }}>Top Selling Items (7 days)</h3>
-              {(analytics.topItems||[]).map((item,i)=>(
-                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-                  <span style={{ fontSize:12, minWidth:160 }}>{item.name}</span>
-                  <div style={{ flex:1, background:'var(--bg)', borderRadius:4, height:8, overflow:'hidden' }}>
-                    <div style={{ width:`${Math.round(item.total_qty/(analytics.topItems[0]?.total_qty||1)*100)}%`, height:'100%', background:'var(--or)', borderRadius:4 }} />
+
+            {/* Revenue Bar Chart — last 7 days */}
+            <div style={{ background:'var(--card)', borderRadius:16, padding:'20px 24px', border:'1px solid var(--bd)', marginBottom:16 }}>
+              <h3 style={{ fontSize:14, fontWeight:700, marginBottom:16, color:'var(--t1)' }}>📈 Last 7 Days Revenue</h3>
+              {chart.length === 0 ? (
+                <p style={{ color:'var(--t2)', fontSize:13 }}>Koi data nahi</p>
+              ) : (
+                <div style={{ display:'flex', alignItems:'flex-end', gap:8, height:140 }}>
+                  {chart.map((d,i) => {
+                    const h = Math.round((parseFloat(d.revenue)/maxRev)*110)
+                    return (
+                      <div key={i} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                        <span style={{ fontSize:10, color:'var(--t2)', fontWeight:600 }}>₹{Math.round(parseFloat(d.revenue)/1000)}k</span>
+                        <div title={`₹${Math.round(parseFloat(d.revenue))}`}
+                          style={{ width:'100%', height:h||4, background:'linear-gradient(180deg,#ff8c42,#e85d04)', borderRadius:'6px 6px 2px 2px', transition:'height 0.4s', minHeight:4 }} />
+                        <span style={{ fontSize:9, color:'var(--t2)', textAlign:'center', lineHeight:1.2 }}>{d.day}</span>
+                        <span style={{ fontSize:9, color:'var(--t3)' }}>{d.orders}🛒</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Top Selling Items */}
+            <div style={{ background:'var(--card)', borderRadius:16, padding:'20px 24px', border:'1px solid var(--bd)', marginBottom:16 }}>
+              <h3 style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>🏆 Top Selling Items (30 days)</h3>
+              {(analytics.topItems||[]).map((item,i) => (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                  <span style={{ fontSize:13, fontWeight:700, color:'var(--t2)', minWidth:20 }}>#{i+1}</span>
+                  <span style={{ fontSize:13, minWidth:140, color:'var(--t1)' }}>{item.name}</span>
+                  <div style={{ flex:1, background:'var(--bg)', borderRadius:6, height:10, overflow:'hidden' }}>
+                    <div style={{ width:`${Math.round(parseFloat(item.total_qty)/(parseFloat(analytics.topItems[0]?.total_qty)||1)*100)}%`, height:'100%', background:'linear-gradient(90deg,#ff8c42,#e85d04)', borderRadius:6, transition:'width 0.5s' }} />
                   </div>
-                  <span style={{ fontSize:11, color:'var(--t2)', minWidth:28, textAlign:'right' }}>{item.total_qty}</span>
+                  <span style={{ fontSize:12, color:'var(--t2)', minWidth:60, textAlign:'right' }}>
+                    {item.total_qty} pcs · ₹{Math.round(parseFloat(item.total_revenue||0))}
+                  </span>
                 </div>
               ))}
             </div>
           </>
-        )}
+        )})()}
         {/* ── NOTICES ── */}
         {section === 'notices' && (
           <div>
@@ -1022,6 +1094,39 @@ export default function AdminPage() {
             {orderDetail.delivery_boy_name && (
               <div style={{ marginTop:10, fontSize:12, color:'var(--gr-d)', fontWeight:600 }}>🛵 {orderDetail.delivery_boy_name} · {orderDetail.delivery_boy_phone}</div>
             )}
+            {/* Print Bill Button */}
+            <button onClick={() => {
+              const w = window.open('','_blank','width=380,height=600')
+              const items = (orderDetail.items||[]).map(i => `<tr><td>${i.name}</td><td style="text-align:center">${i.quantity}</td><td style="text-align:right">₹${Math.round(i.subtotal)}</td></tr>`).join('')
+              w.document.write(`<html><head><title>Receipt #${orderDetail.order_number}</title>
+                <style>body{font-family:monospace;max-width:340px;margin:20px auto;font-size:13px}
+                h2{text-align:center;margin:0}p{text-align:center;color:#666;margin:4px 0}
+                table{width:100%;border-collapse:collapse;margin:12px 0}
+                td{padding:4px 2px}hr{border:1px dashed #ccc}
+                .total{font-size:16px;font-weight:bold}
+                @media print{button{display:none}}</style></head>
+                <body>
+                <h2>🍽️ FoodFi Cloud Kitchen</h2>
+                <p>${new Date(orderDetail.created_at).toLocaleString('en-IN')}</p>
+                <p>Order #${orderDetail.order_number}</p>
+                <hr/>
+                <p style="text-align:left"><b>Customer:</b> ${orderDetail.customer_name}<br/>${orderDetail.customer_phone}<br/>📍 ${orderDetail.delivery_address}</p>
+                <hr/>
+                <table><thead><tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Amt</th></tr></thead>
+                <tbody>${items}</tbody></table>
+                <hr/>
+                <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>₹${Math.round(orderDetail.subtotal)}</span></div>
+                ${orderDetail.discount_amount>0?`<div style="display:flex;justify-content:space-between;color:green"><span>Discount</span><span>-₹${Math.round(orderDetail.discount_amount)}</span></div>`:''}
+                <div style="display:flex;justify-content:space-between"><span>Delivery</span><span>₹${Math.round(orderDetail.delivery_charge)}</span></div>
+                <hr/>
+                <div class="total" style="display:flex;justify-content:space-between"><span>TOTAL (COD)</span><span>₹${Math.round(orderDetail.total)}</span></div>
+                <p style="margin-top:20px">Shukriya! 🙏 FoodFi Cloud Kitchen</p>
+                <button onclick="window.print()" style="margin-top:12px;width:100%;padding:10px;background:#e85d04;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">🖨️ Print</button>
+                </body></html>`)
+              w.document.close()
+            }} style={{ marginTop:14, width:'100%', padding:'10px', background:'#1e293b', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer' }}>
+              🖨️ Print Bill / Receipt
+            </button>
           </div>
         </div>
       )}

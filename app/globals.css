@@ -17,10 +17,28 @@
   --card: #ffffff;
   --bd: rgba(0,0,0,0.1);
   --bd2: rgba(0,0,0,0.2);
+  --bdr: rgba(0,0,0,0.12);
   --t1: #1a1a1a;
   --t2: #6b6b6b;
   --t3: #9b9b9b;
   --radius: 12px;
+}
+
+/* ── Dark Mode ── */
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --card: #1e293b;
+  --bd: rgba(255,255,255,0.08);
+  --bd2: rgba(255,255,255,0.15);
+  --bdr: rgba(255,255,255,0.1);
+  --t1: #f1f5f9;
+  --t2: #94a3b8;
+  --t3: #64748b;
+  --or-l: #2d1a0e;
+  --gr-l: #0a2e1a;
+  --rd-l: #2d0f0f;
+  --am-l: #2d1f00;
+  --bl-l: #0d1f3c;
 }
 
 body {

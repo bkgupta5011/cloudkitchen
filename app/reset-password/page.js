@@ -2,6 +2,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import styles from '../login/login.module.css'
+import FoodFiLogo from '../components/FoodFiLogo'
 
 function ResetForm() {
   const router = useRouter()
@@ -43,8 +44,10 @@ function ResetForm() {
     <div className={styles.wrap}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <span>🍽️</span>
-          <h1>CloudKitchen</h1>
+          <FoodFiLogo size={56} style={{ borderRadius: 14, boxShadow: '0 4px 16px rgba(232,93,4,0.25)', marginBottom: 10 }} />
+          <h1 style={{ fontSize: 24, fontWeight: 800 }}>
+            <span style={{ color: '#e85d04' }}>Food</span><span style={{ color: '#1f2937' }}>Fi</span>
+          </h1>
           <p>Naya Password Set Karein</p>
         </div>
 

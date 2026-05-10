@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './login.module.css'
+import FoodFiLogo from '../components/FoodFiLogo'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -60,9 +61,11 @@ export default function LoginPage() {
     <div className={styles.wrap}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <span>🍽️</span>
-          <h1>CloudKitchen</h1>
-          <p>Fresh food, delivered fast</p>
+          <FoodFiLogo size={64} style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(232,93,4,0.3)', marginBottom: 10 }} />
+          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px' }}>
+            <span style={{ color: '#e85d04' }}>Food</span><span style={{ color: '#1f2937' }}>Fi</span>
+          </h1>
+          <p>Cloud Kitchen • Fresh food, delivered fast</p>
         </div>
 
         {/* Login / Sign Up tabs */}

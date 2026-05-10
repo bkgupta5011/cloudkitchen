@@ -14,6 +14,7 @@ export default function CartPage() {
   const [deliveryCharge, setDeliveryCharge] = useState(30)
   const [offerCode, setOfferCode] = useState('')
   const [offerResult, setOfferResult] = useState(null)
+  const [offerError, setOfferError] = useState('')
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [gpsLoading, setGpsLoading] = useState(false)
@@ -25,6 +26,9 @@ export default function CartPage() {
   const [maxKm, setMaxKm] = useState(5)
   const [estimatedTime, setEstimatedTime] = useState(45)
   const [outOfRange, setOutOfRange] = useState(false)
+  const [savedAddresses, setSavedAddresses] = useState([])
+  const [showAddressModal, setShowAddressModal] = useState(false)
+  const [newAddrLabel, setNewAddrLabel] = useState('Home')
 
   useEffect(() => {
     const saved = sessionStorage.getItem('ck_cart')
@@ -39,6 +43,18 @@ export default function CartPage() {
         if (d.settings.estimated_time) setEstimatedTime(parseInt(d.settings.estimated_time))
       }
     })
+    // Load saved addresses
+    fetch('/api/addresses').then(r => r.json()).then(d => {
+      const addrs = d.addresses || []
+      setSavedAddresses(addrs)
+      // Auto-fill default address
+      const def = addrs.find(a => a.is_default)
+      if (def && !address) {
+        setAddress(def.address_text)
+        if (def.lat) setLat(parseFloat(def.lat))
+        if (def.lng) setLng(parseFloat(def.lng))
+      }
+    }).catch(() => {})
   }, [])
 
   const saveCart = (c) => { setCart(c); sessionStorage.setItem('ck_cart', JSON.stringify(c)) }
@@ -59,7 +75,8 @@ export default function CartPage() {
 
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)
   const discount = offerResult?.discount || 0
-  const total = Math.max(0, subtotal - discount) + (offerResult?.freeDelivery ? 0 : deliveryCharge)
+  const freeDelivery = offerResult?.freeDelivery || false
+  const total = Math.max(0, subtotal - discount) + (freeDelivery ? 0 : deliveryCharge)
 
   // GPS location detection
   const detectGPS = () => {
@@ -107,13 +124,37 @@ export default function CartPage() {
 
   const applyOffer = async () => {
     if (!offerCode.trim()) return
-    const res = await fetch('/api/orders', {
+    setOfferError('')
+    setOfferResult(null)
+    try {
+      const res = await fetch(`/api/offers?code=${encodeURIComponent(offerCode)}&subtotal=${subtotal}`)
+      const data = await res.json()
+      if (!data.valid) {
+        setOfferError(data.error || 'Invalid offer code')
+        return
+      }
+      setOfferResult({ discount: data.discount, freeDelivery: data.freeDelivery, code: data.code })
+    } catch {
+      setOfferError('Offer check nahi ho paya')
+    }
+  }
+
+  const selectSavedAddress = (addr) => {
+    setAddress(addr.address_text)
+    if (addr.lat) { setLat(parseFloat(addr.lat)); setLng(parseFloat(addr.lng)) }
+    else { setLat(null); setLng(null); setDistanceKm(null) }
+  }
+
+  const saveCurrentAddress = async () => {
+    if (!address.trim()) return
+    await fetch('/api/addresses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'check_offer', code: offerCode, subtotal })
+      body: JSON.stringify({ label: newAddrLabel, address_text: address, lat, lng })
     })
-    // Simplified: just show a success message for demo
-    setOfferResult({ discount: 50, code: offerCode })
+    const d = await fetch('/api/addresses').then(r => r.json())
+    setSavedAddresses(d.addresses || [])
+    setShowAddressModal(false)
   }
 
   const placeOrder = async () => {
@@ -206,6 +247,29 @@ export default function CartPage() {
             {/* Address */}
             <div className={styles.section}>
               <h3>Delivery Address</h3>
+
+              {/* Saved addresses */}
+              {savedAddresses.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 6, fontWeight: 600 }}>SAVED ADDRESSES</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {savedAddresses.map(a => (
+                      <button key={a.id}
+                        onClick={() => selectSavedAddress(a)}
+                        style={{
+                          padding: '6px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                          border: address === a.address_text ? '1.5px solid var(--or)' : '1px solid var(--bd)',
+                          background: address === a.address_text ? '#fff7ed' : 'var(--bg)',
+                          color: address === a.address_text ? 'var(--or)' : 'var(--t1)',
+                          fontWeight: address === a.address_text ? 600 : 400
+                        }}>
+                        {a.is_default ? '⭐ ' : ''}{a.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <button className={styles.gpsBtn} onClick={detectGPS} disabled={gpsLoading}>
                 {gpsLoading ? <span className="spinner" /> : '📍'} {gpsLoading ? 'Detecting...' : 'Use My GPS Location'}
               </button>
@@ -219,6 +283,12 @@ export default function CartPage() {
                   placeholder="Flat no, Street, Landmark, City - PIN"
                 />
               </div>
+              {address && !savedAddresses.find(a => a.address_text === address) && (
+                <button onClick={() => setShowAddressModal(true)}
+                  style={{ marginTop: 6, fontSize: 11, color: 'var(--or)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                  + Save this address for next time
+                </button>
+              )}
             </div>
 
             {/* Offer */}
@@ -228,12 +298,17 @@ export default function CartPage() {
                 <input
                   className={styles.offerInput}
                   value={offerCode}
-                  onChange={e => setOfferCode(e.target.value.toUpperCase())}
+                  onChange={e => { setOfferCode(e.target.value.toUpperCase()); setOfferError(''); if (!e.target.value) setOfferResult(null) }}
                   placeholder="Enter code (e.g. WELCOME50)"
                 />
                 <button className="btn btn-secondary" onClick={applyOffer}>Apply</button>
               </div>
-              {offerResult && <div className={styles.offerApplied}>✓ {offerResult.code} applied — ₹{offerResult.discount} off!</div>}
+              {offerResult && (
+                <div className={styles.offerApplied}>
+                  ✓ {offerResult.code} applied — {offerResult.freeDelivery ? 'Free Delivery!' : `₹${offerResult.discount} off!`}
+                </div>
+              )}
+              {offerError && <div className={styles.error} style={{ marginTop: 6 }}>❌ {offerError}</div>}
             </div>
 
             {/* Notes */}
@@ -249,7 +324,7 @@ export default function CartPage() {
               <h3>Bill Summary</h3>
               <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
               {discount > 0 && <div className={styles.billRow} style={{ color: 'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
-              <div className={styles.billRow}><span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span><span>₹{deliveryCharge}</span></div>
+              <div className={styles.billRow}><span>Delivery {distanceKm ? `(${distanceKm.toFixed(1)} km)` : ''}</span><span>{freeDelivery ? <span style={{ color: 'var(--gr-d)', fontWeight: 600 }}>FREE 🎉</span> : `₹${deliveryCharge}`}</span></div>
               <div className={`${styles.billRow} ${styles.total}`}><span>Total</span><span style={{ color: 'var(--or)' }}>₹{total}</span></div>
             </div>
 
@@ -264,6 +339,32 @@ export default function CartPage() {
           </>
         )}
       </div>
+
+      {/* Save Address Modal */}
+      {showAddressModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}
+          onClick={e => e.target === e.currentTarget && setShowAddressModal(false)}>
+          <div style={{ background: 'var(--card)', borderRadius: 16, padding: 24, width: '100%', maxWidth: 360 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: 16 }}>💾 Save Address</h3>
+            <div className="field">
+              <label>Label</label>
+              <select value={newAddrLabel} onChange={e => setNewAddrLabel(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'var(--bg)', fontSize: 14 }}>
+                <option>Home</option>
+                <option>Work</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Address</label>
+              <textarea value={address} readOnly rows={3} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bd)', fontSize: 13, resize: 'none', background: 'var(--bg)', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowAddressModal(false)}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={saveCurrentAddress}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

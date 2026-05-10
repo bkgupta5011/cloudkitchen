@@ -6,7 +6,7 @@ import styles from './login.module.css'
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState('login')
-  const [loginType, setLoginType] = useState('email') // email | phone
+  const [loginType, setLoginType] = useState('phone') // phone | email — phone is default
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ name:'', email:'', phone:'', password:'', address:'' })

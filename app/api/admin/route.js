@@ -188,6 +188,18 @@ export async function PATCH(request) {
     return NextResponse.json({ success: true })
   }
 
+  // Update delivery boy details
+  if (type === 'update_boy') {
+    await sql`
+      UPDATE delivery_boys SET
+        name           = COALESCE(${data.name ?? null}, name),
+        phone          = COALESCE(${data.phone ?? null}, phone),
+        per_km_earning = COALESCE(${data.per_km_earning ? parseFloat(data.per_km_earning) : null}, per_km_earning)
+      WHERE id = ${data.id}::uuid
+    `
+    return NextResponse.json({ success: true })
+  }
+
   // Approve delivery boy application
   if (type === 'approve_boy') {
     await ensureDeliveryColumns(sql)

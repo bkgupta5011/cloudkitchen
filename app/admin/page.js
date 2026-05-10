@@ -12,6 +12,7 @@ const SECTIONS = [
   { id: 'kitchen',  label: '⚙️ Kitchen Settings' },
   { id: 'pricing',  label: '📏 KM Pricing' },
   { id: 'customers',label: '👥 Customers' },
+  { id: 'support',  label: '💬 Support',           badge: 'support' },
   { id: 'analytics',label: '📊 Analytics' },
 ]
 
@@ -35,8 +36,19 @@ export default function AdminPage() {
   const [orderDetail, setOrderDetail] = useState(null)
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [manualOrder, setManualOrder] = useState({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{} })
-  const [newItem, setNewItem] = useState({ name:'', description:'', price:'', discount_percent:0, category:'Rice Combos', is_veg:true })
+  const [newItem, setNewItem] = useState({ name:'', description:'', price:'', discount_percent:0, category:'Rice Combos', is_veg:true, image_url:'' })
   const [newOffer, setNewOffer] = useState({ code:'', type:'percent', value:'', min_order:'', max_uses:1000, valid_till:'' })
+  const [showBoyDetail, setShowBoyDetail] = useState(false)
+  const [boyDetail, setBoyDetail] = useState(null)
+  const [editBoyMode, setEditBoyMode] = useState(false)
+  const [boyEditForm, setBoyEditForm] = useState({})
+  const [uploadingImg, setUploadingImg] = useState(false)
+  const [editingItemId, setEditingItemId] = useState(null)
+  const [showSupport, setShowSupport] = useState(false)
+  const [supportThreads, setSupportThreads] = useState([])
+  const [activeChatUser, setActiveChatUser] = useState(null)
+  const [chatMessages, setChatMessages] = useState([])
+  const [chatInput, setChatInput] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [notifCount, setNotifCount] = useState(0)
   const [toast, setToast] = useState('')
@@ -228,6 +240,76 @@ export default function AdminPage() {
     showToast('✅ Pricing save ho gayi!')
   }
 
+  // Upload image — client-side resize then base64
+  const uploadImage = (file, onDone) => {
+    setUploadingImg(true)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX = 700
+        let { width, height } = img
+        if (width > MAX) { height = Math.round(height * MAX / width); width = MAX }
+        if (height > MAX) { width = Math.round(width * MAX / height); height = MAX }
+        canvas.width = width; canvas.height = height
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+        const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+        fetch('/api/upload', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ base64, mimeType: 'image/jpeg' })
+        }).then(r => r.json()).then(d => {
+          setUploadingImg(false)
+          if (d.url) onDone(d.url)
+          else showToast('❌ Upload failed')
+        })
+      }
+      img.src = ev.target.result
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const updateMenuItemImage = async (itemId, url) => {
+    await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id:itemId, image_url:url }) })
+    setMenuItems(prev => prev.map(m => m.id === itemId ? { ...m, image_url:url } : m))
+    showToast('✅ Photo update ho gayi!')
+  }
+
+  const openBoyDetail = (boy) => {
+    setBoyDetail(boy)
+    setBoyEditForm({ name:boy.name, phone:boy.phone, per_km_earning:boy.per_km_earning||0 })
+    setEditBoyMode(false)
+    setShowBoyDetail(true)
+  }
+
+  const saveBoyEdit = async () => {
+    await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type:'update_boy', id:boyDetail.id, ...boyEditForm }) })
+    showToast('✅ Details update ho gayi!')
+    setBoyDetail(prev => ({ ...prev, ...boyEditForm }))
+    setEditBoyMode(false)
+    loadAll()
+  }
+
+  const loadSupportThreads = async () => {
+    const d = await fetch('/api/support').then(r => r.json())
+    setSupportThreads(d.threads || [])
+  }
+
+  const loadChat = async (userId) => {
+    setActiveChatUser(userId)
+    const d = await fetch(`/api/support?userId=${userId}`).then(r => r.json())
+    setChatMessages(d.messages || [])
+  }
+
+  const sendAdminReply = async () => {
+    if (!chatInput.trim() || !activeChatUser) return
+    await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: chatInput, targetUserId: activeChatUser }) })
+    setChatInput('')
+    loadChat(activeChatUser)
+  }
+
   const logout = async () => {
     await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'logout' }) })
     router.push('/login')
@@ -235,6 +317,7 @@ export default function AdminPage() {
 
   const filteredOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
   const pendingCount = orders.filter(o => !['delivered','cancelled'].includes(o.status)).length
+  const unreadSupport = supportThreads.reduce((a, t) => a + parseInt(t.unread_count || 0), 0)
 
   if (loading) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh' }}><div className="spinner" /></div>
 
@@ -244,10 +327,12 @@ export default function AdminPage() {
       <aside className={styles.sidebar}>
         <div className={styles.sidebarLogo}>⚙️ Admin Panel</div>
         {SECTIONS.map(s => (
-          <button key={s.id} className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`} onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0) }}>
+          <button key={s.id} className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`}
+            onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads() }}>
             {s.label}
             {s.badge === 'orders' && pendingCount > 0 && <span className={styles.sideBadge}>{pendingCount}</span>}
             {s.badge === 'apps' && pendingBoys.length > 0 && <span className={styles.sideBadge}>{pendingBoys.length}</span>}
+            {s.badge === 'support' && unreadSupport > 0 && <span className={styles.sideBadge}>{unreadSupport}</span>}
           </button>
         ))}
         <button className={styles.logoutBtn} onClick={logout}>🚪 Logout</button>
@@ -337,7 +422,23 @@ export default function AdminPage() {
             <div className={styles.menuGrid}>
               {menuItems.map(item => (
                 <div key={item.id} className={styles.menuCard}>
-                  {item.image_url && <img src={item.image_url} alt={item.name} style={{ width:'100%', height:100, objectFit:'cover', borderRadius:8, marginBottom:8 }} />}
+                  {/* Photo area */}
+                  <div style={{ position:'relative', width:'100%', height:100, borderRadius:8, marginBottom:8, background:'var(--bg)', overflow:'hidden', cursor:'pointer' }}
+                    onClick={() => document.getElementById(`img-${item.id}`).click()}>
+                    {item.image_url
+                      ? <img src={item.image_url} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                      : <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100%', color:'var(--t3)', fontSize:11 }}>
+                          <span style={{ fontSize:24, marginBottom:4 }}>📷</span>
+                          Click to add photo
+                        </div>
+                    }
+                    <div style={{ position:'absolute', bottom:4, right:4, background:'#0007', color:'#fff', borderRadius:6, padding:'2px 8px', fontSize:10 }}>
+                      {uploadingImg && editingItemId===item.id ? '⏳' : '📷 Change'}
+                    </div>
+                    <input type="file" id={`img-${item.id}`} accept="image/jpeg,image/png,image/webp" style={{ display:'none' }}
+                      onChange={e => { if(e.target.files[0]) { setEditingItemId(item.id); uploadImage(e.target.files[0], url => updateMenuItemImage(item.id, url)) } }} />
+                  </div>
+
                   <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4 }}>
                     <span className={`veg-dot ${item.is_veg?'veg':'nonveg'}`} />
                     <strong style={{ fontSize:12 }}>{item.name}</strong>
@@ -369,9 +470,20 @@ export default function AdminPage() {
                       <div className="field"><label>Discount %</label><input type="number" value={newItem.discount_percent} onChange={e => setNewItem({...newItem, discount_percent:e.target.value})} /></div>
                     </div>
                     <div className="field"><label>Category</label><select value={newItem.category} onChange={e => setNewItem({...newItem, category:e.target.value})}><option>Rice Combos</option><option>Fried Rice Combos</option><option>Roti &amp; Puri Combos</option><option>Add-Ons</option></select></div>
+                    <div className="field">
+                      <label>Photo (optional)</label>
+                      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                        {newItem.image_url && <img src={newItem.image_url} style={{ width:60, height:45, objectFit:'cover', borderRadius:6 }} />}
+                        <label style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', background:'var(--bg)', border:'1px dashed var(--bdr)', borderRadius:8, cursor:'pointer', fontSize:12 }}>
+                          📷 {uploadingImg ? 'Uploading...' : 'Choose Photo (JPEG)'}
+                          <input type="file" accept="image/jpeg,image/png" style={{ display:'none' }} disabled={uploadingImg}
+                            onChange={e => { if(e.target.files[0]) uploadImage(e.target.files[0], url => setNewItem(ni => ({...ni, image_url:url}))) }} />
+                        </label>
+                      </div>
+                    </div>
                     <div style={{ display:'flex', gap:8 }}>
                       <button type="button" className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowAddItem(false)}>Cancel</button>
-                      <button type="submit" className="btn btn-primary" style={{ flex:1 }}>Add Item</button>
+                      <button type="submit" className="btn btn-primary" style={{ flex:1 }} disabled={uploadingImg}>Add Item</button>
                     </div>
                   </form>
                 </div>
@@ -439,19 +551,25 @@ export default function AdminPage() {
               </div>
             </div>
             <div className={styles.table}>
-              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr' }}><span>Name</span><span>Phone</span><span>Vehicle</span><span>Earnings</span><span>Status</span><span>Action</span></div>
+              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr' }}><span>Name</span><span>Phone</span><span>Vehicle</span><span>Earnings</span><span>Status</span><span>Actions</span></div>
               {boys.map(b => (
                 <div key={b.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     <div className={styles.boyAvatar}>{b.name.split(' ').map(n=>n[0]).join('')}</div>
-                    <div><div style={{ fontSize:13, fontWeight:500 }}>{b.name}</div><div style={{ fontSize:11, color:'var(--t2)' }}>{b.email}</div></div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:500 }}>{b.name}</div>
+                      <div style={{ fontSize:11, color:'var(--t2)' }}>{b.email}</div>
+                    </div>
                   </div>
                   <span style={{ fontSize:12, color:'var(--t2)' }}>{b.phone}</span>
-                  <span style={{ fontSize:12 }}>{b.vehicle_number}</span>
+                  <span style={{ fontSize:12 }}>{b.vehicle_number}<br/><span style={{ color:'var(--t3)', fontSize:10 }}>{b.vehicle_type}</span></span>
                   <span style={{ fontWeight:500 }}>₹{Math.round(b.total_earnings||0)}</span>
-                  <span className={`badge ${b.is_online?'badge-done':'badge-cancelled'}`}>{b.is_online?'Online':'Offline'}</span>
-                  <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 8px', background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}
-                    onClick={() => suspendBoy(b.id)}>🚫 Suspend</button>
+                  <span className={`badge ${b.is_online?'badge-done':'badge-cancelled'}`}>{b.is_online?'🟢 Online':'⚫ Offline'}</span>
+                  <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => openBoyDetail(b)}>👁 Details</button>
+                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px', background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}
+                      onClick={() => suspendBoy(b.id)}>🚫 Suspend</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -579,6 +697,67 @@ export default function AdminPage() {
           </>
         )}
 
+        {/* ── SUPPORT CHAT ── */}
+        {section === 'support' && (
+          <div style={{ display:'flex', gap:16, height:'calc(100vh - 200px)' }}>
+            {/* Thread list */}
+            <div style={{ width:240, background:'var(--card)', borderRadius:14, border:'1px solid var(--bdr)', overflowY:'auto', flexShrink:0 }}>
+              <div style={{ padding:'12px 14px', fontWeight:700, fontSize:14, borderBottom:'1px solid var(--bdr)' }}>
+                💬 Customer Chats
+              </div>
+              {supportThreads.length === 0 && <div style={{ padding:20, fontSize:13, color:'var(--t2)', textAlign:'center' }}>No messages yet</div>}
+              {supportThreads.map(t => (
+                <div key={t.user_id}
+                  onClick={() => loadChat(t.user_id)}
+                  style={{ padding:'12px 14px', borderBottom:'1px solid var(--bg)', cursor:'pointer',
+                    background: activeChatUser===t.user_id ? 'var(--bg)' : 'transparent' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                    <span style={{ fontWeight:600, fontSize:13 }}>{t.user_name}</span>
+                    {parseInt(t.unread_count)>0 && <span style={{ background:'var(--or)', color:'#fff', borderRadius:10, padding:'0 6px', fontSize:11 }}>{t.unread_count}</span>}
+                  </div>
+                  <div style={{ fontSize:11, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.message}</div>
+                  <div style={{ fontSize:10, color:'var(--t3)', marginTop:2 }}>{t.user_phone}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Chat area */}
+            <div style={{ flex:1, background:'var(--card)', borderRadius:14, border:'1px solid var(--bdr)', display:'flex', flexDirection:'column' }}>
+              {!activeChatUser ? (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'var(--t2)', fontSize:14 }}>
+                  ← Select a customer to view chat
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--bdr)', fontWeight:600, fontSize:14 }}>
+                    Chat with {supportThreads.find(t => t.user_id === activeChatUser)?.user_name}
+                    <span style={{ fontSize:11, color:'var(--t2)', marginLeft:8 }}>{supportThreads.find(t => t.user_id === activeChatUser)?.user_phone}</span>
+                  </div>
+                  <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', display:'flex', flexDirection:'column', gap:8 }}>
+                    {chatMessages.map(m => (
+                      <div key={m.id} style={{ display:'flex', justifyContent: m.is_from_admin ? 'flex-end' : 'flex-start' }}>
+                        <div style={{ maxWidth:'75%', background: m.is_from_admin ? 'var(--or)' : 'var(--bg)',
+                          color: m.is_from_admin ? '#fff' : 'var(--t1)',
+                          borderRadius: m.is_from_admin ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
+                          padding:'8px 12px', fontSize:13 }}>
+                          {m.message}
+                          <div style={{ fontSize:10, opacity:0.7, marginTop:4 }}>{new Date(m.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bdr)', display:'flex', gap:8 }}>
+                    <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+                      onKeyDown={e => e.key==='Enter' && sendAdminReply()}
+                      placeholder="Type reply..." style={{ flex:1, padding:'10px 12px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:13 }} />
+                    <button className="btn btn-primary" onClick={sendAdminReply}>Send</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── ANALYTICS ── */}
         {section === 'analytics' && analytics && (
           <>
@@ -607,17 +786,37 @@ export default function AdminPage() {
       {/* Order Detail Modal */}
       {showOrderDetail && orderDetail && (
         <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowOrderDetail(false)}>
-          <div className={styles.modal} style={{ maxWidth:480 }}>
+          <div className={styles.modal} style={{ maxWidth:500, maxHeight:'90vh', overflowY:'auto' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
               <h3 style={{ margin:0 }}>Order #{orderDetail.order_number}</h3>
               <button onClick={() => setShowOrderDetail(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
             </div>
+
+            {/* Customer card with call + map */}
             <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px', marginBottom:12 }}>
               <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t2)' }}>👤 CUSTOMER</div>
-              <div style={{ fontSize:13, fontWeight:600 }}>{orderDetail.customer_name}</div>
-              <div style={{ fontSize:12, color:'var(--t2)' }}>{orderDetail.customer_phone}</div>
-              <div style={{ fontSize:12, color:'var(--t3)', marginTop:4 }}>📍 {orderDetail.delivery_address}</div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{orderDetail.customer_name}</div>
+                  <div style={{ fontSize:12, color:'var(--t2)' }}>{orderDetail.customer_phone}</div>
+                  <div style={{ fontSize:12, color:'var(--t3)', marginTop:4 }}>📍 {orderDetail.delivery_address}</div>
+                  {orderDetail.distance_km && <div style={{ fontSize:11, color:'var(--t3)' }}>{parseFloat(orderDetail.distance_km).toFixed(1)} km</div>}
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  <a href={`tel:${orderDetail.customer_phone}`}
+                    style={{ display:'flex', alignItems:'center', gap:4, background:'#dcfce7', color:'#16a34a', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+                    📞 Call
+                  </a>
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderDetail.delivery_address)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ display:'flex', alignItems:'center', gap:4, background:'#dbeafe', color:'#1d4ed8', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+                    🗺️ Map
+                  </a>
+                </div>
+              </div>
             </div>
+
+            {/* Items */}
             <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px', marginBottom:12 }}>
               <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t2)' }}>📦 ITEMS</div>
               {(orderDetail.items||[]).map((item,i)=>(
@@ -627,13 +826,24 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+
+            {/* Notes */}
+            {orderDetail.notes && (
+              <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#92400e' }}>
+                📝 <strong>Customer Remarks:</strong> {orderDetail.notes}
+              </div>
+            )}
+
+            {/* Bill */}
             <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px' }}>
               <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Subtotal</span><span>₹{Math.round(orderDetail.subtotal)}</span></div>
               {orderDetail.discount_amount>0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4, color:'var(--gr-d)' }}><span>Discount</span><span>−₹{Math.round(orderDetail.discount_amount)}</span></div>}
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Delivery</span><span>₹{Math.round(orderDetail.delivery_charge)}</span></div>
-              <div style={{ display:'flex', justifyContent:'space-between', fontSize:15, fontWeight:700, marginTop:8, paddingTop:8, borderTop:'1px solid var(--bdr)' }}><span>Total (COD)</span><span style={{ color:'var(--or)' }}>₹{Math.round(orderDetail.total)}</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Delivery Charge</span><span>₹{Math.round(orderDetail.delivery_charge)}</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:15, fontWeight:700, marginTop:8, paddingTop:8, borderTop:'1px solid var(--bdr)' }}><span>💵 Total (COD)</span><span style={{ color:'var(--or)' }}>₹{Math.round(orderDetail.total)}</span></div>
             </div>
-            {orderDetail.notes && <div style={{ marginTop:10, fontSize:12, color:'var(--t2)', fontStyle:'italic' }}>📝 {orderDetail.notes}</div>}
+            {orderDetail.delivery_boy_name && (
+              <div style={{ marginTop:10, fontSize:12, color:'var(--gr-d)', fontWeight:600 }}>🛵 {orderDetail.delivery_boy_name} · {orderDetail.delivery_boy_phone}</div>
+            )}
           </div>
         </div>
       )}
@@ -685,6 +895,66 @@ export default function AdminPage() {
                 <button type="submit" className="btn btn-primary" style={{ flex:1 }}>✅ Order Create Karo</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delivery Boy Detail Modal */}
+      {showBoyDetail && boyDetail && (
+        <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowBoyDetail(false)}>
+          <div className={styles.modal} style={{ maxWidth:520, maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0 }}>🛵 {boyDetail.name}</h3>
+              <div style={{ display:'flex', gap:8 }}>
+                <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={() => setEditBoyMode(!editBoyMode)}>
+                  {editBoyMode ? 'Cancel' : '✏️ Edit'}
+                </button>
+                <button onClick={() => setShowBoyDetail(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+              </div>
+            </div>
+
+            {editBoyMode ? (
+              <div>
+                <div className="field"><label>Name</label><input value={boyEditForm.name} onChange={e => setBoyEditForm({...boyEditForm, name:e.target.value})} /></div>
+                <div className="field"><label>Phone</label><input value={boyEditForm.phone} onChange={e => setBoyEditForm({...boyEditForm, phone:e.target.value})} /></div>
+                <div className="field"><label>Per KM Earning (₹)</label><input type="number" value={boyEditForm.per_km_earning} onChange={e => setBoyEditForm({...boyEditForm, per_km_earning:e.target.value})} /></div>
+                <button className="btn btn-primary btn-full" onClick={saveBoyEdit}>💾 Save Changes</button>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px 20px', fontSize:13, marginBottom:16 }}>
+                  {[
+                    ['📧 Email', boyDetail.email],
+                    ['📱 Phone', boyDetail.phone],
+                    ['🛵 Vehicle Type', boyDetail.vehicle_type],
+                    ['🚗 Vehicle No.', boyDetail.vehicle_number],
+                    ['🪪 License No.', boyDetail.license_number || '—'],
+                    ['🆔 Aadhar', boyDetail.aadhar_number ? '••••' + boyDetail.aadhar_number.slice(-4) : '—'],
+                    ['🎂 Date of Birth', boyDetail.date_of_birth ? new Date(boyDetail.date_of_birth).toLocaleDateString('en-IN') : '—'],
+                    ['🆘 Emergency', boyDetail.emergency_contact || '—'],
+                    ['💰 Total Earnings', `₹${Math.round(boyDetail.total_earnings||0)}`],
+                    ['⭐ Rating', parseFloat(boyDetail.rating||5).toFixed(1)],
+                    ['📅 Joined', new Date(boyDetail.created_at).toLocaleDateString('en-IN')],
+                    ['Status', boyDetail.is_online ? '🟢 Online' : '⚫ Offline'],
+                  ].map(([label, val]) => (
+                    <div key={label}>
+                      <div style={{ fontSize:11, color:'var(--t2)', marginBottom:2 }}>{label}</div>
+                      <div style={{ fontWeight:500 }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+                {boyDetail.home_address && (
+                  <div style={{ background:'var(--bg)', borderRadius:10, padding:'10px 12px', marginBottom:12 }}>
+                    <div style={{ fontSize:11, color:'var(--t2)', marginBottom:4 }}>🏠 Home Address</div>
+                    <div style={{ fontSize:13 }}>{boyDetail.home_address}</div>
+                  </div>
+                )}
+                <div style={{ display:'flex', gap:8 }}>
+                  <a href={`tel:${boyDetail.phone}`} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, background:'#dcfce7', color:'#16a34a', borderRadius:10, padding:'10px', textDecoration:'none', fontWeight:700, fontSize:14 }}>📞 Call</a>
+                  <button className="btn btn-secondary" style={{ flex:1, background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }} onClick={() => { setShowBoyDetail(false); suspendBoy(boyDetail.id) }}>🚫 Suspend</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

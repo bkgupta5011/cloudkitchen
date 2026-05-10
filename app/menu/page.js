@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './menu.module.css'
+import SupportChat from '../components/SupportChat'
 
 export default function MenuPage() {
   const router = useRouter()
@@ -82,6 +83,7 @@ export default function MenuPage() {
             {cartCount > 0 && <span className={styles.cartBadge}>{cartCount}</span>}
           </button>
           <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
+          <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
           <button className="btn btn-secondary" onClick={logout} style={{ fontSize: 12, padding: '6px 10px' }}>Logout</button>
         </div>
       </nav>
@@ -170,6 +172,9 @@ export default function MenuPage() {
           </button>
         </div>
       )}
+
+      {/* Floating Support Chat */}
+      <SupportChat />
     </div>
   )
 }

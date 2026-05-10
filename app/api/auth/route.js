@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
-import nodemailer from 'nodemailer'
 import crypto from 'crypto'
 
 async function ensureResetTable(sql) {
@@ -19,21 +18,25 @@ async function ensureResetTable(sql) {
 }
 
 async function sendResetEmail(toEmail, resetLink) {
+  const nodemailer = (await import('nodemailer')).default
   const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
     auth: {
       user: process.env.GMAIL_USER,
       pass: process.env.GMAIL_APP_PASSWORD,
     },
+    tls: { rejectUnauthorized: false },
   })
   await transporter.sendMail({
-    from: `"Cloud Kitchen" <${process.env.GMAIL_USER}>`,
+    from: `"FoodFi Kitchen" <${process.env.GMAIL_USER}>`,
     to: toEmail,
-    subject: '🔐 Password Reset - Cloud Kitchen',
+    subject: '🔐 Password Reset - FoodFi',
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
         <div style="text-align:center; margin-bottom:24px;">
-          <h2 style="color:#e85d04;">🍽️ Cloud Kitchen</h2>
+          <h2 style="color:#e85d04;">🍽️ FoodFi Kitchen</h2>
         </div>
         <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
         <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>
@@ -45,7 +48,7 @@ async function sendResetEmail(toEmail, resetLink) {
         <p style="color:#6b7280; font-size:13px;">Yeh link <strong>1 ghante</strong> mein expire ho jayega.</p>
         <p style="color:#6b7280; font-size:13px;">Agar aapne yeh request nahi ki, toh is email ko ignore karein.</p>
         <hr style="border:none;border-top:1px solid #e5e7eb; margin:20px 0;" />
-        <p style="color:#9ca3af; font-size:12px; text-align:center;">Cloud Kitchen &bull; Patna, Bihar</p>
+        <p style="color:#9ca3af; font-size:12px; text-align:center;">FoodFi &bull; foodfi.in</p>
       </div>
     `,
   })
@@ -268,8 +271,8 @@ export async function POST(request) {
     try {
       await sendResetEmail(email, resetLink)
     } catch (e) {
-      console.error('Email send failed:', e.message)
-      return NextResponse.json({ error: 'Email send nahi ho saka. Gmail settings check karo.' }, { status: 500 })
+      console.error('Email send failed:', e.message, e.code)
+      return NextResponse.json({ error: `Email error: ${e.message}` }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })

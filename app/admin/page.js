@@ -65,6 +65,9 @@ export default function AdminPage() {
   const lastOrderCount = useRef(0)
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
+  const supportCtxRef = useRef(null)
+  const lastSupportUnread = useRef({})   // userId → unreadCount
+  const activeChatUserRef = useRef(null) // activeChatUser ka current value (for closure use)
 
   const playLoudAlert = () => {
     try {
@@ -103,6 +106,26 @@ export default function AdminPage() {
     } catch (e) {}
   }
 
+  // Support chat ke liye 2-second distinct tone (sine wave — softer than order alarm)
+  const playSupportAlert = () => {
+    try {
+      if (supportCtxRef.current) { try { supportCtxRef.current.close() } catch {} }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      supportCtxRef.current = ctx
+      const totalSecs = 2, step = 0.5, numBeeps = Math.ceil(totalSecs / step)
+      for (let i = 0; i < numBeeps; i++) {
+        const base = ctx.currentTime + i * step
+        const osc = ctx.createOscillator(), g = ctx.createGain()
+        osc.type = 'sine'; osc.frequency.value = i % 2 === 0 ? 700 : 900
+        osc.connect(g); g.connect(ctx.destination)
+        g.gain.setValueAtTime(0.75, base)
+        g.gain.exponentialRampToValueAtTime(0.001, base + 0.4)
+        osc.start(base); osc.stop(base + 0.42)
+      }
+      setTimeout(() => { try { ctx.close() } catch {}; supportCtxRef.current = null }, 3000)
+    } catch {}
+  }
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
   useEffect(() => {
@@ -137,6 +160,35 @@ export default function AdminPage() {
         if (lastAppCount.current > 0 && apps.length > lastAppCount.current) showToast('📝 Naya delivery boy application!')
         lastAppCount.current = apps.length
         setPendingBoys(apps)
+
+        // ── Support chat polling ──
+        try {
+          const suppRes = await fetch('/api/support').then(r => r.json())
+          const threads = suppRes.threads || []
+          setSupportThreads(threads)
+
+          // Pehle load ke baad hi alert bajao
+          if (Object.keys(lastSupportUnread.current).length > 0) {
+            for (const t of threads) {
+              const newUnread = parseInt(t.unread_count || 0)
+              const prevUnread = lastSupportUnread.current[t.user_id] || 0
+              // Naya unread message aaya — aur woh customer ka chat ABHI open nahi hai
+              if (newUnread > prevUnread && activeChatUserRef.current !== t.user_id) {
+                playSupportAlert()
+                setToast(`💬 ${t.user_name} ka naya message!`)
+                setTimeout(() => setToast(''), 4000)
+                if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                  new Notification(`💬 ${t.user_name}`, { body: t.message?.slice(0,60) || 'Naya message', icon: '/favicon.ico' })
+                }
+              }
+              lastSupportUnread.current[t.user_id] = newUnread
+            }
+          } else {
+            // First load — snapshot lo, alert mat bajao
+            threads.forEach(t => { lastSupportUnread.current[t.user_id] = parseInt(t.unread_count || 0) })
+          }
+        } catch {}
+
       } catch (e) {}
     }, 10000)
 
@@ -360,13 +412,23 @@ export default function AdminPage() {
 
   const loadSupportThreads = async () => {
     const d = await fetch('/api/support').then(r => r.json())
-    setSupportThreads(d.threads || [])
+    const threads = d.threads || []
+    setSupportThreads(threads)
+    // Initial unread snapshot (no alert on first load)
+    if (Object.keys(lastSupportUnread.current).length === 0) {
+      threads.forEach(t => { lastSupportUnread.current[t.user_id] = parseInt(t.unread_count || 0) })
+    }
+    return threads
   }
 
   const loadChat = async (userId) => {
+    activeChatUserRef.current = userId  // ref update karo (closure ke liye)
     setActiveChatUser(userId)
     const d = await fetch(`/api/support?userId=${userId}`).then(r => r.json())
     setChatMessages(d.messages || [])
+    // Is user ka unread reset karo (chat open hai ab)
+    lastSupportUnread.current[userId] = 0
+    setSupportThreads(prev => prev.map(t => t.user_id === userId ? { ...t, unread_count: 0 } : t))
   }
 
   const sendAdminReply = async () => {

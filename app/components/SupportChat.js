@@ -8,13 +8,51 @@ export default function SupportChat() {
   const [unread, setUnread] = useState(0)
   const bottomRef = useRef(null)
   const pollRef = useRef(null)
+  const lastAdminMsgCount = useRef(0)
+  const openRef = useRef(false)
+
+  // openRef ko open ke saath sync karo (setInterval closure ke liye)
+  useEffect(() => { openRef.current = open }, [open])
+
+  // 0.5-sec soft beep — admin reply aane par
+  const playAdminReplyBeep = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      // Ek smooth ding — 700Hz sine wave
+      const osc = ctx.createOscillator(), g = ctx.createGain()
+      osc.type = 'sine'; osc.frequency.value = 700
+      osc.connect(g); g.connect(ctx.destination)
+      g.gain.setValueAtTime(0.6, ctx.currentTime)
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45)
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.47)
+      setTimeout(() => { try { ctx.close() } catch {} }, 1000)
+    } catch {}
+  }
 
   const loadMessages = async () => {
     try {
       const d = await fetch('/api/support').then(r => r.json())
       const msgs = d.messages || []
+
+      // Admin ke naye messages detect karo
+      const adminMsgs = msgs.filter(m => m.is_from_admin)
+      const newAdminCount = adminMsgs.length
+
+      if (lastAdminMsgCount.current > 0 && newAdminCount > lastAdminMsgCount.current) {
+        // Naya admin reply aaya!
+        if (!openRef.current) {
+          // Chat band hai — beep bajao aur unread badge badhao
+          playAdminReplyBeep()
+          setUnread(prev => prev + (newAdminCount - lastAdminMsgCount.current))
+        }
+        // Chat khuli hai to seedha messages update ho jayenge
+      }
+      lastAdminMsgCount.current = newAdminCount
+
       setMessages(msgs)
-      if (!open) {
+
+      // Unread badge: sirf jab chat band ho
+      if (!openRef.current) {
         const adminUnread = msgs.filter(m => m.is_from_admin && !m.is_read).length
         setUnread(adminUnread)
       }
@@ -23,7 +61,7 @@ export default function SupportChat() {
 
   useEffect(() => {
     loadMessages()
-    pollRef.current = setInterval(loadMessages, 10000)
+    pollRef.current = setInterval(loadMessages, 8000)  // 8 sec poll — thoda faster
     return () => clearInterval(pollRef.current)
   }, [])
 
@@ -66,7 +104,7 @@ export default function SupportChat() {
         }}>
           {/* Header */}
           <div style={{ background: 'linear-gradient(135deg,#e85d04,#f97316)', padding: '12px 16px', color: '#fff' }}>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>💬 Customer Support</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>💬 FoodFi Support</div>
             <div style={{ fontSize: 11, opacity: 0.85 }}>Kitchen team typically replies in minutes</div>
           </div>
 
@@ -87,7 +125,7 @@ export default function SupportChat() {
                   borderRadius: m.is_from_admin ? '14px 14px 14px 4px' : '14px 14px 4px 14px',
                   padding: '8px 12px', fontSize: 13
                 }}>
-                  {m.is_from_admin && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--or)', marginBottom: 3 }}>Kitchen</div>}
+                  {m.is_from_admin && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--or)', marginBottom: 3 }}>🍽️ Kitchen</div>}
                   {m.message}
                   <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: 'right' }}>
                     {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -105,7 +143,7 @@ export default function SupportChat() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
               placeholder="Message likhiye..."
-              style={{ flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--bd)', fontSize: 13, outline: 'none', background: 'var(--bg)' }}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--bd)', fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)' }}
             />
             <button
               onClick={sendMessage}

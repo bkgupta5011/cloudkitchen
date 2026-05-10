@@ -43,14 +43,32 @@ export async function GET(request) {
       return NextResponse.json({ messages: msgs })
     }
 
-    // List all threads (latest message per user)
+    // List all threads — real customer name from users table, sorted: unread first then latest
     const threads = await sql`
-      SELECT DISTINCT ON (user_id)
-        user_id, user_name, user_phone, message, is_from_admin, is_read, created_at,
-        (SELECT COUNT(*) FROM support_messages sm2
-         WHERE sm2.user_id = support_messages.user_id AND sm2.is_read = false AND sm2.is_from_admin = false) as unread_count
-      FROM support_messages
-      ORDER BY user_id, created_at DESC
+      SELECT
+        latest.user_id,
+        u.name     AS user_name,
+        u.phone    AS user_phone,
+        latest.message,
+        latest.is_from_admin,
+        latest.is_read,
+        latest.created_at,
+        COALESCE(unread.cnt, 0) AS unread_count
+      FROM (
+        SELECT DISTINCT ON (user_id) *
+        FROM support_messages
+        ORDER BY user_id, created_at DESC
+      ) latest
+      JOIN users u ON latest.user_id = u.id
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) AS cnt
+        FROM support_messages
+        WHERE is_read = false AND is_from_admin = false
+        GROUP BY user_id
+      ) unread ON unread.user_id = latest.user_id
+      ORDER BY
+        CASE WHEN COALESCE(unread.cnt, 0) > 0 THEN 0 ELSE 1 END,
+        latest.created_at DESC
     `
     return NextResponse.json({ threads })
   }

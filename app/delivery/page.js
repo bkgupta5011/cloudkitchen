@@ -19,7 +19,46 @@ export default function DeliveryPage() {
   const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' })
   const [saveMsg, setSaveMsg] = useState('')
   const [paymentHistory, setPaymentHistory] = useState([])
+  const [toast, setToast] = useState('')
   const pollRef = useRef(null)
+  const alertCtxRef = useRef(null)
+  const lastOrderIds = useRef(new Set())
+  const initialLoadDone = useRef(false)
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
+
+  const playLoudAlert = () => {
+    try {
+      if (alertCtxRef.current) { try { alertCtxRef.current.close() } catch {} }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      alertCtxRef.current = ctx
+
+      // 10 second ka alarm — har 0.55s pe ding-dong pair
+      const totalSecs = 10
+      const step = 0.55
+      const numBeeps = Math.ceil(totalSecs / step)
+
+      for (let i = 0; i < numBeeps; i++) {
+        const base = ctx.currentTime + i * step
+
+        const o1 = ctx.createOscillator(), g1 = ctx.createGain()
+        o1.type = 'square'; o1.frequency.value = 880
+        o1.connect(g1); g1.connect(ctx.destination)
+        g1.gain.setValueAtTime(0.9, base)
+        g1.gain.exponentialRampToValueAtTime(0.001, base + 0.22)
+        o1.start(base); o1.stop(base + 0.23)
+
+        const o2 = ctx.createOscillator(), g2 = ctx.createGain()
+        o2.type = 'square'; o2.frequency.value = 1100
+        o2.connect(g2); g2.connect(ctx.destination)
+        g2.gain.setValueAtTime(0.9, base + 0.27)
+        g2.gain.exponentialRampToValueAtTime(0.001, base + 0.50)
+        o2.start(base + 0.27); o2.stop(base + 0.51)
+      }
+
+      setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 11000)
+    } catch (e) {}
+  }
 
   useEffect(() => {
     fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) })
@@ -29,11 +68,32 @@ export default function DeliveryPage() {
         setUser(user)
         loadData()
       })
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission()
 
-    // Poll orders every 20s
-    pollRef.current = setInterval(() => {
-      fetch('/api/orders').then(r => r.json()).then(d => setOrders(d.orders || []))
-    }, 20000)
+    // Poll orders every 15s — naye assigned orders detect karo
+    pollRef.current = setInterval(async () => {
+      try {
+        const d = await fetch('/api/orders').then(r => r.json())
+        const newOrders = d.orders || []
+        const newIds = new Set(newOrders.map(o => o.id))
+
+        // Pehle load ke baad hi alert bajao
+        if (initialLoadDone.current && lastOrderIds.current.size > 0) {
+          const addedOrders = newOrders.filter(o => !lastOrderIds.current.has(o.id))
+          if (addedOrders.length > 0) {
+            playLoudAlert()
+            showToast(`🛵 Naya order assign hua! #${addedOrders[0].order_number || ''}`)
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              new Notification('🛵 Naya Order Assign!', { body: `Order assign hua hai — turant dekho!`, icon: '/favicon.ico' })
+            }
+          }
+        }
+
+        lastOrderIds.current = newIds
+        setOrders(newOrders)
+      } catch {}
+    }, 15000)
+
     return () => clearInterval(pollRef.current)
   }, [])
 
@@ -43,7 +103,11 @@ export default function DeliveryPage() {
       fetch(`/api/delivery/history?period=today`).then(r => r.json()),
       fetch('/api/profile').then(r => r.json()),
     ])
-    setOrders(ordersRes.orders || [])
+    const initialOrders = ordersRes.orders || []
+    setOrders(initialOrders)
+    // Initial order IDs save karo — taaki pehle load pe false alert na bajhe
+    lastOrderIds.current = new Set(initialOrders.map(o => o.id))
+    initialLoadDone.current = true
     setHistory(historyRes.orders || [])
     setStats(historyRes.stats)
     setPaymentHistory(historyRes.paymentHistory || [])
@@ -134,6 +198,19 @@ export default function DeliveryPage() {
 
   return (
     <div className={styles.page}>
+      {/* Toast notification */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+          background: '#1e293b', color: '#fff', borderRadius: 12,
+          padding: '12px 20px', fontSize: 14, fontWeight: 600,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.35)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap'
+        }}>
+          <span style={{ fontSize: 20 }}>🔔</span> {toast}
+        </div>
+      )}
+
       {/* Nav */}
       <nav className={styles.nav}>
         <span className={styles.logo}>🛵 Delivery Portal</span>

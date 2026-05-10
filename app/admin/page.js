@@ -63,19 +63,42 @@ export default function AdminPage() {
   const [toast, setToast] = useState('')
   const lastOrderCount = useRef(0)
   const lastAppCount = useRef(0)
+  const alertCtxRef = useRef(null)
 
-  const playAlert = () => {
+  const playLoudAlert = () => {
     try {
+      // Pehle wala alert band karo agar chal raha ho
+      if (alertCtxRef.current) { try { alertCtxRef.current.close() } catch {} }
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
-      ;[880, 1100, 880].forEach((freq, i) => {
-        const osc = ctx.createOscillator(), g = ctx.createGain()
-        osc.connect(g); g.connect(ctx.destination)
-        osc.frequency.value = freq
-        g.gain.setValueAtTime(0.5, ctx.currentTime + i * 0.22)
-        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.22 + 0.18)
-        osc.start(ctx.currentTime + i * 0.22)
-        osc.stop(ctx.currentTime + i * 0.22 + 0.2)
-      })
+      alertCtxRef.current = ctx
+
+      // 10 second ka alarm — har 0.55s pe ek ding-dong pair
+      const totalSecs = 10
+      const step = 0.55
+      const numBeeps = Math.ceil(totalSecs / step) // ~18 pairs
+
+      for (let i = 0; i < numBeeps; i++) {
+        const base = ctx.currentTime + i * step
+
+        // Pehla tone — 880Hz
+        const o1 = ctx.createOscillator(), g1 = ctx.createGain()
+        o1.type = 'square'; o1.frequency.value = 880
+        o1.connect(g1); g1.connect(ctx.destination)
+        g1.gain.setValueAtTime(0.9, base)
+        g1.gain.exponentialRampToValueAtTime(0.001, base + 0.22)
+        o1.start(base); o1.stop(base + 0.23)
+
+        // Doosra tone — 1100Hz (0.27s baad)
+        const o2 = ctx.createOscillator(), g2 = ctx.createGain()
+        o2.type = 'square'; o2.frequency.value = 1100
+        o2.connect(g2); g2.connect(ctx.destination)
+        g2.gain.setValueAtTime(0.9, base + 0.27)
+        g2.gain.exponentialRampToValueAtTime(0.001, base + 0.50)
+        o2.start(base + 0.27); o2.stop(base + 0.51)
+      }
+
+      // 10 second baad auto-close
+      setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 11000)
     } catch (e) {}
   }
 
@@ -97,12 +120,14 @@ export default function AdminPage() {
         const latest = ordRes.orders || []
         const activeCount = latest.filter(o => !['delivered','cancelled'].includes(o.status)).length
         if (lastOrderCount.current > 0 && activeCount > lastOrderCount.current) {
-          playAlert()
+          playLoudAlert()
           setNotifCount(n => n + (activeCount - lastOrderCount.current))
           if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification('🍽️ Naya Order!', { body: 'CloudKitchen pe naya order aa gaya!', icon: '/favicon.ico' })
+            new Notification('🍽️ Naya Order!', { body: 'FoodFi Cloud Kitchen pe naya order aa gaya!', icon: '/favicon.ico' })
           }
-          showToast('🔔 Naya order aa gaya!')
+          // Toast 10 sec tak dikhao (alarm ke saath)
+          setToast('🔔 Naya order aa gaya! — Abhi dekho!')
+          setTimeout(() => setToast(''), 10000)
         }
         lastOrderCount.current = activeCount
         setOrders(latest)

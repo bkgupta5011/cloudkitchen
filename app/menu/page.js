@@ -15,10 +15,11 @@ export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState('All')
   const [loading, setLoading] = useState(true)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const [showIOSModal, setShowIOSModal] = useState(false)
 
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
-  // Show install banner after 4s if not already installed (Android: has prompt, iOS: isIOS flag)
+  // Show install banner after 4s if not already installed
   useEffect(() => {
     if (isInstalled) return
     const t = setTimeout(() => {
@@ -28,6 +29,7 @@ export default function MenuPage() {
   }, [installPrompt, isInstalled, isIOS])
 
   const handleInstall = async () => {
+    if (isIOS) { setShowIOSModal(true); return }
     const ok = await install()
     if (ok) setShowInstallBanner(false)
   }
@@ -114,10 +116,10 @@ export default function MenuPage() {
           </button>
           <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
           <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
-          {/* Install button — show only if prompt available and not installed */}
-          {installPrompt && !isInstalled && (
+          {/* Install button — Android: native prompt, iOS: step-by-step modal */}
+          {!isInstalled && (installPrompt || isIOS) && (
             <button
-              onClick={isIOS ? () => setShowInstallBanner(true) : handleInstall}
+              onClick={handleInstall}
               style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}
               title="Install FoodFi App">
               ⬇️ Install
@@ -130,29 +132,84 @@ export default function MenuPage() {
         </div>
       </nav>
 
-      {/* PWA Install Banner */}
-      {showInstallBanner && !isInstalled && (
-        isIOS ? (
-          <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', fontSize:13, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-            <span>📱 Safari → Share → <strong>Add to Home Screen</strong> karo — FoodFi home screen pe aa jayega!</span>
-            <button onClick={() => setShowInstallBanner(false)} style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer', flexShrink:0 }}>✕</button>
+      {/* PWA Install Banner — Android only (iOS uses modal) */}
+      {showInstallBanner && !isInstalled && !isIOS && (
+        <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
+            <div style={{ fontSize:11, color:'#fed7aa' }}>Home screen pe add karo — faster ordering!</div>
           </div>
-        ) : (
-          <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-            <div>
-              <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
-              <div style={{ fontSize:11, color:'#fed7aa' }}>Home screen pe add karo — faster ordering!</div>
-            </div>
-            <div style={{ display:'flex', gap:8, flexShrink:0 }}>
-              <button onClick={handleInstall}
-                style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
-                Install ⬇️
-              </button>
-              <button onClick={() => setShowInstallBanner(false)}
-                style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer' }}>✕</button>
-            </div>
+          <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+            <button onClick={handleInstall}
+              style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Install ⬇️
+            </button>
+            <button onClick={() => setShowInstallBanner(false)}
+              style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer' }}>✕</button>
           </div>
-        )
+        </div>
+      )}
+
+      {/* iOS auto-show banner — taps to open modal */}
+      {showInstallBanner && !isInstalled && isIOS && (
+        <div onClick={() => setShowIOSModal(true)}
+          style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, cursor:'pointer' }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
+            <div style={{ fontSize:11, color:'#fed7aa' }}>Yahan tap karo — step by step guide dekhein</div>
+          </div>
+          <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+            <button onClick={(e) => { e.stopPropagation(); setShowIOSModal(true) }}
+              style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Kaise? 👆
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setShowInstallBanner(false) }}
+              style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer' }}>✕</button>
+          </div>
+        </div>
+      )}
+
+      {/* iOS Install Guide Modal */}
+      {showIOSModal && (
+        <div style={{ position:'fixed', inset:0, background:'#00000088', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+          onClick={() => setShowIOSModal(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:480, padding:'24px 20px 40px', boxShadow:'0 -4px 32px #0003' }}>
+            {/* Handle bar */}
+            <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
+            <div style={{ textAlign:'center', marginBottom:20 }}>
+              <div style={{ fontSize:36 }}>📱</div>
+              <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'8px 0 4px' }}>FoodFi Install Karo</h3>
+              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>iPhone / iPad pe App jaisi feel ke liye</p>
+            </div>
+
+            {/* Steps */}
+            {[
+              { num:'1', icon:'⬆️', title:'Share Button Dabaao', desc:'Safari browser mein — address bar ke bilkul right side mein ek box + arrow (↑) icon hai, woh dabaao' },
+              { num:'2', icon:'📋', title:'"Add to Home Screen" Select Karo', desc:'Neeche scroll karo aur "Add to Home Screen" option pe tap karo' },
+              { num:'3', icon:'✅', title:'"Add" Pe Tap Karo', desc:'Name confirm karke upar right side mein "Add" button dabaao — bas!' },
+            ].map(s => (
+              <div key={s.num} style={{ display:'flex', gap:14, marginBottom:16, alignItems:'flex-start' }}>
+                <div style={{ width:36, height:36, borderRadius:'50%', background:'#e85d04', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14, flexShrink:0 }}>{s.num}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1a1a1a' }}>{s.icon} {s.title}</div>
+                  <div style={{ fontSize:12, color:'#6b7280', marginTop:3, lineHeight:1.5 }}>{s.desc}</div>
+                </div>
+              </div>
+            ))}
+
+            {/* Visual hint for Share button location */}
+            <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:12, padding:'10px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'center' }}>
+              <span style={{ fontSize:22 }}>💡</span>
+              <span style={{ fontSize:12, color:'#92400e' }}>Share button (↑) address bar ke right side mein hota hai — <strong>page ko thoda scroll karo</strong>, address bar visible ho jayega</span>
+            </div>
+
+            <button onClick={() => setShowIOSModal(false)}
+              style={{ width:'100%', background:'#e85d04', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+              Samajh Gaya — Close ✓
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Hero */}

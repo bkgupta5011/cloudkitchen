@@ -13,18 +13,68 @@ const STATUS_CONFIG = {
   out_for_delivery: { label: '🛵 Raste me hai', color: '#e85d04', bg: '#fff7ed', next: 'deliver' },
 }
 
+// ── iOS Install Guide Modal ───────────────────────────────────────────
+function IOSInstallModal({ onClose }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#00000088', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:480, padding:'24px 20px 40px', boxShadow:'0 -4px 32px #0003' }}>
+        <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
+        <div style={{ textAlign:'center', marginBottom:20 }}>
+          <div style={{ fontSize:36 }}>🛵</div>
+          <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'8px 0 4px' }}>Delivery App Install Karo</h3>
+          <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>iPhone pe App jaisi feel ke liye</p>
+        </div>
+        {[
+          { num:'1', icon:'⬆️', title:'Share Button Dabaao', desc:'Safari mein address bar ke right side mein box + arrow (↑) icon dabaao' },
+          { num:'2', icon:'📋', title:'"Add to Home Screen" Select Karo', desc:'Neeche scroll karo — "Add to Home Screen" pe tap karo' },
+          { num:'3', icon:'✅', title:'"Add" Pe Tap Karo', desc:'Name confirm karke upar "Add" button dabaao — done!' },
+        ].map(s => (
+          <div key={s.num} style={{ display:'flex', gap:14, marginBottom:16, alignItems:'flex-start' }}>
+            <div style={{ width:36, height:36, borderRadius:'50%', background:'#16a34a', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14, flexShrink:0 }}>{s.num}</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a1a' }}>{s.icon} {s.title}</div>
+              <div style={{ fontSize:12, color:'#6b7280', marginTop:3, lineHeight:1.5 }}>{s.desc}</div>
+            </div>
+          </div>
+        ))}
+        <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'10px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'center' }}>
+          <span style={{ fontSize:20 }}>💡</span>
+          <span style={{ fontSize:12, color:'#166534' }}>Share button (↑) address bar ke right mein hota hai — <strong>page scroll karo</strong>, bar visible ho jayega</span>
+        </div>
+        <button onClick={onClose}
+          style={{ width:'100%', background:'#16a34a', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          Samajh Gaya ✓
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Install Banner ────────────────────────────────────────────────────
 function InstallBanner({ onInstall, isIOS, onDismiss }) {
   if (isIOS) return (
-    <div style={{ background:'#052e16', color:'#fff', padding:'10px 16px', fontSize:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-      <span>📱 Safari → Share → <strong>Add to Home Screen</strong> karo</span>
-      <button onClick={onDismiss} style={{ background:'none', border:'none', color:'#86efac', fontSize:18, cursor:'pointer' }}>✕</button>
+    <div onClick={onInstall}
+      style={{ background:'#052e16', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, cursor:'pointer' }}>
+      <div>
+        <div style={{ fontSize:13, fontWeight:700 }}>📱 Delivery App Install Karo</div>
+        <div style={{ fontSize:11, color:'#86efac' }}>Step by step guide ke liye tap karo</div>
+      </div>
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={(e)=>{ e.stopPropagation(); onInstall() }}
+          style={{ background:'#22c55e', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+          Kaise? 👆
+        </button>
+        <button onClick={(e)=>{ e.stopPropagation(); onDismiss() }}
+          style={{ background:'none', border:'none', color:'#86efac', fontSize:18, cursor:'pointer' }}>✕</button>
+      </div>
     </div>
   )
   return (
     <div style={{ background:'#052e16', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
       <div>
-        <div style={{ fontSize:13, fontWeight:700 }}>📱 App Install Karo</div>
+        <div style={{ fontSize:13, fontWeight:700 }}>📱 Delivery App Install Karo</div>
         <div style={{ fontSize:11, color:'#86efac' }}>Home screen pe add karo — faster access</div>
       </div>
       <div style={{ display:'flex', gap:8 }}>
@@ -161,6 +211,7 @@ export default function DeliveryPage() {
   const [saveMsg, setSaveMsg]         = useState('')
   const [toast, setToast]             = useState('')
   const [showInstall, setShowInstall] = useState(false)
+  const [showIOSModal, setShowIOSModal] = useState(false)
 
   const pollRef        = useRef(null)
   const alertCtxRef    = useRef(null)
@@ -324,11 +375,18 @@ export default function DeliveryPage() {
       {/* Install banner */}
       {showInstall && !isInstalled && (
         <InstallBanner
-          onInstall={async () => { const ok = await install(); if(ok) setShowInstall(false) }}
+          onInstall={async () => {
+            if (isIOS) { setShowIOSModal(true); return }
+            const ok = await install()
+            if (ok) setShowInstall(false)
+          }}
           isIOS={isIOS}
           onDismiss={() => setShowInstall(false)}
         />
       )}
+
+      {/* iOS Install Guide Modal */}
+      {showIOSModal && <IOSInstallModal onClose={() => setShowIOSModal(false)} />}
 
       {/* Toast */}
       {toast && (

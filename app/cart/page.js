@@ -31,8 +31,8 @@ export default function CartPage() {
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
 
   useEffect(() => {
-    const saved = sessionStorage.getItem('ck_cart')
-    if (saved) setCart(JSON.parse(saved))
+    const saved = localStorage.getItem('ck_cart')
+    if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
     // Load kitchen settings for dynamic radius
     fetch('/api/admin').then(r => r.json()).then(d => {
@@ -57,7 +57,7 @@ export default function CartPage() {
     }).catch(() => {})
   }, [])
 
-  const saveCart = (c) => { setCart(c); sessionStorage.setItem('ck_cart', JSON.stringify(c)) }
+  const saveCart = (c) => { setCart(c); localStorage.setItem('ck_cart', JSON.stringify(c)) }
   const addItem = (id) => saveCart({ ...cart, [id]: (cart[id] || 0) + 1 })
   const removeItem = (id) => {
     const nc = { ...cart }
@@ -179,7 +179,7 @@ export default function CartPage() {
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error); return }
-      sessionStorage.removeItem('ck_cart')
+      localStorage.removeItem('ck_cart')
       setOrderNum(data.orderNumber)
       setPlaced(true)
     } catch { setError('Something went wrong') }

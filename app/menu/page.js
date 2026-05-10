@@ -15,9 +15,9 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Restore cart from sessionStorage
-    const saved = sessionStorage.getItem('ck_cart')
-    if (saved) setCart(JSON.parse(saved))
+    // Restore cart from localStorage (persists across logout/login)
+    const saved = localStorage.getItem('ck_cart')
+    if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
 
     Promise.all([
       fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) }).then(r => r.json()),
@@ -36,7 +36,7 @@ export default function MenuPage() {
 
   const saveCart = (newCart) => {
     setCart(newCart)
-    sessionStorage.setItem('ck_cart', JSON.stringify(newCart))
+    localStorage.setItem('ck_cart', JSON.stringify(newCart))
   }
 
   const addItem = (id) => {
@@ -62,7 +62,7 @@ export default function MenuPage() {
 
   const logout = async () => {
     await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) })
-    sessionStorage.removeItem('ck_cart')
+    // Cart localStorage mein rehti hai — login ke baad wapas milegi
     router.push('/login')
   }
 
@@ -72,7 +72,7 @@ export default function MenuPage() {
     <div className={styles.page}>
       {/* Navbar */}
       <nav className={styles.nav}>
-        <span className={styles.logo}>🍽️ CloudKitchen</span>
+        <span className={styles.logo}>🍽️ <span style={{color:'#e85d04'}}>Food</span>Fi</span>
         <div className={styles.navRight}>
           <span className={`${styles.kitchenBadge} ${kitchenOpen ? styles.open : styles.closed}`}>
             <span className={styles.dot} /> {kitchenOpen ? 'Open' : 'Closed'}

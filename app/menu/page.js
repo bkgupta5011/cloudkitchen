@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
+import { usePWAInstall } from '@/lib/usePWAInstall'
 
 export default function MenuPage() {
   const router = useRouter()
@@ -13,6 +14,23 @@ export default function MenuPage() {
   const [cart, setCart] = useState({})
   const [activeCategory, setActiveCategory] = useState('All')
   const [loading, setLoading] = useState(true)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+
+  const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
+
+  // Show install banner after 4s if not already installed (Android: has prompt, iOS: isIOS flag)
+  useEffect(() => {
+    if (isInstalled) return
+    const t = setTimeout(() => {
+      if (installPrompt || isIOS) setShowInstallBanner(true)
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [installPrompt, isInstalled, isIOS])
+
+  const handleInstall = async () => {
+    const ok = await install()
+    if (ok) setShowInstallBanner(false)
+  }
 
   useEffect(() => {
     // Restore cart from localStorage (persists across logout/login)
@@ -96,12 +114,46 @@ export default function MenuPage() {
           </button>
           <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
           <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
+          {/* Install button — show only if prompt available and not installed */}
+          {installPrompt && !isInstalled && (
+            <button
+              onClick={isIOS ? () => setShowInstallBanner(true) : handleInstall}
+              style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}
+              title="Install FoodFi App">
+              ⬇️ Install
+            </button>
+          )}
           <button onClick={toggleDark} style={{ background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:15 }} title="Dark/Light mode">
             {typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')==='dark' ? '☀️' : '🌙'}
           </button>
           <button className="btn btn-secondary" onClick={logout} style={{ fontSize: 12, padding: '6px 10px' }}>Logout</button>
         </div>
       </nav>
+
+      {/* PWA Install Banner */}
+      {showInstallBanner && !isInstalled && (
+        isIOS ? (
+          <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', fontSize:13, display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+            <span>📱 Safari → Share → <strong>Add to Home Screen</strong> karo — FoodFi home screen pe aa jayega!</span>
+            <button onClick={() => setShowInstallBanner(false)} style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer', flexShrink:0 }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+            <div>
+              <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
+              <div style={{ fontSize:11, color:'#fed7aa' }}>Home screen pe add karo — faster ordering!</div>
+            </div>
+            <div style={{ display:'flex', gap:8, flexShrink:0 }}>
+              <button onClick={handleInstall}
+                style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                Install ⬇️
+              </button>
+              <button onClick={() => setShowInstallBanner(false)}
+                style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer' }}>✕</button>
+            </div>
+          </div>
+        )
+      )}
 
       {/* Hero */}
       <div className={styles.hero}>

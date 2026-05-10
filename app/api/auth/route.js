@@ -21,7 +21,7 @@ async function sendResetEmail(toEmail, resetLink) {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
   const { error } = await resend.emails.send({
-    from: 'FoodFi Kitchen <onboarding@resend.dev>',
+    from: 'FoodFi Kitchen <noreply@foodfi.in>',
     to: toEmail,
     subject: '🔐 Password Reset - FoodFi',
     html: `

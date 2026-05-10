@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: 'customers',label: '👥 Customers' },
   { id: 'support',  label: '💬 Support',           badge: 'support' },
   { id: 'analytics',label: '📊 Analytics' },
+  { id: 'notices',  label: '📣 Notices' },
 ]
 
 export default function AdminPage() {
@@ -47,6 +48,9 @@ export default function AdminPage() {
   const [payAmount, setPayAmount] = useState('')
   const [payNotes, setPayNotes] = useState('')
   const [payHistory, setPayHistory] = useState([])
+  const [notices, setNotices] = useState([])
+  const [newNotice, setNewNotice] = useState({ message: '', emoji: '📢' })
+  const [noticeEmojis] = useState(['📢', '🎉', '🔥', '❤️', '🍽️', '✨', '🎁', '💯', '🙏', '👋'])
   const [uploadingImg, setUploadingImg] = useState(false)
   const [editingItemId, setEditingItemId] = useState(null)
   const [showSupport, setShowSupport] = useState(false)
@@ -115,7 +119,7 @@ export default function AdminPage() {
 
   const loadAll = async () => {
     setLoading(true)
-    const [settingsRes, ordersRes, menuRes, offersRes, boysRes, pendingRes, pricingRes, analyticsRes, customersRes] = await Promise.all([
+    const [settingsRes, ordersRes, menuRes, offersRes, boysRes, pendingRes, pricingRes, analyticsRes, customersRes, noticesRes] = await Promise.all([
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/orders').then(r => r.json()),
       fetch('/api/menu?admin=true').then(r => r.json()),
@@ -125,6 +129,7 @@ export default function AdminPage() {
       fetch('/api/admin?type=pricing').then(r => r.json()),
       fetch('/api/admin?type=analytics').then(r => r.json()),
       fetch('/api/admin?type=customers').then(r => r.json()),
+      fetch('/api/notices').then(r => r.json()),
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
@@ -141,6 +146,7 @@ export default function AdminPage() {
     setPricing(pricingRes.pricing || [])
     setAnalytics(analyticsRes)
     setCustomers(customersRes.customers || [])
+    setNotices(noticesRes?.notices || [])
     setLoading(false)
   }
 
@@ -343,6 +349,23 @@ export default function AdminPage() {
       body: JSON.stringify({ message: chatInput, targetUserId: activeChatUser }) })
     setChatInput('')
     loadChat(activeChatUser)
+  }
+
+  const addNotice = async (e) => {
+    e.preventDefault()
+    if (!newNotice.message.trim()) return
+    const res = await fetch('/api/notices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newNotice) })
+    const data = await res.json()
+    if (data.notice) { setNotices(prev => [data.notice, ...prev]); setNewNotice({ message: '', emoji: '📢' }); showToast('✅ Notice post ho gaya!') }
+  }
+  const toggleNotice = async (id, is_active) => {
+    await fetch('/api/notices', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, is_active }) })
+    setNotices(prev => prev.map(n => n.id === id ? { ...n, is_active } : n))
+  }
+  const deleteNotice = async (id) => {
+    await fetch(`/api/notices?id=${id}`, { method: 'DELETE' })
+    setNotices(prev => prev.filter(n => n.id !== id))
+    showToast('Notice delete ho gaya')
   }
 
   const logout = async () => {
@@ -844,6 +867,72 @@ export default function AdminPage() {
               ))}
             </div>
           </>
+        )}
+        {/* ── NOTICES ── */}
+        {section === 'notices' && (
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>📣 Customer Notices</h2>
+            <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 20 }}>Yahan likhi baatein sabhi customers ke profile page pe dikhegi. Attractive messages likho jisse customer connection acha ho!</p>
+
+            {/* Add notice form */}
+            <div style={{ background: 'var(--card)', borderRadius: 14, padding: 20, border: '1px solid var(--bd)', marginBottom: 20 }}>
+              <h3 style={{ margin: '0 0 14px', fontSize: 15 }}>✍️ Naya Notice Likho</h3>
+              <form onSubmit={addNotice}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>Emoji Select Karo</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {noticeEmojis.map(em => (
+                      <button key={em} type="button" onClick={() => setNewNotice(p => ({ ...p, emoji: em }))}
+                        style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${newNotice.emoji === em ? 'var(--or)' : 'var(--bd)'}`, background: newNotice.emoji === em ? '#fff7ed' : 'var(--bg)', fontSize: 20, cursor: 'pointer' }}>
+                        {em}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>Message</label>
+                  <textarea required rows={3} value={newNotice.message} onChange={e => setNewNotice(p => ({ ...p, message: e.target.value }))}
+                    placeholder="e.g. 🎉 Aaj special offer hai! Sab orders pe 10% extra discount. Thank you for your love! ❤️"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 14, resize: 'none', boxSizing: 'border-box' }} />
+                </div>
+                <button type="submit" className="btn btn-primary">📣 Post Notice</button>
+              </form>
+            </div>
+
+            {/* Preview */}
+            {newNotice.message && (
+              <div style={{ background: 'linear-gradient(135deg, #fff7ed, #fef3c7)', border: '1px solid #fed7aa', borderRadius: 12, padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{newNotice.emoji}</span>
+                <div>
+                  <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, marginBottom: 3 }}>Preview (customer ko aisa dikhega):</div>
+                  <span style={{ fontSize: 13, color: '#92400e', lineHeight: 1.5 }}>{newNotice.message}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Existing notices */}
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Posted Notices ({notices.length})</h3>
+            {notices.length === 0 && <p style={{ color: 'var(--t2)', fontSize: 13 }}>Abhi koi notice nahi hai</p>}
+            {notices.map(n => (
+              <div key={n.id} style={{ background: 'var(--card)', borderRadius: 12, padding: '14px 16px', marginBottom: 10, border: '1px solid var(--bd)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 22, marginTop: 2 }}>{n.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <p style={{ margin: '0 0 8px', fontSize: 13, lineHeight: 1.5, color: 'var(--t1)' }}>{n.message}</p>
+                  <div style={{ fontSize: 11, color: 'var(--t2)' }}>{new Date(n.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 36, height: 20, borderRadius: 10, background: n.is_active ? 'var(--gr-d)' : '#d1d5db', cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}
+                      onClick={() => toggleNotice(n.id, !n.is_active)}>
+                      <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2, left: n.is_active ? 18 : 2, transition: 'left 0.2s', boxShadow: '0 1px 3px #0002' }} />
+                    </div>
+                    <span style={{ fontSize: 11, color: n.is_active ? 'var(--gr-d)' : 'var(--t2)', fontWeight: 600 }}>{n.is_active ? 'Live' : 'Off'}</span>
+                  </div>
+                  <button onClick={() => deleteNotice(n.id)} style={{ background: '#fef2f2', color: 'var(--rd)', border: 'none', borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </main>
 

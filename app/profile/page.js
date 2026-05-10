@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 export default function ProfilePage() {
@@ -12,13 +12,120 @@ export default function ProfilePage() {
   const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' })
   const [addresses, setAddresses] = useState([])
   const [orders, setOrders] = useState([])
+  const [notices, setNotices] = useState([])
   const [msg, setMsg] = useState('')
   const [msgType, setMsgType] = useState('ok')
   const [addingAddr, setAddingAddr] = useState(false)
-  const [newAddr, setNewAddr] = useState({ label: 'Home', address_text: '' })
-  const [tab, setTab] = useState('profile') // profile | orders | addresses | password
+  const [gpsLoading, setGpsLoading] = useState(false)
+  const [mapReady, setMapReady] = useState(false)
+  const [tab, setTab] = useState('profile')
+  const mapRef = useRef(null)
+  const leafletMapRef = useRef(null)
+  const markerRef = useRef(null)
+
+  const [newAddr, setNewAddr] = useState({
+    label: 'Home', recipient_name: '', recipient_phone: '',
+    building: '', area: '', landmark: '', pincode: '',
+    address_text: '', lat: null, lng: null, is_default: false
+  })
 
   const showMsg = (text, type = 'ok') => { setMsg(text); setMsgType(type); setTimeout(() => setMsg(''), 4000) }
+
+  // Load Leaflet JS/CSS once
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.L) { setMapReady(true); return }
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+    document.head.appendChild(link)
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => setMapReady(true)
+    document.head.appendChild(script)
+  }, [])
+
+  // Init map when address form opens
+  useEffect(() => {
+    if (!addingAddr || !mapReady) return
+    const timer = setTimeout(() => {
+      if (!mapRef.current || leafletMapRef.current) return
+      const L = window.L
+      const defaultLat = 28.6139, defaultLng = 77.2090
+      const map = L.map(mapRef.current, { zoomControl: true }).setView([defaultLat, defaultLng], 13)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map)
+
+      const marker = L.marker([defaultLat, defaultLng], {
+        draggable: true,
+        icon: L.divIcon({ html: '<div style="font-size:28px;margin-top:-14px;margin-left:-10px;">📍</div>', iconSize: [28, 28], className: '' })
+      }).addTo(map)
+
+      const onPick = async (lat, lng) => {
+        marker.setLatLng([lat, lng])
+        map.panTo([lat, lng])
+        setNewAddr(prev => ({ ...prev, lat, lng }))
+        await reverseGeocode(lat, lng)
+      }
+
+      marker.on('dragend', e => { const p = e.target.getLatLng(); onPick(p.lat, p.lng) })
+      map.on('click', e => onPick(e.latlng.lat, e.latlng.lng))
+
+      leafletMapRef.current = map
+      markerRef.current = marker
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [addingAddr, mapReady])
+
+  // Cleanup map on close
+  useEffect(() => {
+    if (!addingAddr && leafletMapRef.current) {
+      try { leafletMapRef.current.remove() } catch(e) {}
+      leafletMapRef.current = null
+      markerRef.current = null
+    }
+  }, [addingAddr])
+
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=en`)
+      const d = await r.json()
+      const a = d.address || {}
+      const area = [a.road, a.neighbourhood, a.suburb, a.village].filter(Boolean).join(', ')
+      const landmark = a.amenity || a.tourism || a.shop || a.leisure || ''
+      setNewAddr(prev => ({
+        ...prev,
+        lat, lng,
+        area: area || prev.area,
+        pincode: a.postcode || prev.pincode,
+        landmark: landmark || prev.landmark,
+        address_text: d.display_name || prev.address_text,
+      }))
+    } catch(e) {}
+  }
+
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) { showMsg('GPS support nahi hai is browser me', 'err'); return }
+    setGpsLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        setGpsLoading(false)
+        if (markerRef.current && leafletMapRef.current) {
+          markerRef.current.setLatLng([lat, lng])
+          leafletMapRef.current.setView([lat, lng], 16)
+        }
+        setNewAddr(prev => ({ ...prev, lat, lng }))
+        await reverseGeocode(lat, lng)
+      },
+      (err) => {
+        setGpsLoading(false)
+        showMsg('Location access deny hai. Browser settings se allow karo.', 'err')
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
 
   useEffect(() => {
     fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) })
@@ -30,18 +137,16 @@ export default function ProfilePage() {
           fetch('/api/profile').then(r => r.json()),
           user.role === 'customer' ? fetch('/api/addresses').then(r => r.json()) : Promise.resolve({ addresses: [] }),
           user.role === 'customer' ? fetch('/api/orders').then(r => r.json()) : Promise.resolve({ orders: [] }),
+          fetch('/api/notices').then(r => r.json()),
         ])
       })
-      .then(([profileRes, addrRes, ordersRes]) => {
+      .then(([profileRes, addrRes, ordersRes, noticesRes]) => {
         if (!profileRes) return
         setProfile(profileRes.profile)
-        setForm({
-          name: profileRes.profile?.name || '',
-          phone: profileRes.profile?.phone || '',
-          address: profileRes.profile?.address || '',
-        })
+        setForm({ name: profileRes.profile?.name || '', phone: profileRes.profile?.phone || '', address: profileRes.profile?.address || '' })
         setAddresses(addrRes?.addresses || [])
         setOrders(ordersRes?.orders || [])
+        setNotices(noticesRes?.notices || [])
         setLoading(false)
       })
   }, [])
@@ -64,14 +169,17 @@ export default function ProfilePage() {
 
   const addAddress = async (e) => {
     e.preventDefault()
-    const res = await fetch('/api/addresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newAddr) })
+    if (!newAddr.building.trim()) { showMsg('❌ Flat/Building number zaroori hai', 'err'); return }
+    const fullAddr = [newAddr.building, newAddr.area, newAddr.landmark ? `Near ${newAddr.landmark}` : '', newAddr.pincode].filter(Boolean).join(', ')
+    const payload = { ...newAddr, address_text: newAddr.address_text || fullAddr, recipient_name: newAddr.recipient_name || profile?.name, recipient_phone: newAddr.recipient_phone || profile?.phone }
+    const res = await fetch('/api/addresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     const data = await res.json()
     if (data.address) {
       setAddresses(prev => [...prev, data.address])
-      setNewAddr({ label: 'Home', address_text: '' })
+      setNewAddr({ label: 'Home', recipient_name: '', recipient_phone: '', building: '', area: '', landmark: '', pincode: '', address_text: '', lat: null, lng: null, is_default: false })
       setAddingAddr(false)
       showMsg('✅ Address save ho gaya!')
-    }
+    } else showMsg('❌ ' + (data.error || 'Save failed'), 'err')
   }
 
   const setDefault = async (id) => {
@@ -94,15 +202,33 @@ export default function ProfilePage() {
 
   const backPath = role === 'admin' ? '/admin' : role === 'delivery' ? '/delivery' : '/menu'
 
+  const inp = (placeholder, value, onChange, extra = {}) => (
+    <input value={value} onChange={onChange} placeholder={placeholder}
+      style={{ width: '100%', padding: '11px 13px', borderRadius: 9, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 14, boxSizing: 'border-box', outline: 'none' }}
+      {...extra} />
+  )
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', paddingBottom: 40 }}>
-      {/* Nav */}
       <nav style={{ background: 'var(--card)', borderBottom: '1px solid var(--bd)', padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => router.push(backPath)}>← Back</button>
         <span style={{ fontSize: 15, fontWeight: 600 }}>My Profile</span>
       </nav>
 
-      <div style={{ maxWidth: 520, margin: '0 auto', padding: '20px 16px' }}>
+      <div style={{ maxWidth: 540, margin: '0 auto', padding: '20px 16px' }}>
+
+        {/* Admin Notices */}
+        {notices.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {notices.map(n => (
+              <div key={n.id} style={{ background: 'linear-gradient(135deg, #fff7ed, #fef3c7)', border: '1px solid #fed7aa', borderRadius: 12, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>{n.emoji || '📢'}</span>
+                <span style={{ fontSize: 13, color: '#92400e', lineHeight: 1.5 }}>{n.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Profile header */}
         <div style={{ background: 'linear-gradient(135deg, #e85d04, #f97316)', borderRadius: 16, padding: '24px 20px', marginBottom: 16, color: '#fff', textAlign: 'center' }}>
           <div style={{ width: 60, height: 60, background: 'rgba(255,255,255,0.25)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', fontSize: 24, fontWeight: 700 }}>
@@ -110,7 +236,7 @@ export default function ProfilePage() {
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{profile?.name}</div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>{profile?.email}</div>
-          <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2, background: 'rgba(255,255,255,0.2)', display: 'inline-block', borderRadius: 12, padding: '2px 12px', marginTop: 6 }}>
+          <div style={{ fontSize: 12, background: 'rgba(255,255,255,0.2)', display: 'inline-block', borderRadius: 12, padding: '2px 12px', marginTop: 6 }}>
             {role === 'customer' ? '🛒 Customer' : role === 'delivery' ? '🛵 Delivery Boy' : '⚙️ Admin'}
           </div>
         </div>
@@ -128,13 +254,11 @@ export default function ProfilePage() {
             ...(role === 'customer' ? [['addresses', '📍 Addresses'], ['orders', '📋 Orders']] : []),
             ['password', '🔒 Password'],
           ].map(([t, label]) => (
-            <button key={t}
-              onClick={() => setTab(t)}
+            <button key={t} onClick={() => setTab(t)}
               style={{ flex: 1, padding: '8px 4px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 background: tab === t ? 'var(--card)' : 'transparent',
                 color: tab === t ? 'var(--or)' : 'var(--t2)',
-                boxShadow: tab === t ? '0 1px 4px #0001' : 'none'
-              }}>
+                boxShadow: tab === t ? '0 1px 4px #0001' : 'none' }}>
               {label}
             </button>
           ))}
@@ -164,10 +288,7 @@ export default function ProfilePage() {
               </>
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
-                {[
-                  ['Name', profile?.name],
-                  ['Email', profile?.email],
-                  ['Phone', profile?.phone],
+                {[['Name', profile?.name], ['Email', profile?.email], ['Phone', profile?.phone],
                   ...(role === 'customer' ? [['Address', profile?.address]] : []),
                   ['Member Since', profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'long' }) : '—'],
                 ].map(([label, val]) => (
@@ -184,10 +305,12 @@ export default function ProfilePage() {
         {/* ── ADDRESSES TAB ── */}
         {tab === 'addresses' && role === 'customer' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Saved Addresses</span>
-              <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => setAddingAddr(true)}>+ Add New</button>
-            </div>
+            {!addingAddr && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Saved Addresses</span>
+                <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => setAddingAddr(true)}>+ Add New</button>
+              </div>
+            )}
 
             {addresses.length === 0 && !addingAddr && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--t2)' }}>
@@ -197,7 +320,7 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {addresses.map(a => (
+            {!addingAddr && addresses.map(a => (
               <div key={a.id} style={{ background: 'var(--card)', borderRadius: 12, padding: '14px 16px', marginBottom: 10, border: a.is_default ? '1.5px solid var(--or)' : '1px solid var(--bd)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -207,37 +330,105 @@ export default function ProfilePage() {
                     {a.is_default && <span style={{ fontSize: 10, background: '#fff7ed', color: 'var(--or)', borderRadius: 8, padding: '2px 8px', fontWeight: 600 }}>DEFAULT</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    {!a.is_default && (
-                      <button onClick={() => setDefault(a.id)} style={{ fontSize: 11, color: 'var(--or)', background: 'none', border: 'none', cursor: 'pointer' }}>Set Default</button>
-                    )}
+                    {!a.is_default && <button onClick={() => setDefault(a.id)} style={{ fontSize: 11, color: 'var(--or)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Set Default</button>}
                     <button onClick={() => deleteAddress(a.id)} style={{ fontSize: 11, color: 'var(--rd)', background: 'none', border: 'none', cursor: 'pointer' }}>Delete</button>
                   </div>
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--t2)', margin: 0 }}>{a.address_text}</p>
+                {(a.recipient_name || a.recipient_phone) && (
+                  <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 4 }}>
+                    👤 {a.recipient_name}{a.recipient_phone ? ` • 📞 ${a.recipient_phone}` : ''}
+                  </div>
+                )}
+                {a.building && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', marginBottom: 2 }}>{a.building}</div>}
+                <p style={{ fontSize: 13, color: 'var(--t2)', margin: 0 }}>{a.area}{a.landmark ? ` • Near ${a.landmark}` : ''}{a.pincode ? ` - ${a.pincode}` : ''}</p>
               </div>
             ))}
 
+            {/* Add Address Form */}
             {addingAddr && (
-              <div style={{ background: 'var(--card)', borderRadius: 14, padding: 20, border: '1.5px solid var(--or)' }}>
-                <h3 style={{ margin: '0 0 14px', fontSize: 14 }}>➕ Add New Address</h3>
-                <form onSubmit={addAddress}>
-                  <div className="field">
-                    <label>Label</label>
-                    <select value={newAddr.label} onChange={e => setNewAddr({ ...newAddr, label: e.target.value })} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--bd)', background: 'var(--bg)', fontSize: 14 }}>
-                      <option>Home</option>
-                      <option>Work</option>
-                      <option>Other</option>
-                    </select>
+              <div style={{ background: 'var(--card)', borderRadius: 14, border: '1.5px solid var(--or)' }}>
+                {/* Map */}
+                <div style={{ borderRadius: '14px 14px 0 0', overflow: 'hidden', position: 'relative' }}>
+                  <div ref={mapRef} style={{ width: '100%', height: 260 }} />
+                  <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 }}>
+                    <button type="button" onClick={getCurrentLocation}
+                      style={{ background: '#fff', border: '1.5px solid var(--or)', color: 'var(--or)', borderRadius: 20, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 8px #0003', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                      {gpsLoading ? '⏳' : '🎯'} {gpsLoading ? 'Location fetch ho raha...' : 'Current Location Use Karo'}
+                    </button>
                   </div>
-                  <div className="field">
-                    <label>Full Address</label>
-                    <textarea required rows={3} value={newAddr.address_text} onChange={e => setNewAddr({ ...newAddr, address_text: e.target.value })} placeholder="Flat no, Street, Landmark, City - PIN" style={{ resize: 'none' }} />
+                </div>
+
+                <div style={{ padding: 20 }}>
+                  <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
+                    📍 Map pe tap karo ya GPS button se location lo, phir details fill karo
                   </div>
+
+                  {/* Save As */}
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 6 }}>Save As</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {['Home', 'Work', 'Other'].map(lbl => (
+                        <button key={lbl} type="button" onClick={() => setNewAddr(prev => ({ ...prev, label: lbl }))}
+                          style={{ flex: 1, padding: '8px', borderRadius: 8, border: `1.5px solid ${newAddr.label === lbl ? 'var(--or)' : 'var(--bd)'}`, background: newAddr.label === lbl ? '#fff7ed' : 'var(--bg)', color: newAddr.label === lbl ? 'var(--or)' : 'var(--t2)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                          {lbl === 'Home' ? '🏠' : lbl === 'Work' ? '🏢' : '📍'} {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Recipient */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Recipient Name</label>
+                      {inp('Full Name', newAddr.recipient_name, e => setNewAddr(p => ({ ...p, recipient_name: e.target.value })))}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Mobile Number</label>
+                      {inp('10 digit number', newAddr.recipient_phone, e => setNewAddr(p => ({ ...p, recipient_phone: e.target.value.replace(/[^0-9]/g, '').slice(0,10) })), { inputMode: 'numeric' })}
+                    </div>
+                  </div>
+
+                  {/* Building */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Flat / House / Building No. <span style={{ color: 'var(--rd)' }}>*</span></label>
+                    {inp('e.g. Flat 3B, Tower A, Shiv Niwas', newAddr.building, e => setNewAddr(p => ({ ...p, building: e.target.value })))}
+                  </div>
+
+                  {/* Area */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Area / Street / Colony</label>
+                    {inp('e.g. Ashok Nagar, Main Road', newAddr.area, e => setNewAddr(p => ({ ...p, area: e.target.value })))}
+                  </div>
+
+                  {/* Landmark & Pincode */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Landmark</label>
+                      {inp('Near school/temple...', newAddr.landmark, e => setNewAddr(p => ({ ...p, landmark: e.target.value })))}
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Pincode</label>
+                      {inp('e.g. 800001', newAddr.pincode, e => setNewAddr(p => ({ ...p, pincode: e.target.value.replace(/[^0-9]/g,'').slice(0,6) })), { inputMode: 'numeric' })}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--t2)', display: 'block', marginBottom: 5 }}>Full Address (auto-filled from map)</label>
+                    <textarea rows={2} value={newAddr.address_text} onChange={e => setNewAddr(p => ({ ...p, address_text: e.target.value }))}
+                      placeholder="Auto-filled when you select location on map..."
+                      style={{ width: '100%', padding: '10px 12px', borderRadius: 9, border: '1.5px solid var(--bd)', background: 'var(--bg)', fontSize: 13, resize: 'none', boxSizing: 'border-box' }} />
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, cursor: 'pointer', fontSize: 13 }}>
+                    <input type="checkbox" checked={newAddr.is_default} onChange={e => setNewAddr(p => ({ ...p, is_default: e.target.checked }))} />
+                    Set as default address
+                  </label>
+
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setAddingAddr(false)}>Cancel</button>
-                    <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>💾 Save</button>
+                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setAddingAddr(false); setNewAddr({ label: 'Home', recipient_name: '', recipient_phone: '', building: '', area: '', landmark: '', pincode: '', address_text: '', lat: null, lng: null, is_default: false }) }}>Cancel</button>
+                    <button type="button" className="btn btn-primary" style={{ flex: 2 }} onClick={addAddress}>💾 Save Address</button>
                   </div>
-                </form>
+                </div>
               </div>
             )}
           </div>
@@ -257,7 +448,7 @@ export default function ProfilePage() {
                 <div key={o.id} style={{ background: 'var(--card)', borderRadius: 12, padding: '14px 16px', marginBottom: 10, border: '1px solid var(--bd)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontWeight: 600, color: 'var(--bl)' }}>Order #{o.order_number}</span>
-                    <span className={`badge ${statusColor[o.status] || 'badge-new'}`}>{o.status.replace('_', ' ')}</span>
+                    <span className={`badge ${statusColor[o.status] || 'badge-new'}`}>{o.status?.replace('_', ' ')}</span>
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 4 }}>
                     {new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -266,9 +457,7 @@ export default function ProfilePage() {
                     <span style={{ color: 'var(--t2)', fontSize: 12 }}>{o.delivery_address?.slice(0, 40)}...</span>
                     <span style={{ color: 'var(--or)' }}>₹{Math.round(o.total)}</span>
                   </div>
-                  {o.delivery_boy_name && (
-                    <div style={{ fontSize: 11, color: 'var(--gr-d)', marginTop: 6 }}>🛵 {o.delivery_boy_name}</div>
-                  )}
+                  {o.delivery_boy_name && <div style={{ fontSize: 11, color: 'var(--gr-d)', marginTop: 6 }}>🛵 {o.delivery_boy_name}</div>}
                 </div>
               ))
             )}

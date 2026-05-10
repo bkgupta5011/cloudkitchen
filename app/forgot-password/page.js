@@ -15,11 +15,16 @@ export default function ForgotPasswordPage() {
     setError('')
     setLoading(true)
     try {
-      await fetch('/api/auth', {
+      const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'forgot-password', email })
       })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Email send nahi ho saka. Dobara try karo.')
+        return
+      }
       setSent(true)
     } catch {
       setError('Kuch gadbad ho gayi. Dobara try karo.')

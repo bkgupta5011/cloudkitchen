@@ -1,96 +1,213 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import styles from './delivery.module.css'
 import { usePushNotifications } from '@/lib/usePush'
+import { usePWAInstall } from '@/lib/usePWAInstall'
 
+// ── Helpers ──────────────────────────────────────────────────────────
+const pf = (v, fb = 0) => { const n = parseFloat(v); return isNaN(n) ? fb : n }
+
+const STATUS_CONFIG = {
+  confirmed:        { label: '🍳 Kitchen me hai', color: '#3b82f6', bg: '#eff6ff', next: 'pickup' },
+  preparing:        { label: '👨‍🍳 Ban raha hai', color: '#8b5cf6', bg: '#f5f3ff', next: 'pickup' },
+  out_for_delivery: { label: '🛵 Raste me hai', color: '#e85d04', bg: '#fff7ed', next: 'deliver' },
+}
+
+// ── Install Banner ────────────────────────────────────────────────────
+function InstallBanner({ onInstall, isIOS, onDismiss }) {
+  if (isIOS) return (
+    <div style={{ background:'#052e16', color:'#fff', padding:'10px 16px', fontSize:12, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+      <span>📱 Safari → Share → <strong>Add to Home Screen</strong> karo</span>
+      <button onClick={onDismiss} style={{ background:'none', border:'none', color:'#86efac', fontSize:18, cursor:'pointer' }}>✕</button>
+    </div>
+  )
+  return (
+    <div style={{ background:'#052e16', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+      <div>
+        <div style={{ fontSize:13, fontWeight:700 }}>📱 App Install Karo</div>
+        <div style={{ fontSize:11, color:'#86efac' }}>Home screen pe add karo — faster access</div>
+      </div>
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={onInstall}
+          style={{ background:'#22c55e', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+          Install ⬇️
+        </button>
+        <button onClick={onDismiss} style={{ background:'none', border:'none', color:'#86efac', fontSize:18, cursor:'pointer' }}>✕</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Order Card ────────────────────────────────────────────────────────
+function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
+  const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.confirmed
+  const needsPickup = order.status === 'confirmed' || order.status === 'preparing'
+  const needsDeliver = order.status === 'out_for_delivery'
+
+  const openMap = () => {
+    const q = order.delivery_lat && order.delivery_lng
+      ? `${order.delivery_lat},${order.delivery_lng}`
+      : encodeURIComponent(order.delivery_address || '')
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${q}`, '_blank')
+  }
+
+  return (
+    <div style={{ background:'#fff', borderRadius:20, marginBottom:14, overflow:'hidden', boxShadow:'0 2px 16px #0001', border:'1px solid #f0f0f0' }}>
+      {/* Status header */}
+      <div style={{ background: cfg.bg, borderBottom:`2px solid ${cfg.color}20`, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div>
+          <span style={{ fontSize:11, fontWeight:800, color: cfg.color, letterSpacing:0.5 }}>ORDER #{order.order_number}</span>
+          <div style={{ fontSize:13, fontWeight:700, color:'#1a1a1a', marginTop:2 }}>{cfg.label}</div>
+        </div>
+        <div style={{ textAlign:'right' }}>
+          <div style={{ fontSize:20, fontWeight:800, color:'#e85d04' }}>₹{Math.round(order.total)}</div>
+          <div style={{ fontSize:10, fontWeight:700, color:'#dc2626', background:'#fef2f2', borderRadius:6, padding:'2px 6px' }}>💵 CASH</div>
+        </div>
+      </div>
+
+      <div style={{ padding:'14px 16px' }}>
+        {/* Customer */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+          <div style={{ width:44, height:44, borderRadius:'50%', background: cfg.bg, border:`2px solid ${cfg.color}40`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, fontWeight:800, color: cfg.color, flexShrink:0 }}>
+            {order.customer_name?.split(' ').map(n=>n[0]).join('').slice(0,2)}
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'#1a1a1a' }}>{order.customer_name}</div>
+            <a href={`tel:${order.customer_phone}`} style={{ fontSize:13, color:'#2563eb', fontWeight:600, textDecoration:'none' }}>
+              📞 {order.customer_phone}
+            </a>
+          </div>
+          <a href={`tel:${order.customer_phone}`}
+            style={{ background:'#eff6ff', border:'1.5px solid #3b82f6', color:'#2563eb', borderRadius:12, padding:'8px 16px', fontSize:13, fontWeight:700, textDecoration:'none', whiteSpace:'nowrap' }}>
+            Call
+          </a>
+        </div>
+
+        {/* Address */}
+        <div style={{ background:'#f8fafc', borderRadius:12, padding:'10px 14px', marginBottom:12, display:'flex', gap:10, alignItems:'flex-start' }}>
+          <span style={{ fontSize:18, marginTop:1 }}>📍</span>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:'#1a1a1a', lineHeight:1.4 }}>{order.delivery_address}</div>
+            {order.distance_km && (
+              <div style={{ fontSize:11, color:'#64748b', marginTop:3 }}>
+                {pf(order.distance_km).toFixed(1)} km kitchen se
+              </div>
+            )}
+          </div>
+          <button onClick={openMap}
+            style={{ background:'#1e40af', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+            🗺️ Navigate
+          </button>
+        </div>
+
+        {/* Notes */}
+        {order.notes && (
+          <div style={{ background:'#fefce8', border:'1px solid #fde047', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#713f12', marginBottom:12 }}>
+            📝 <strong>Note:</strong> {order.notes}
+          </div>
+        )}
+
+        {/* Time */}
+        <div style={{ fontSize:11, color:'#94a3b8', marginBottom:12 }}>
+          🕐 {new Date(order.created_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12:true })}
+          {' · '}
+          {Math.round((Date.now() - new Date(order.created_at)) / 60000)} min ago
+        </div>
+
+        {/* Action Buttons */}
+        {needsPickup && (
+          <button
+            onClick={() => onPickup(order.id)}
+            disabled={pickingUp === order.id}
+            style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#2563eb,#3b82f6)', color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity: pickingUp===order.id ? 0.7 : 1 }}>
+            {pickingUp === order.id ? '⏳ Updating...' : '📦 Kitchen se Pick Up Kar Liya'}
+          </button>
+        )}
+
+        {needsDeliver && (
+          <button
+            onClick={() => onDeliver(order.id)}
+            disabled={delivering === order.id}
+            style={{ width:'100%', padding:'16px', background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity: delivering===order.id ? 0.7 : 1, boxShadow:'0 4px 20px #22c55e50' }}>
+            {delivering === order.id ? '⏳ Marking...' : '✅ Delivered — Order Complete!'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────
 export default function DeliveryPage() {
   const router = useRouter()
-  usePushNotifications(true) // Delivery boy gets new assignment notifications
-  const [user, setUser] = useState(null)
-  const [orders, setOrders] = useState([])
-  const [history, setHistory] = useState([])
-  const [stats, setStats] = useState(null)
-  const [boyInfo, setBoyInfo] = useState(null)
-  const [tab, setTab] = useState('orders') // orders | history | profile
-  const [period, setPeriod] = useState('today')
-  const [loading, setLoading] = useState(true)
-  const [toggling, setToggling] = useState(false)
+  usePushNotifications(true)
+  const { installPrompt, install, isIOS, isInstalled } = usePWAInstall()
+
+  const [user, setUser]               = useState(null)
+  const [orders, setOrders]           = useState([])
+  const [history, setHistory]         = useState([])
+  const [stats, setStats]             = useState(null)
+  const [boyInfo, setBoyInfo]         = useState(null)
+  const [tab, setTab]                 = useState('orders')
+  const [period, setPeriod]           = useState('today')
+  const [loading, setLoading]         = useState(true)
+  const [toggling, setToggling]       = useState(false)
+  const [pickingUp, setPickingUp]     = useState(null) // orderId being picked up
+  const [delivering, setDelivering]   = useState(null) // orderId being delivered
+  const [paymentHistory, setPaymentHistory] = useState([])
   const [profileEdit, setProfileEdit] = useState(false)
   const [profileForm, setProfileForm] = useState({})
-  const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' })
-  const [saveMsg, setSaveMsg] = useState('')
-  const [paymentHistory, setPaymentHistory] = useState([])
-  const [toast, setToast] = useState('')
-  const pollRef = useRef(null)
-  const alertCtxRef = useRef(null)
-  const lastOrderIds = useRef(new Set())
+  const [pwForm, setPwForm]           = useState({ current:'', newPw:'', confirm:'' })
+  const [saveMsg, setSaveMsg]         = useState('')
+  const [toast, setToast]             = useState('')
+  const [showInstall, setShowInstall] = useState(false)
+
+  const pollRef        = useRef(null)
+  const alertCtxRef    = useRef(null)
+  const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
 
-  const playLoudAlert = () => {
+  const playAlert = () => {
     try {
       if (alertCtxRef.current) { try { alertCtxRef.current.close() } catch {} }
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       alertCtxRef.current = ctx
-
-      // 10 second ka alarm — har 0.55s pe ding-dong pair
-      const totalSecs = 10
-      const step = 0.55
-      const numBeeps = Math.ceil(totalSecs / step)
-
-      for (let i = 0; i < numBeeps; i++) {
-        const base = ctx.currentTime + i * step
-
+      for (let i = 0; i < 18; i++) {
+        const base = ctx.currentTime + i * 0.55
         const o1 = ctx.createOscillator(), g1 = ctx.createGain()
         o1.type = 'square'; o1.frequency.value = 880
         o1.connect(g1); g1.connect(ctx.destination)
         g1.gain.setValueAtTime(0.9, base)
         g1.gain.exponentialRampToValueAtTime(0.001, base + 0.22)
         o1.start(base); o1.stop(base + 0.23)
-
-        const o2 = ctx.createOscillator(), g2 = ctx.createGain()
-        o2.type = 'square'; o2.frequency.value = 1100
-        o2.connect(g2); g2.connect(ctx.destination)
-        g2.gain.setValueAtTime(0.9, base + 0.27)
-        g2.gain.exponentialRampToValueAtTime(0.001, base + 0.50)
-        o2.start(base + 0.27); o2.stop(base + 0.51)
       }
-
       setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 11000)
-    } catch (e) {}
+    } catch {}
   }
 
   useEffect(() => {
-    fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) })
+    fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action:'me' }) })
       .then(r => r.json())
       .then(({ user }) => {
         if (!user || user.role !== 'delivery') { router.push('/login'); return }
         setUser(user)
         loadData()
       })
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission()
 
-    // Poll orders every 15s — naye assigned orders detect karo
     pollRef.current = setInterval(async () => {
       try {
         const d = await fetch('/api/orders').then(r => r.json())
         const newOrders = d.orders || []
         const newIds = new Set(newOrders.map(o => o.id))
-
-        // Pehle load ke baad hi alert bajao
         if (initialLoadDone.current && lastOrderIds.current.size > 0) {
-          const addedOrders = newOrders.filter(o => !lastOrderIds.current.has(o.id))
-          if (addedOrders.length > 0) {
-            playLoudAlert()
-            showToast(`🛵 Naya order assign hua! #${addedOrders[0].order_number || ''}`)
-            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-              new Notification('🛵 Naya Order Assign!', { body: `Order assign hua hai — turant dekho!`, icon: '/favicon.ico' })
-            }
+          const added = newOrders.filter(o => !lastOrderIds.current.has(o.id))
+          if (added.length > 0) {
+            playAlert()
+            showToast(`🛵 Naya order assign hua! #${added[0].order_number}`)
           }
         }
-
         lastOrderIds.current = newIds
         setOrders(newOrders)
       } catch {}
@@ -99,28 +216,30 @@ export default function DeliveryPage() {
     return () => clearInterval(pollRef.current)
   }, [])
 
+  // Show install banner after 3s if applicable
+  useEffect(() => {
+    if (!isInstalled && (installPrompt || isIOS)) {
+      const t = setTimeout(() => setShowInstall(true), 3000)
+      return () => clearTimeout(t)
+    }
+  }, [installPrompt, isIOS, isInstalled])
+
   const loadData = async () => {
     const [ordersRes, historyRes, profileRes] = await Promise.all([
       fetch('/api/orders').then(r => r.json()),
-      fetch(`/api/delivery/history?period=today`).then(r => r.json()),
+      fetch('/api/delivery/history?period=today').then(r => r.json()),
       fetch('/api/profile').then(r => r.json()),
     ])
-    const initialOrders = ordersRes.orders || []
-    setOrders(initialOrders)
-    // Initial order IDs save karo — taaki pehle load pe false alert na bajhe
-    lastOrderIds.current = new Set(initialOrders.map(o => o.id))
+    const initial = ordersRes.orders || []
+    setOrders(initial)
+    lastOrderIds.current = new Set(initial.map(o => o.id))
     initialLoadDone.current = true
     setHistory(historyRes.orders || [])
     setStats(historyRes.stats)
     setPaymentHistory(historyRes.paymentHistory || [])
     const info = historyRes.boyInfo || profileRes.profile
     setBoyInfo(info)
-    setProfileForm({
-      name: info?.name || '',
-      phone: info?.phone || '',
-      home_address: info?.home_address || '',
-      emergency_contact: info?.emergency_contact || '',
-    })
+    setProfileForm({ name: info?.name||'', phone: info?.phone||'', home_address: info?.home_address||'', emergency_contact: info?.emergency_contact||'' })
     setLoading(false)
   }
 
@@ -133,394 +252,361 @@ export default function DeliveryPage() {
 
   const toggleOnline = async () => {
     setToggling(true)
-    const newStatus = !boyInfo?.is_online
-    await fetch('/api/delivery/status', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isOnline: newStatus })
-    })
-    setBoyInfo(prev => ({ ...prev, is_online: newStatus }))
+    const next = !boyInfo?.is_online
+    await fetch('/api/delivery/status', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isOnline: next }) })
+    setBoyInfo(p => ({ ...p, is_online: next }))
     setToggling(false)
+    showToast(next ? '🟢 Aap online ho gaye — orders milenge!' : '⚫ Aap offline ho gaye')
+  }
+
+  const markPickup = async (orderId) => {
+    setPickingUp(orderId)
+    try {
+      await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ orderId, status:'out_for_delivery' }) })
+      setOrders(p => p.map(o => o.id === orderId ? { ...o, status:'out_for_delivery' } : o))
+      showToast('📦 Picked up! Ab customer ko deliver karo')
+    } catch { showToast('❌ Try again') }
+    setPickingUp(null)
   }
 
   const markDelivered = async (orderId) => {
-    if (!confirm('Order delivered mark karna chahte ho?')) return
-    await fetch('/api/orders', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId, status: 'delivered' })
-    })
-    setOrders(prev => prev.filter(o => o.id !== orderId))
-    loadHistory(period)
-    loadData()
-  }
-
-  const openMap = (address, lat, lng) => {
-    const query = lat && lng ? `${lat},${lng}` : encodeURIComponent(address)
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${query}`, '_blank')
+    setDelivering(orderId)
+    try {
+      await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ orderId, status:'delivered' }) })
+      setOrders(p => p.filter(o => o.id !== orderId))
+      showToast('🎉 Delivered! Cash collect karna mat bhoolo')
+      loadHistory(period)
+      // Refresh boyInfo for updated earnings
+      const pr = await fetch('/api/delivery/history?period=today').then(r => r.json())
+      setStats(pr.stats)
+      setBoyInfo(p => ({ ...p, total_earnings: pr.boyInfo?.total_earnings, payment_due: pr.boyInfo?.payment_due }))
+    } catch { showToast('❌ Try again') }
+    setDelivering(null)
   }
 
   const saveProfile = async () => {
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(profileForm)
-    })
+    const res = await fetch('/api/profile', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(profileForm) })
     const data = await res.json()
-    if (data.profile) { setBoyInfo(prev => ({ ...prev, ...data.profile })); setSaveMsg('✅ Profile save ho gayi!'); setProfileEdit(false) }
+    if (data.profile) { setBoyInfo(p => ({ ...p, ...data.profile })); setSaveMsg('✅ Saved!'); setProfileEdit(false) }
     else setSaveMsg('❌ Save nahi hua')
     setTimeout(() => setSaveMsg(''), 3000)
   }
 
   const changePassword = async (e) => {
     e.preventDefault()
-    if (pwForm.newPw !== pwForm.confirm) { setSaveMsg('❌ Passwords match nahi kar rahe'); return }
-    const res = await fetch('/api/profile', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.newPw })
-    })
+    if (pwForm.newPw !== pwForm.confirm) { setSaveMsg('❌ Passwords match nahi'); return }
+    const res = await fetch('/api/profile', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ currentPassword:pwForm.current, newPassword:pwForm.newPw }) })
     const data = await res.json()
     setSaveMsg(data.message || data.error || 'Done')
-    if (data.success) setPwForm({ current: '', newPw: '', confirm: '' })
+    if (data.success) setPwForm({ current:'', newPw:'', confirm:'' })
     setTimeout(() => setSaveMsg(''), 4000)
   }
 
   const logout = async () => {
-    await fetch('/api/delivery/status', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isOnline: false })
-    })
-    await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) })
+    await fetch('/api/delivery/status', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isOnline:false }) })
+    await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ action:'logout' }) })
     router.push('/login')
   }
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><div className="spinner" /></div>
+  if (loading) return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', background:'#f8fafc', gap:16 }}>
+      <div style={{ fontSize:40 }}>🛵</div>
+      <div style={{ width:40, height:40, border:'4px solid #e5e7eb', borderTop:'4px solid #16a34a', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+
+  const pendingCount = orders.length
 
   return (
-    <div className={styles.page}>
-      {/* Toast notification */}
+    <div style={{ minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', maxWidth:480, margin:'0 auto', position:'relative' }}>
+
+      {/* Install banner */}
+      {showInstall && !isInstalled && (
+        <InstallBanner
+          onInstall={async () => { const ok = await install(); if(ok) setShowInstall(false) }}
+          isIOS={isIOS}
+          onDismiss={() => setShowInstall(false)}
+        />
+      )}
+
+      {/* Toast */}
       {toast && (
-        <div style={{
-          position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
-          background: '#1e293b', color: '#fff', borderRadius: 12,
-          padding: '12px 20px', fontSize: 14, fontWeight: 600,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.35)', zIndex: 9999,
-          display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap'
-        }}>
-          <span style={{ fontSize: 20 }}>🔔</span> {toast}
+        <div style={{ position:'fixed', top:16, left:'50%', transform:'translateX(-50%)', background:'#1e293b', color:'#fff', borderRadius:14, padding:'12px 20px', fontSize:13, fontWeight:600, boxShadow:'0 8px 32px #0004', zIndex:9999, whiteSpace:'nowrap', maxWidth:'90vw', textOverflow:'ellipsis', overflow:'hidden' }}>
+          {toast}
         </div>
       )}
 
-      {/* Nav */}
-      <nav className={styles.nav}>
-        <span className={styles.logo}>🛵 Delivery Portal</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: 'var(--t2)', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{boyInfo?.name}</span>
-          <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 10px' }} onClick={logout}>Logout</button>
-        </div>
-      </nav>
-
-      {/* Online/Offline Toggle — BIG & PROMINENT */}
-      <div style={{
-        background: boyInfo?.is_online ? 'linear-gradient(135deg,#16a34a,#22c55e)' : 'linear-gradient(135deg,#374151,#6b7280)',
-        padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-      }}>
+      {/* ── TOP STATUS BAR ── */}
+      <div style={{ background: boyInfo?.is_online ? 'linear-gradient(135deg,#16a34a,#22c55e)' : 'linear-gradient(135deg,#374151,#6b7280)', padding:'14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:100 }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#fff' }}>
-            {boyInfo?.is_online ? '🟢 You are ONLINE' : '⚫ You are OFFLINE'}
+          <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginBottom:2 }}>
+            {boyInfo?.name}
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>
-            {boyInfo?.is_online ? 'Orders assign ho sakte hain' : 'Toggle karke online aao'}
+          <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>
+            {boyInfo?.is_online ? '🟢 Online — Ready' : '⚫ Offline'}
           </div>
         </div>
-        <button
-          onClick={toggleOnline}
-          disabled={toggling}
-          style={{
-            background: boyInfo?.is_online ? '#fff' : '#e85d04',
-            color: boyInfo?.is_online ? '#16a34a' : '#fff',
-            border: 'none', borderRadius: 30, padding: '10px 22px',
-            fontWeight: 800, fontSize: 14, cursor: 'pointer',
-            boxShadow: '0 2px 8px #0003', minWidth: 110
-          }}>
+        <button onClick={toggleOnline} disabled={toggling}
+          style={{ background:'rgba(255,255,255,0.2)', border:'2px solid rgba(255,255,255,0.5)', color:'#fff', borderRadius:20, padding:'8px 18px', fontWeight:800, fontSize:13, cursor:'pointer', minWidth:100 }}>
           {toggling ? '...' : boyInfo?.is_online ? 'Go Offline' : 'Go Online'}
         </button>
       </div>
 
-      {/* Stats */}
-      <div className={styles.statsRow}>
-        <div className={styles.statCard}>
-          <div className={styles.statVal} style={{ color: 'var(--gr-d)' }}>₹{Math.round(stats?.total_earned ?? 0)}</div>
-          <div className={styles.statLabel}>Today's Earnings</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statVal}>{stats?.total_deliveries ?? 0}</div>
-          <div className={styles.statLabel}>Delivered Today</div>
-        </div>
-        <div className={styles.statCard}>
-          <div className={styles.statVal}>{orders.length}</div>
-          <div className={styles.statLabel}>Pending Now</div>
-        </div>
-        <div className={styles.statCard} style={{ background: parseFloat(boyInfo?.payment_due||0)>0 ? '#fef2f2' : 'var(--card)', border: parseFloat(boyInfo?.payment_due||0)>0 ? '1.5px solid #fca5a5' : '1px solid var(--bd)' }}>
-          <div className={styles.statVal} style={{ color: parseFloat(boyInfo?.payment_due||0)>0 ? '#dc2626' : 'var(--t3)' }}>₹{Math.round(parseFloat(boyInfo?.payment_due??0))}</div>
-          <div className={styles.statLabel}>💳 Due</div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className={styles.tabs}>
-        <button className={`${styles.tab} ${tab === 'orders' ? styles.active : ''}`} onClick={() => setTab('orders')}>
-          📋 Orders {orders.length > 0 && <span className={styles.tabBadge}>{orders.length}</span>}
-        </button>
-        <button className={`${styles.tab} ${tab === 'history' ? styles.active : ''}`} onClick={() => { setTab('history'); loadHistory(period) }}>
-          📊 Earnings
-        </button>
-        <button className={`${styles.tab} ${tab === 'profile' ? styles.active : ''}`} onClick={() => setTab('profile')}>
-          👤 Profile
-        </button>
-      </div>
-
-      {/* ── ORDERS TAB ── */}
-      {tab === 'orders' && (
-        <div className={styles.body}>
-          {!boyInfo?.is_online && (
-            <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 12, padding: '14px 16px', textAlign: 'center', marginBottom: 12 }}>
-              <div style={{ fontSize: 28, marginBottom: 4 }}>⚫</div>
-              <strong style={{ fontSize: 14 }}>Aap offline hain</strong>
-              <p style={{ fontSize: 12, color: '#92400e', margin: '4px 0 0' }}>Orders receive karne ke liye "Go Online" karo</p>
-            </div>
-          )}
-          {orders.length === 0 ? (
-            <div className={styles.empty}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
-              <p>No pending orders assigned to you</p>
-              <p style={{ fontSize: 12, color: 'var(--t3)', marginTop: 4 }}>New orders will appear here when assigned</p>
-            </div>
-          ) : (
-            orders.map(o => (
-              <div key={o.id} className={styles.orderCard}>
-                <div className={styles.orderHead}>
-                  <span className={styles.orderId}>Order #{o.order_number}</span>
-                  <span className={`badge ${o.status === 'out_for_delivery' ? 'badge-out' : 'badge-prep'}`}>
-                    {o.status === 'out_for_delivery' ? '🚀 Out for Delivery' : '🍳 Pickup Ready'}
-                  </span>
-                </div>
-
-                {/* Customer info */}
-                <div className={styles.custRow}>
-                  <div className={styles.custAvatar}>{o.customer_name?.split(' ').map(n => n[0]).join('')}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className={styles.custName}>{o.customer_name}</div>
-                    <a href={`tel:${o.customer_phone}`} className={styles.custPhone}>📞 {o.customer_phone}</a>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div className={styles.amount}>₹{Math.round(o.total)}</div>
-                    <div style={{ fontSize: 10, color: 'var(--am)', fontWeight: 600 }}>💵 COLLECT CASH</div>
-                  </div>
-                </div>
-
-                {/* Address */}
-                <div className={styles.addrBox}>
-                  <span>📍</span>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{o.delivery_address}</div>
-                    {o.distance_km && <div style={{ fontSize: 11, color: 'var(--t3)' }}>{parseFloat(o.distance_km).toFixed(1)} km from kitchen</div>}
-                  </div>
-                </div>
-
-                {/* Notes */}
-                {o.notes && (
-                  <div style={{ background: '#fef3c7', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#92400e', marginBottom: 8 }}>
-                    📝 {o.notes}
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <a href={`tel:${o.customer_phone}`}
-                    className="btn btn-secondary"
-                    style={{ flex: 1, textDecoration: 'none', textAlign: 'center', fontSize: 13 }}>
-                    📞 Call
-                  </a>
-                  <button className={styles.mapBtn} style={{ flex: 2 }} onClick={() => openMap(o.delivery_address, o.delivery_lat, o.delivery_lng)}>
-                    🗺️ Navigate →
-                  </button>
-                </div>
-                <button
-                  className="btn btn-primary"
-                  style={{ width: '100%', marginTop: 8, background: 'var(--gr-d)', border: 'none' }}
-                  onClick={() => markDelivered(o.id)}>
-                  ✅ Mark as Delivered
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* ── EARNINGS TAB ── */}
-      {tab === 'history' && (
-        <div className={styles.body}>
-          <div className={styles.periodRow}>
-            {['today', 'week', 'month', 'all'].map(p => (
-              <button key={p} className={`${styles.periodBtn} ${period === p ? styles.active : ''}`} onClick={() => loadHistory(p)}>
-                {p === 'today' ? 'Today' : p === 'week' ? 'Week' : p === 'month' ? 'Month' : 'All'}
-              </button>
-            ))}
+      {/* ── QUICK STATS ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, padding:'12px 14px' }}>
+        {[
+          { val:`₹${Math.round(pf(stats?.total_earned))}`, label:'Today Earned', color:'#16a34a', bg:'#dcfce7' },
+          { val: String(pf(stats?.total_deliveries,0)), label:'Delivered', color:'#2563eb', bg:'#dbeafe' },
+          { val: String(pendingCount), label:'Active Now', color:'#e85d04', bg:'#fff7ed', badge: pendingCount > 0 },
+        ].map(({ val, label, color, bg, badge }) => (
+          <div key={label} style={{ background:'#fff', borderRadius:14, padding:'12px 10px', textAlign:'center', boxShadow:'0 1px 6px #0001', position:'relative' }}>
+            {badge && pendingCount > 0 && (
+              <div style={{ position:'absolute', top:6, right:6, width:8, height:8, borderRadius:'50%', background:'#dc2626', animation:'pulse 1.5s infinite' }} />
+            )}
+            <div style={{ fontSize:20, fontWeight:800, color }}>{val}</div>
+            <div style={{ fontSize:10, color:'#64748b', marginTop:2 }}>{label}</div>
           </div>
+        ))}
+      </div>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
 
-          <div className={styles.earningsCard}>
-            <div>
-              <div style={{ fontSize: 12, color: 'var(--gr-d)', marginBottom: 4 }}>Period Earned</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--gr-d)' }}>₹{Math.round(stats?.total_earned ?? 0)}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 4 }}>Deliveries</div>
-              <div style={{ fontSize: 28, fontWeight: 700 }}>{stats?.total_deliveries ?? 0}</div>
-            </div>
-          </div>
+      {/* ── SCROLLABLE CONTENT ── */}
+      <div style={{ flex:1, overflowY:'auto', paddingBottom:80 }}>
 
-          {/* Payment breakdown */}
-          <div style={{ background: 'var(--card)', borderRadius: 12, padding: '16px', marginBottom: 10, border: '1px solid var(--bd)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--t2)' }}>💳 PAYMENT ACCOUNT</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center', marginBottom: 12 }}>
-              <div style={{ background: '#dcfce7', borderRadius: 10, padding: '10px 6px' }}>
-                <div style={{ fontSize: 10, color: '#166534', marginBottom: 4 }}>Total Earned</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{Math.round(parseFloat(boyInfo?.total_earnings||0))}</div>
-              </div>
-              <div style={{ background: '#dbeafe', borderRadius: 10, padding: '10px 6px' }}>
-                <div style={{ fontSize: 10, color: '#1d4ed8', marginBottom: 4 }}>Total Paid</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#2563eb' }}>₹{Math.round(parseFloat(boyInfo?.total_paid||0))}</div>
-              </div>
-              <div style={{ background: parseFloat(boyInfo?.payment_due||0)>0 ? '#fef2f2' : '#f3f4f6', borderRadius: 10, padding: '10px 6px' }}>
-                <div style={{ fontSize: 10, color: '#dc2626', marginBottom: 4 }}>Pending Due</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: parseFloat(boyInfo?.payment_due||0)>0 ? '#dc2626' : 'var(--t3)' }}>
-                  ₹{Math.round(parseFloat(boyInfo?.payment_due||0))}
-                </div>
-              </div>
-            </div>
-            {parseFloat(boyInfo?.payment_due||0) > 0 && (
-              <div style={{ background: '#fef3c7', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: '#92400e', textAlign: 'center' }}>
-                ⏳ Admin se ₹{Math.round(parseFloat(boyInfo?.payment_due||0))} payment pending hai
+        {/* ── ORDERS TAB ── */}
+        {tab === 'orders' && (
+          <div style={{ padding:'0 14px' }}>
+            {!boyInfo?.is_online && (
+              <div style={{ background:'#fffbeb', border:'1.5px solid #fcd34d', borderRadius:16, padding:'16px', textAlign:'center', marginBottom:14 }}>
+                <div style={{ fontSize:32, marginBottom:6 }}>⚫</div>
+                <div style={{ fontWeight:700, fontSize:14, color:'#92400e' }}>Abhi Offline Hain</div>
+                <div style={{ fontSize:12, color:'#b45309', marginTop:4 }}>Go Online karo — orders milenge</div>
               </div>
             )}
-          </div>
 
-          {/* Payment history */}
-          {paymentHistory.length > 0 && (
-            <div style={{ background: 'var(--card)', borderRadius: 12, padding: '14px', marginBottom: 10, border: '1px solid var(--bd)' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, color: 'var(--t2)' }}>📋 PAYMENT RECEIVED HISTORY</div>
-              {paymentHistory.map((p, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < paymentHistory.length-1 ? '1px solid var(--bg)' : 'none' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>✅ ₹{Math.round(parseFloat(p.amount))} received</div>
-                    {p.notes && <div style={{ fontSize: 11, color: 'var(--t2)' }}>{p.notes}</div>}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {history.length === 0 ? (
-            <div className={styles.empty}><p>No deliveries in this period</p></div>
-          ) : (
-            <div className={styles.historyTable}>
-              <div className={styles.histHead}><span>Order</span><span>Customer</span><span>Amt</span><span>Earned</span></div>
-              {history.map(o => (
-                <div key={o.id} className={styles.histRow}>
-                  <span style={{ fontWeight: 600, color: 'var(--bl)', fontSize: 12 }}>#{o.order_number}</span>
-                  <span style={{ fontSize: 11, color: 'var(--t2)' }}>{o.customer_name?.split(' ')[0]}</span>
-                  <span style={{ fontSize: 12 }}>₹{Math.round(o.total)}</span>
-                  <span style={{ fontWeight: 600, color: 'var(--gr-d)', fontSize: 12 }}>₹{Math.round(o.earned)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── PROFILE TAB ── */}
-      {tab === 'profile' && boyInfo && (
-        <div className={styles.body}>
-          {saveMsg && (
-            <div style={{ background: saveMsg.startsWith('✅') ? '#dcfce7' : '#fef2f2', border: '1px solid', borderColor: saveMsg.startsWith('✅') ? '#86efac' : '#fca5a5', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13 }}>
-              {saveMsg}
-            </div>
-          )}
-
-          {/* Profile card */}
-          <div style={{ background: 'var(--card)', borderRadius: 14, padding: '20px', border: '1px solid var(--bd)', marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 15 }}>👤 Personal Info</h3>
-              <button className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => setProfileEdit(!profileEdit)}>
-                {profileEdit ? 'Cancel' : '✏️ Edit'}
-              </button>
-            </div>
-
-            {profileEdit ? (
-              <div>
-                <div className="field"><label>Full Name</label><input value={profileForm.name} onChange={e => setProfileForm({ ...profileForm, name: e.target.value })} /></div>
-                <div className="field"><label>Phone</label><input value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} /></div>
-                <div className="field"><label>Home Address</label><textarea rows={2} value={profileForm.home_address} onChange={e => setProfileForm({ ...profileForm, home_address: e.target.value })} style={{ resize: 'none' }} /></div>
-                <div className="field"><label>Emergency Contact</label><input value={profileForm.emergency_contact} onChange={e => setProfileForm({ ...profileForm, emergency_contact: e.target.value })} /></div>
-                <button className="btn btn-primary btn-full" onClick={saveProfile}>💾 Save Changes</button>
+            {pendingCount === 0 ? (
+              <div style={{ textAlign:'center', padding:'60px 20px', color:'#94a3b8' }}>
+                <div style={{ fontSize:56, marginBottom:12 }}>✅</div>
+                <div style={{ fontSize:16, fontWeight:600, color:'#64748b' }}>Koi order nahi hai</div>
+                <div style={{ fontSize:13, marginTop:6 }}>Naya order assign hone par notification aayega</div>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 13 }}>
+              orders.map(o => (
+                <OrderCard
+                  key={o.id}
+                  order={o}
+                  onPickup={markPickup}
+                  onDeliver={markDelivered}
+                  pickingUp={pickingUp}
+                  delivering={delivering}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ── EARNINGS TAB ── */}
+        {tab === 'earnings' && (
+          <div style={{ padding:'0 14px' }}>
+            {/* Period selector */}
+            <div style={{ display:'flex', gap:8, marginBottom:14 }}>
+              {['today','week','month','all'].map(p => (
+                <button key={p} onClick={() => loadHistory(p)}
+                  style={{ flex:1, padding:'8px 4px', borderRadius:10, border:'none', fontSize:12, fontWeight:700, cursor:'pointer',
+                    background: period===p ? '#16a34a' : '#fff',
+                    color: period===p ? '#fff' : '#64748b',
+                    boxShadow: period===p ? '0 2px 8px #16a34a50' : '0 1px 4px #0001' }}>
+                  {p==='today'?'Today':p==='week'?'Week':p==='month'?'Month':'All'}
+                </button>
+              ))}
+            </div>
+
+            {/* Big earnings card */}
+            <div style={{ background:'linear-gradient(135deg,#052e16,#14532d)', borderRadius:20, padding:'24px 20px', marginBottom:14, color:'#fff' }}>
+              <div style={{ fontSize:12, color:'#86efac', marginBottom:8 }}>Period Earnings</div>
+              <div style={{ fontSize:42, fontWeight:800, letterSpacing:-1 }}>₹{Math.round(pf(stats?.total_earned))}</div>
+              <div style={{ fontSize:14, color:'#86efac', marginTop:6 }}>{pf(stats?.total_deliveries,0)} deliveries</div>
+            </div>
+
+            {/* Lifetime account */}
+            <div style={{ background:'#fff', borderRadius:16, padding:'18px', marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
+              <div style={{ fontSize:12, fontWeight:700, color:'#64748b', marginBottom:12, letterSpacing:0.5 }}>💳 PAYMENT ACCOUNT</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:12 }}>
                 {[
-                  ['Name', boyInfo.name],
-                  ['Phone', boyInfo.phone],
-                  ['Email', boyInfo.email],
-                  ['Rating', `⭐ ${parseFloat(boyInfo.rating || 5).toFixed(1)}`],
-                  ['Home Address', boyInfo.home_address, true],
-                  ['Emergency Contact', boyInfo.emergency_contact],
-                ].map(([label, val, full]) => val && (
-                  <div key={label} style={full ? { gridColumn: '1/-1' } : {}}>
-                    <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontWeight: 500 }}>{val || '—'}</div>
+                  { label:'Total Earned', val:`₹${Math.round(pf(boyInfo?.total_earnings))}`, color:'#16a34a', bg:'#dcfce7' },
+                  { label:'Total Paid', val:`₹${Math.round(pf(boyInfo?.total_paid))}`, color:'#2563eb', bg:'#dbeafe' },
+                  { label:'Due', val:`₹${Math.round(pf(boyInfo?.payment_due))}`, color: pf(boyInfo?.payment_due)>0?'#dc2626':'#64748b', bg: pf(boyInfo?.payment_due)>0?'#fef2f2':'#f1f5f9' },
+                ].map(({ label, val, color, bg }) => (
+                  <div key={label} style={{ background: bg, borderRadius:12, padding:'12px 8px', textAlign:'center' }}>
+                    <div style={{ fontSize:10, color:'#64748b', marginBottom:4 }}>{label}</div>
+                    <div style={{ fontSize:15, fontWeight:800, color }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {pf(boyInfo?.payment_due) > 0 && (
+                <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 12px', fontSize:12, color:'#92400e', textAlign:'center', fontWeight:600 }}>
+                  ⏳ Admin se ₹{Math.round(pf(boyInfo?.payment_due))} payment pending hai
+                </div>
+              )}
+            </div>
+
+            {/* Payment history */}
+            {paymentHistory.length > 0 && (
+              <div style={{ background:'#fff', borderRadius:16, padding:'18px', marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
+                <div style={{ fontSize:12, fontWeight:700, color:'#64748b', marginBottom:12 }}>📋 PAYMENTS RECEIVED</div>
+                {paymentHistory.map((p,i) => (
+                  <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 0', borderBottom: i<paymentHistory.length-1?'1px solid #f1f5f9':'none' }}>
+                    <div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'#16a34a' }}>✅ ₹{Math.round(pf(p.amount))} received</div>
+                      {p.notes && <div style={{ fontSize:11, color:'#64748b' }}>{p.notes}</div>}
+                    </div>
+                    <div style={{ fontSize:11, color:'#94a3b8' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</div>
                   </div>
                 ))}
               </div>
             )}
-          </div>
 
-          {/* Vehicle & ID info */}
-          <div style={{ background: 'var(--card)', borderRadius: 14, padding: '20px', border: '1px solid var(--bd)', marginBottom: 12 }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: 15 }}>🛵 Vehicle & Identity</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: 13 }}>
-              {[
-                ['Vehicle Type', boyInfo.vehicle_type],
-                ['Vehicle Number', boyInfo.vehicle_number],
-                ['License Number', boyInfo.license_number],
-                ['Aadhar Number', boyInfo.aadhar_number ? '••••' + boyInfo.aadhar_number.slice(-4) : '—'],
-                ['Date of Birth', boyInfo.date_of_birth ? new Date(boyInfo.date_of_birth).toLocaleDateString('en-IN') : '—'],
-              ].map(([label, val]) => (
-                <div key={label}>
-                  <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontWeight: 500 }}>{val || '—'}</div>
+            {/* Delivery history list */}
+            {history.length > 0 && (
+              <div style={{ background:'#fff', borderRadius:16, overflow:'hidden', boxShadow:'0 1px 6px #0001', marginBottom:14 }}>
+                <div style={{ padding:'12px 16px', background:'#f8fafc', fontSize:11, fontWeight:700, color:'#64748b', letterSpacing:0.5, display:'grid', gridTemplateColumns:'60px 1fr 70px 70px', gap:8 }}>
+                  <span>ORDER</span><span>CUSTOMER</span><span>AMT</span><span>EARNED</span>
                 </div>
-              ))}
-            </div>
-            <div style={{ background: '#fef3c7', borderRadius: 8, padding: '10px 12px', marginTop: 12, fontSize: 12, color: '#92400e' }}>
-              ℹ️ Vehicle and ID details change karne ke liye admin se contact karein
-            </div>
+                {history.map((o,i) => (
+                  <div key={o.id} style={{ display:'grid', gridTemplateColumns:'60px 1fr 70px 70px', gap:8, padding:'11px 16px', borderTop:'1px solid #f1f5f9', alignItems:'center' }}>
+                    <span style={{ fontSize:12, fontWeight:700, color:'#2563eb' }}>#{o.order_number}</span>
+                    <span style={{ fontSize:12, color:'#475569' }}>{o.customer_name?.split(' ')[0]}</span>
+                    <span style={{ fontSize:12 }}>₹{Math.round(o.total)}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>₹{Math.round(o.earned)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {history.length === 0 && <div style={{ textAlign:'center', padding:'40px 20px', color:'#94a3b8' }}>Is period me koi delivery nahi</div>}
           </div>
+        )}
 
-          {/* Change Password */}
-          <div style={{ background: 'var(--card)', borderRadius: 14, padding: '20px', border: '1px solid var(--bd)' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: 15 }}>🔒 Change Password</h3>
-            <form onSubmit={changePassword}>
-              <div className="field"><label>Current Password</label><input type="password" required value={pwForm.current} onChange={e => setPwForm({ ...pwForm, current: e.target.value })} placeholder="••••••••" /></div>
-              <div className="field"><label>New Password</label><input type="password" required value={pwForm.newPw} onChange={e => setPwForm({ ...pwForm, newPw: e.target.value })} placeholder="••••••••" minLength={6} /></div>
-              <div className="field"><label>Confirm New Password</label><input type="password" required value={pwForm.confirm} onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })} placeholder="••••••••" /></div>
-              <button type="submit" className="btn btn-primary btn-full">🔒 Update Password</button>
-            </form>
+        {/* ── PROFILE TAB ── */}
+        {tab === 'profile' && boyInfo && (
+          <div style={{ padding:'0 14px' }}>
+            {saveMsg && (
+              <div style={{ background:saveMsg.startsWith('✅')?'#dcfce7':'#fef2f2', border:`1px solid ${saveMsg.startsWith('✅')?'#86efac':'#fca5a5'}`, borderRadius:12, padding:'12px 16px', marginBottom:12, fontSize:13, fontWeight:600 }}>
+                {saveMsg}
+              </div>
+            )}
+
+            {/* Profile card */}
+            <div style={{ background:'#fff', borderRadius:20, padding:20, marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
+              {/* Avatar */}
+              <div style={{ textAlign:'center', marginBottom:16 }}>
+                <div style={{ width:72, height:72, borderRadius:'50%', background:'linear-gradient(135deg,#16a34a,#22c55e)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 10px', fontSize:24, fontWeight:800, color:'#fff' }}>
+                  {boyInfo.name?.split(' ').map(n=>n[0]).join('').slice(0,2)}
+                </div>
+                <div style={{ fontSize:18, fontWeight:800, color:'#1a1a1a' }}>{boyInfo.name}</div>
+                <div style={{ fontSize:13, color:'#64748b' }}>{boyInfo.phone}</div>
+                <div style={{ marginTop:6, display:'inline-flex', alignItems:'center', gap:4, background:'#f0fdf4', border:'1px solid #86efac', borderRadius:20, padding:'3px 12px' }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'#16a34a' }}>⭐ {pf(boyInfo.rating||5).toFixed(1)} Rating</span>
+                </div>
+              </div>
+
+              {/* Edit toggle */}
+              <button onClick={() => setProfileEdit(!profileEdit)}
+                style={{ width:'100%', padding:'10px', background:'#f8fafc', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', color:'#475569', marginBottom:14 }}>
+                {profileEdit ? '✕ Cancel' : '✏️ Edit Profile'}
+              </button>
+
+              {profileEdit ? (
+                <div>
+                  {[['Full Name','text',profileForm.name,v=>setProfileForm(p=>({...p,name:v}))],
+                    ['Phone','tel',profileForm.phone,v=>setProfileForm(p=>({...p,phone:v}))],
+                    ['Home Address','text',profileForm.home_address,v=>setProfileForm(p=>({...p,home_address:v}))],
+                    ['Emergency Contact','tel',profileForm.emergency_contact,v=>setProfileForm(p=>({...p,emergency_contact:v}))],
+                  ].map(([label,type,val,onChange]) => (
+                    <div key={label} style={{ marginBottom:12 }}>
+                      <label style={{ fontSize:12, fontWeight:600, color:'#64748b', display:'block', marginBottom:5 }}>{label}</label>
+                      <input type={type} value={val} onChange={e=>onChange(e.target.value)}
+                        style={{ width:'100%', padding:'11px 13px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:14, boxSizing:'border-box', outline:'none', background:'#f8fafc' }} />
+                    </div>
+                  ))}
+                  <button onClick={saveProfile}
+                    style={{ width:'100%', padding:'12px', background:'linear-gradient(135deg,#16a34a,#22c55e)', color:'#fff', border:'none', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer' }}>
+                    💾 Save Changes
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display:'grid', gap:8 }}>
+                  {[['Email', boyInfo.email], ['Home Address', boyInfo.home_address], ['Emergency', boyInfo.emergency_contact]].map(([label,val])=>val&&(
+                    <div key={label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 14px' }}>
+                      <div style={{ fontSize:10, color:'#94a3b8', marginBottom:2, fontWeight:600 }}>{label.toUpperCase()}</div>
+                      <div style={{ fontSize:13, fontWeight:600, color:'#1a1a1a' }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Vehicle info */}
+            <div style={{ background:'#fff', borderRadius:20, padding:20, marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
+              <div style={{ fontSize:13, fontWeight:800, color:'#1a1a1a', marginBottom:12 }}>🛵 Vehicle & ID</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                {[['Vehicle Type',boyInfo.vehicle_type],['Vehicle No.',boyInfo.vehicle_number],['License',boyInfo.license_number],['Aadhar','••••'+boyInfo.aadhar_number?.slice(-4)||'—']].map(([label,val])=>(
+                  <div key={label} style={{ background:'#f8fafc', borderRadius:10, padding:'10px 12px' }}>
+                    <div style={{ fontSize:10, color:'#94a3b8', marginBottom:2, fontWeight:600 }}>{label.toUpperCase()}</div>
+                    <div style={{ fontSize:13, fontWeight:600 }}>{val||'—'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Change password */}
+            <div style={{ background:'#fff', borderRadius:20, padding:20, marginBottom:14, boxShadow:'0 1px 6px #0001' }}>
+              <div style={{ fontSize:13, fontWeight:800, color:'#1a1a1a', marginBottom:14 }}>🔒 Password Change</div>
+              <form onSubmit={changePassword}>
+                {[['Current','current'],['New','newPw'],['Confirm New','confirm']].map(([label,key])=>(
+                  <div key={key} style={{ marginBottom:12 }}>
+                    <label style={{ fontSize:12, fontWeight:600, color:'#64748b', display:'block', marginBottom:5 }}>{label} Password</label>
+                    <input type="password" required value={pwForm[key]} onChange={e=>setPwForm(p=>({...p,[key]:e.target.value}))} placeholder="••••••••" minLength={key==='newPw'?6:undefined}
+                      style={{ width:'100%', padding:'11px 13px', border:'1.5px solid #e2e8f0', borderRadius:10, fontSize:14, boxSizing:'border-box', outline:'none', background:'#f8fafc' }} />
+                  </div>
+                ))}
+                <button type="submit"
+                  style={{ width:'100%', padding:'12px', background:'#1e293b', color:'#fff', border:'none', borderRadius:12, fontSize:14, fontWeight:800, cursor:'pointer' }}>
+                  🔒 Update Password
+                </button>
+              </form>
+            </div>
+
+            {/* Logout */}
+            <button onClick={logout}
+              style={{ width:'100%', padding:'14px', background:'#fef2f2', border:'1.5px solid #fca5a5', color:'#dc2626', borderRadius:16, fontSize:14, fontWeight:800, cursor:'pointer', marginBottom:14 }}>
+              🚪 Logout
+            </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* ── BOTTOM NAVIGATION ── */}
+      <nav style={{ position:'fixed', bottom:0, left:'50%', transform:'translateX(-50%)', width:'100%', maxWidth:480, background:'#fff', borderTop:'1px solid #e2e8f0', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', boxShadow:'0 -4px 20px #0002', zIndex:200 }}>
+        {[
+          { key:'orders', icon:'📋', label:'Orders', badge: pendingCount },
+          { key:'earnings', icon:'💰', label:'Earnings' },
+          { key:'profile', icon:'👤', label:'Me' },
+        ].map(({ key, icon, label, badge }) => (
+          <button key={key} onClick={() => setTab(key)}
+            style={{ padding:'12px 8px 10px', border:'none', background:'transparent', cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:3, position:'relative',
+              color: tab===key ? '#16a34a' : '#94a3b8' }}>
+            {badge > 0 && (
+              <div style={{ position:'absolute', top:8, right:'28%', background:'#dc2626', color:'#fff', borderRadius:'50%', width:16, height:16, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {badge}
+              </div>
+            )}
+            <span style={{ fontSize:20 }}>{icon}</span>
+            <span style={{ fontSize:10, fontWeight: tab===key ? 700 : 500 }}>{label}</span>
+            {tab===key && <div style={{ position:'absolute', bottom:0, left:'20%', right:'20%', height:3, background:'#16a34a', borderRadius:2 }} />}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

@@ -1,0 +1,18 @@
+{
+  "name": "FoodFi Delivery",
+  "short_name": "FF Delivery",
+  "description": "FoodFi Delivery Boy App — manage your orders and earnings",
+  "start_url": "/delivery",
+  "display": "standalone",
+  "background_color": "#052e16",
+  "theme_color": "#16a34a",
+  "orientation": "portrait",
+  "categories": ["food", "logistics"],
+  "icons": [
+    { "src": "/icons/delivery-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/delivery-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "My Orders", "url": "/delivery", "description": "View assigned orders" }
+  ]
+}

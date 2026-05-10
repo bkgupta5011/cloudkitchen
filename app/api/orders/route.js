@@ -296,23 +296,48 @@ export async function PATCH(request) {
   }
 
   if (user.role === 'delivery') {
-    // Delivery boy can only mark their assigned orders as delivered
+    // Delivery boy can mark: out_for_delivery (picked up) or delivered
+    const allowedStatuses = ['out_for_delivery', 'delivered']
+    if (!allowedStatuses.includes(status)) {
+      return NextResponse.json({ error: 'Not allowed' }, { status: 403 })
+    }
+
     const [order] = await sql`
       UPDATE orders
-      SET status = 'delivered', delivered_at = NOW()
+      SET status = ${status},
+          delivered_at = CASE WHEN ${status} = 'delivered' THEN NOW() ELSE delivered_at END
       WHERE id = ${orderId} AND delivery_boy_id = ${user.id}
       RETURNING *
     `
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
-    // Update earnings — parseFloat to handle Neon returning NUMERIC as string
-    const earned = parseFloat(order.delivery_charge || 0) * 0.7
-    await sql`
-      UPDATE delivery_boys
-      SET total_earnings = total_earnings + ${earned},
-          payment_due    = payment_due + ${earned}
-      WHERE id = ${user.id}
-    `
+    if (status === 'delivered') {
+      // Update earnings — parseFloat to handle Neon returning NUMERIC as string
+      const earned = parseFloat(order.delivery_charge || 0) * 0.7
+      await sql`
+        UPDATE delivery_boys
+        SET total_earnings = total_earnings + ${earned},
+            payment_due    = payment_due + ${earned}
+        WHERE id = ${user.id}
+      `
+      // Notify customer
+      if (order.user_id) {
+        sendPushToUser(String(order.user_id), {
+          title: '🎉 Order Deliver Ho Gaya!',
+          body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋`,
+          url: '/orders', tag: `order-${order.id}`
+        }).catch(() => {})
+      }
+    }
+
+    if (status === 'out_for_delivery' && order.user_id) {
+      sendPushToUser(String(order.user_id), {
+        title: '🛵 Order Raste Me Hai!',
+        body: `Order #${order.order_number} delivery boy le ja raha hai — thodi der me pahuch jayega`,
+        url: '/orders', tag: `order-${order.id}`
+      }).catch(() => {})
+    }
+
     return NextResponse.json({ order })
   }
 

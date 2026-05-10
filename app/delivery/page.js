@@ -18,6 +18,7 @@ export default function DeliveryPage() {
   const [profileForm, setProfileForm] = useState({})
   const [pwForm, setPwForm] = useState({ current: '', newPw: '', confirm: '' })
   const [saveMsg, setSaveMsg] = useState('')
+  const [paymentHistory, setPaymentHistory] = useState([])
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function DeliveryPage() {
     setOrders(ordersRes.orders || [])
     setHistory(historyRes.orders || [])
     setStats(historyRes.stats)
+    setPaymentHistory(historyRes.paymentHistory || [])
     const info = historyRes.boyInfo || profileRes.profile
     setBoyInfo(info)
     setProfileForm({
@@ -182,9 +184,9 @@ export default function DeliveryPage() {
           <div className={styles.statVal}>{orders.length}</div>
           <div className={styles.statLabel}>Pending Now</div>
         </div>
-        <div className={styles.statCard}>
-          <div className={styles.statVal} style={{ color: 'var(--am)' }}>⭐ {parseFloat(boyInfo?.rating ?? 5).toFixed(1)}</div>
-          <div className={styles.statLabel}>Rating</div>
+        <div className={styles.statCard} style={{ background: parseFloat(boyInfo?.payment_due||0)>0 ? '#fef2f2' : 'var(--card)', border: parseFloat(boyInfo?.payment_due||0)>0 ? '1.5px solid #fca5a5' : '1px solid var(--bd)' }}>
+          <div className={styles.statVal} style={{ color: parseFloat(boyInfo?.payment_due||0)>0 ? '#dc2626' : 'var(--t3)' }}>₹{Math.round(parseFloat(boyInfo?.payment_due??0))}</div>
+          <div className={styles.statLabel}>💳 Due</div>
         </div>
       </div>
 
@@ -292,7 +294,7 @@ export default function DeliveryPage() {
 
           <div className={styles.earningsCard}>
             <div>
-              <div style={{ fontSize: 12, color: 'var(--gr-d)', marginBottom: 4 }}>Total Earned</div>
+              <div style={{ fontSize: 12, color: 'var(--gr-d)', marginBottom: 4 }}>Period Earned</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--gr-d)' }}>₹{Math.round(stats?.total_earned ?? 0)}</div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -301,10 +303,47 @@ export default function DeliveryPage() {
             </div>
           </div>
 
-          <div style={{ background: 'var(--card)', borderRadius: 12, padding: '12px 14px', marginBottom: 10, border: '1px solid var(--bd)' }}>
-            <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 4 }}>Lifetime Earnings</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--or)' }}>₹{Math.round(boyInfo?.total_earnings || 0)}</div>
+          {/* Payment breakdown */}
+          <div style={{ background: 'var(--card)', borderRadius: 12, padding: '16px', marginBottom: 10, border: '1px solid var(--bd)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--t2)' }}>💳 PAYMENT ACCOUNT</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, textAlign: 'center', marginBottom: 12 }}>
+              <div style={{ background: '#dcfce7', borderRadius: 10, padding: '10px 6px' }}>
+                <div style={{ fontSize: 10, color: '#166534', marginBottom: 4 }}>Total Earned</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>₹{Math.round(parseFloat(boyInfo?.total_earnings||0))}</div>
+              </div>
+              <div style={{ background: '#dbeafe', borderRadius: 10, padding: '10px 6px' }}>
+                <div style={{ fontSize: 10, color: '#1d4ed8', marginBottom: 4 }}>Total Paid</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#2563eb' }}>₹{Math.round(parseFloat(boyInfo?.total_paid||0))}</div>
+              </div>
+              <div style={{ background: parseFloat(boyInfo?.payment_due||0)>0 ? '#fef2f2' : '#f3f4f6', borderRadius: 10, padding: '10px 6px' }}>
+                <div style={{ fontSize: 10, color: '#dc2626', marginBottom: 4 }}>Pending Due</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: parseFloat(boyInfo?.payment_due||0)>0 ? '#dc2626' : 'var(--t3)' }}>
+                  ₹{Math.round(parseFloat(boyInfo?.payment_due||0))}
+                </div>
+              </div>
+            </div>
+            {parseFloat(boyInfo?.payment_due||0) > 0 && (
+              <div style={{ background: '#fef3c7', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: '#92400e', textAlign: 'center' }}>
+                ⏳ Admin se ₹{Math.round(parseFloat(boyInfo?.payment_due||0))} payment pending hai
+              </div>
+            )}
           </div>
+
+          {/* Payment history */}
+          {paymentHistory.length > 0 && (
+            <div style={{ background: 'var(--card)', borderRadius: 12, padding: '14px', marginBottom: 10, border: '1px solid var(--bd)' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, color: 'var(--t2)' }}>📋 PAYMENT RECEIVED HISTORY</div>
+              {paymentHistory.map((p, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: i < paymentHistory.length-1 ? '1px solid var(--bg)' : 'none' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>✅ ₹{Math.round(parseFloat(p.amount))} received</div>
+                    {p.notes && <div style={{ fontSize: 11, color: 'var(--t2)' }}>{p.notes}</div>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--t3)' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {history.length === 0 ? (
             <div className={styles.empty}><p>No deliveries in this period</p></div>

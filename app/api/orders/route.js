@@ -207,9 +207,11 @@ export async function PATCH(request) {
 
     // Update delivery boy earnings if delivered
     if (status === 'delivered' && order.delivery_boy_id) {
+      const earned = parseFloat(order.delivery_charge || 0) * 0.7
       await sql`
         UPDATE delivery_boys
-        SET total_earnings = total_earnings + ${order.delivery_charge * 0.7}
+        SET total_earnings  = total_earnings + ${earned},
+            payment_due     = payment_due + ${earned}
         WHERE id = ${order.delivery_boy_id}
       `
     }
@@ -227,10 +229,12 @@ export async function PATCH(request) {
     `
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
-    // Update earnings
+    // Update earnings — parseFloat to handle Neon returning NUMERIC as string
+    const earned = parseFloat(order.delivery_charge || 0) * 0.7
     await sql`
       UPDATE delivery_boys
-      SET total_earnings = total_earnings + ${order.delivery_charge * 0.7}
+      SET total_earnings = total_earnings + ${earned},
+          payment_due    = payment_due + ${earned}
       WHERE id = ${user.id}
     `
     return NextResponse.json({ order })

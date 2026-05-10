@@ -20,7 +20,7 @@ async function ensureKitchenColumns(sql) {
   } catch (e) {}
 }
 
-// Ensure delivery_boys has status column
+// Ensure delivery_boys has all needed columns
 async function ensureDeliveryColumns(sql) {
   try {
     await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'approved'`
@@ -30,6 +30,24 @@ async function ensureDeliveryColumns(sql) {
     await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS date_of_birth DATE`
     await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS emergency_contact VARCHAR(20)`
     await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS home_address TEXT`
+    await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS payment_due NUMERIC DEFAULT 0`
+    await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS total_paid NUMERIC DEFAULT 0`
+  } catch (e) {}
+}
+
+// Ensure payment_records table exists
+async function ensurePaymentTable(sql) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS payment_records (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        delivery_boy_id UUID NOT NULL,
+        amount NUMERIC NOT NULL,
+        notes TEXT,
+        paid_by VARCHAR(100) DEFAULT 'Admin',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `
   } catch (e) {}
 }
 
@@ -58,15 +76,31 @@ export async function GET(request) {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     await ensureDeliveryColumns(sql)
+    await ensurePaymentTable(sql)
     const boys = await sql`
       SELECT id, name, email, phone, vehicle_number, vehicle_type, is_online,
              per_km_earning, total_earnings, rating, status, created_at,
-             license_number, aadhar_number, date_of_birth, emergency_contact, home_address
+             license_number, aadhar_number, date_of_birth, emergency_contact, home_address,
+             COALESCE(payment_due, 0) as payment_due,
+             COALESCE(total_paid, 0) as total_paid
       FROM delivery_boys
       WHERE status = 'approved' OR status IS NULL
       ORDER BY name
     `
     return NextResponse.json({ boys })
+  }
+
+  if (type === 'payment_history') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    const boyId = searchParams.get('boyId')
+    await ensurePaymentTable(sql)
+    const records = await sql`
+      SELECT * FROM payment_records
+      WHERE delivery_boy_id = ${boyId}
+      ORDER BY created_at DESC LIMIT 50
+    `
+    return NextResponse.json({ records })
   }
 
   if (type === 'pending_boys') {
@@ -141,19 +175,29 @@ export async function PATCH(request) {
 
   if (type === 'kitchen') {
     await ensureKitchenColumns(sql)
+
+    // Ensure row exists (upsert)
+    await sql`INSERT INTO kitchen_settings (id, is_open) VALUES (1, true) ON CONFLICT (id) DO NOTHING`
+
+    // Explicit numeric parsing to avoid Neon HTTP string-vs-number type issues
+    const kmVal   = data.max_delivery_km != null ? parseFloat(data.max_delivery_km)  : null
+    const etVal   = data.estimated_time  != null ? parseInt(data.estimated_time)     : null
+    const latVal  = data.lat             != null ? parseFloat(data.lat)              : null
+    const lngVal  = data.lng             != null ? parseFloat(data.lng)              : null
+
     const [settings] = await sql`
       UPDATE kitchen_settings SET
-        is_open          = COALESCE(${data.is_open ?? null}, is_open),
-        kitchen_name     = COALESCE(${data.kitchen_name ?? null}, kitchen_name),
-        address          = COALESCE(${data.address ?? null}, address),
-        phone            = COALESCE(${data.phone ?? null}, phone),
-        lat              = COALESCE(${data.lat ?? null}, lat),
-        lng              = COALESCE(${data.lng ?? null}, lng),
-        max_delivery_km  = COALESCE(${data.max_delivery_km ?? null}, max_delivery_km),
-        open_time        = COALESCE(${data.open_time ?? null}, open_time),
-        close_time       = COALESCE(${data.close_time ?? null}, close_time),
-        estimated_time   = COALESCE(${data.estimated_time ?? null}, estimated_time),
-        auto_schedule    = COALESCE(${data.auto_schedule ?? null}, auto_schedule),
+        is_open          = COALESCE(${data.is_open        ?? null}, is_open),
+        kitchen_name     = COALESCE(${data.kitchen_name   ?? null}, kitchen_name),
+        address          = COALESCE(${data.address        ?? null}, address),
+        phone            = COALESCE(${data.phone          ?? null}, phone),
+        lat              = COALESCE(${latVal},  lat),
+        lng              = COALESCE(${lngVal},  lng),
+        max_delivery_km  = COALESCE(${kmVal},   max_delivery_km),
+        open_time        = COALESCE(${data.open_time      ?? null}, open_time),
+        close_time       = COALESCE(${data.close_time     ?? null}, close_time),
+        estimated_time   = COALESCE(${etVal},   estimated_time),
+        auto_schedule    = COALESCE(${data.auto_schedule  ?? null}, auto_schedule),
         updated_at       = NOW()
       WHERE id = 1 RETURNING *
     `
@@ -223,6 +267,30 @@ export async function PATCH(request) {
   if (type === 'reactivate_boy') {
     await sql`UPDATE delivery_boys SET status = 'approved' WHERE id = ${data.id}::uuid`
     return NextResponse.json({ success: true })
+  }
+
+  // Record payment to delivery boy
+  if (type === 'pay_boy') {
+    await ensureDeliveryColumns(sql)
+    await ensurePaymentTable(sql)
+    const amount = parseFloat(data.amount)
+    if (!amount || amount <= 0) return NextResponse.json({ error: 'Valid amount required' }, { status: 400 })
+
+    await sql`
+      INSERT INTO payment_records (delivery_boy_id, amount, notes)
+      VALUES (${data.id}::uuid, ${amount}, ${data.notes || null})
+    `
+    await sql`
+      UPDATE delivery_boys
+      SET payment_due = GREATEST(0, COALESCE(payment_due, 0) - ${amount}),
+          total_paid  = COALESCE(total_paid, 0) + ${amount}
+      WHERE id = ${data.id}::uuid
+    `
+    const [boy] = await sql`
+      SELECT id, name, COALESCE(payment_due, 0) as payment_due, COALESCE(total_paid, 0) as total_paid, total_earnings
+      FROM delivery_boys WHERE id = ${data.id}::uuid
+    `
+    return NextResponse.json({ success: true, boy })
   }
 
   return NextResponse.json({ error: 'Unknown type' }, { status: 400 })

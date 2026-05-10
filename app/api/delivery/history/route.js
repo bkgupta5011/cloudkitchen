@@ -97,9 +97,21 @@ export async function GET(request) {
   }
 
   const [boyInfo] = await sql`
-    SELECT name, phone, vehicle_number, rating, total_earnings, is_online
+    SELECT name, phone, vehicle_number, rating, total_earnings, is_online,
+           COALESCE(payment_due, 0) as payment_due,
+           COALESCE(total_paid, 0)  as total_paid
     FROM delivery_boys WHERE id = ${user.id}
   `
 
-  return NextResponse.json({ orders, stats, boyInfo })
+  // Payment history (last 10)
+  let paymentHistory = []
+  try {
+    paymentHistory = await sql`
+      SELECT amount, notes, created_at FROM payment_records
+      WHERE delivery_boy_id = ${user.id}
+      ORDER BY created_at DESC LIMIT 10
+    `
+  } catch (e) {}
+
+  return NextResponse.json({ orders, stats, boyInfo, paymentHistory })
 }

@@ -42,6 +42,11 @@ export default function AdminPage() {
   const [boyDetail, setBoyDetail] = useState(null)
   const [editBoyMode, setEditBoyMode] = useState(false)
   const [boyEditForm, setBoyEditForm] = useState({})
+  const [showPayModal, setShowPayModal] = useState(false)
+  const [payBoy, setPayBoy] = useState(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [payNotes, setPayNotes] = useState('')
+  const [payHistory, setPayHistory] = useState([])
   const [uploadingImg, setUploadingImg] = useState(false)
   const [editingItemId, setEditingItemId] = useState(null)
   const [showSupport, setShowSupport] = useState(false)
@@ -275,11 +280,41 @@ export default function AdminPage() {
     showToast('✅ Photo update ho gayi!')
   }
 
-  const openBoyDetail = (boy) => {
+  const openBoyDetail = async (boy) => {
     setBoyDetail(boy)
     setBoyEditForm({ name:boy.name, phone:boy.phone, per_km_earning:boy.per_km_earning||0 })
     setEditBoyMode(false)
     setShowBoyDetail(true)
+    // Load payment history
+    const d = await fetch(`/api/admin?type=payment_history&boyId=${boy.id}`).then(r => r.json())
+    setPayHistory(d.records || [])
+  }
+
+  const openPayModal = (boy) => {
+    setPayBoy(boy)
+    setPayAmount('')
+    setPayNotes('')
+    setShowPayModal(true)
+  }
+
+  const recordPayment = async (e) => {
+    e.preventDefault()
+    if (!parseFloat(payAmount) || parseFloat(payAmount) <= 0) { showToast('❌ Valid amount daalo'); return }
+    const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ type:'pay_boy', id:payBoy.id, amount:parseFloat(payAmount), notes:payNotes }) })
+    const data = await res.json()
+    if (data.success) {
+      showToast(`✅ ₹${payAmount} payment recorded for ${payBoy.name}`)
+      setShowPayModal(false)
+      // Update local state
+      setBoys(prev => prev.map(b => b.id === payBoy.id ? { ...b, payment_due: data.boy.payment_due, total_paid: data.boy.total_paid } : b))
+      if (showBoyDetail && boyDetail?.id === payBoy.id) {
+        setBoyDetail(prev => ({ ...prev, payment_due: data.boy.payment_due, total_paid: data.boy.total_paid }))
+        // Refresh payment history
+        const d = await fetch(`/api/admin?type=payment_history&boyId=${payBoy.id}`).then(r => r.json())
+        setPayHistory(d.records || [])
+      }
+    } else showToast('❌ Payment record failed')
   }
 
   const saveBoyEdit = async () => {
@@ -550,28 +585,57 @@ export default function AdminPage() {
                 <span style={{ fontSize:12, padding:'4px 10px', borderRadius:12, background:'#fee2e2', color:'#dc2626', fontWeight:600 }}>⚫ {boys.filter(b=>!b.is_online).length} Offline</span>
               </div>
             </div>
+            {/* Summary cards */}
+            <div className={styles.statsRow} style={{ marginBottom:16 }}>
+              <div className={styles.statCard}>
+                <div className={styles.statLabel}>Total Earnings (All)</div>
+                <div className={styles.statVal} style={{color:'var(--gr-d)'}}>₹{Math.round(boys.reduce((a,b)=>a+parseFloat(b.total_earnings||0),0))}</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statLabel}>Total Paid (All)</div>
+                <div className={styles.statVal} style={{color:'var(--bl)'}}>₹{Math.round(boys.reduce((a,b)=>a+parseFloat(b.total_paid||0),0))}</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statLabel}>Total Payment Due</div>
+                <div className={styles.statVal} style={{color:'var(--rd)'}}>₹{Math.round(boys.reduce((a,b)=>a+parseFloat(b.payment_due||0),0))}</div>
+              </div>
+              <div className={styles.statCard}>
+                <div className={styles.statLabel}>Online Now</div>
+                <div className={styles.statVal} style={{color:'var(--gr-d)'}}>🟢 {boys.filter(b=>b.is_online).length}</div>
+              </div>
+            </div>
+
             <div className={styles.table}>
-              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr' }}><span>Name</span><span>Phone</span><span>Vehicle</span><span>Earnings</span><span>Status</span><span>Actions</span></div>
-              {boys.map(b => (
-                <div key={b.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr' }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <div className={styles.boyAvatar}>{b.name.split(' ').map(n=>n[0]).join('')}</div>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:500 }}>{b.name}</div>
-                      <div style={{ fontSize:11, color:'var(--t2)' }}>{b.email}</div>
+              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr 1fr' }}>
+                <span>Name</span><span>Phone</span><span>Vehicle</span><span>Total Earned</span><span>Total Paid</span><span>💳 Due</span><span>Actions</span>
+              </div>
+              {boys.map(b => {
+                const due = parseFloat(b.payment_due || 0)
+                return (
+                  <div key={b.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr 1fr' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div className={styles.boyAvatar}>{b.name.split(' ').map(n=>n[0]).join('')}</div>
+                      <div>
+                        <div style={{ fontSize:13, fontWeight:500 }}>{b.name}</div>
+                        <div style={{ fontSize:11, color:'var(--t2)' }}>{b.is_online?'🟢':'⚫'} {b.email}</div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize:12, color:'var(--t2)' }}>{b.phone}</span>
+                    <span style={{ fontSize:12 }}>{b.vehicle_number}<br/><span style={{ color:'var(--t3)', fontSize:10 }}>{b.vehicle_type}</span></span>
+                    <span style={{ fontWeight:600, color:'var(--gr-d)', fontSize:13 }}>₹{Math.round(parseFloat(b.total_earnings||0))}</span>
+                    <span style={{ fontWeight:600, color:'var(--bl)', fontSize:13 }}>₹{Math.round(parseFloat(b.total_paid||0))}</span>
+                    <span style={{ fontWeight:700, color: due > 0 ? 'var(--rd)' : 'var(--t3)', fontSize:13 }}>
+                      {due > 0 ? `₹${Math.round(due)}` : '—'}
+                    </span>
+                    <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => openBoyDetail(b)}>👁 Details</button>
+                      {due > 0 && <button className="btn btn-primary" style={{ fontSize:10, padding:'3px 8px', background:'#16a34a', border:'none' }} onClick={() => openPayModal(b)}>💰 Pay</button>}
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px', background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}
+                        onClick={() => suspendBoy(b.id)}>🚫 Suspend</button>
                     </div>
                   </div>
-                  <span style={{ fontSize:12, color:'var(--t2)' }}>{b.phone}</span>
-                  <span style={{ fontSize:12 }}>{b.vehicle_number}<br/><span style={{ color:'var(--t3)', fontSize:10 }}>{b.vehicle_type}</span></span>
-                  <span style={{ fontWeight:500 }}>₹{Math.round(b.total_earnings||0)}</span>
-                  <span className={`badge ${b.is_online?'badge-done':'badge-cancelled'}`}>{b.is_online?'🟢 Online':'⚫ Offline'}</span>
-                  <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => openBoyDetail(b)}>👁 Details</button>
-                    <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px', background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}
-                      onClick={() => suspendBoy(b.id)}>🚫 Suspend</button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </>
         )}
@@ -949,12 +1013,93 @@ export default function AdminPage() {
                     <div style={{ fontSize:13 }}>{boyDetail.home_address}</div>
                   </div>
                 )}
+                {/* Payment Summary */}
+                <div style={{ background:'var(--bg)', borderRadius:12, padding:'14px', marginBottom:12 }}>
+                  <div style={{ fontSize:12, fontWeight:700, marginBottom:10, color:'var(--t2)' }}>💰 PAYMENT SUMMARY</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10, textAlign:'center' }}>
+                    <div style={{ background:'#dcfce7', borderRadius:10, padding:'10px 6px' }}>
+                      <div style={{ fontSize:10, color:'#166534' }}>Total Earned</div>
+                      <div style={{ fontSize:16, fontWeight:700, color:'#16a34a' }}>₹{Math.round(parseFloat(boyDetail.total_earnings||0))}</div>
+                    </div>
+                    <div style={{ background:'#dbeafe', borderRadius:10, padding:'10px 6px' }}>
+                      <div style={{ fontSize:10, color:'#1d4ed8' }}>Total Paid</div>
+                      <div style={{ fontSize:16, fontWeight:700, color:'#2563eb' }}>₹{Math.round(parseFloat(boyDetail.total_paid||0))}</div>
+                    </div>
+                    <div style={{ background: parseFloat(boyDetail.payment_due||0)>0 ? '#fef2f2':'var(--bg)', borderRadius:10, padding:'10px 6px' }}>
+                      <div style={{ fontSize:10, color:'#dc2626' }}>Due Now</div>
+                      <div style={{ fontSize:16, fontWeight:700, color: parseFloat(boyDetail.payment_due||0)>0?'#dc2626':'var(--t3)' }}>₹{Math.round(parseFloat(boyDetail.payment_due||0))}</div>
+                    </div>
+                  </div>
+                  {parseFloat(boyDetail.payment_due||0) > 0 && (
+                    <button className="btn btn-primary" style={{ width:'100%', marginTop:10, background:'#16a34a', border:'none' }}
+                      onClick={() => { setShowBoyDetail(false); openPayModal(boyDetail) }}>
+                      💰 Record Payment to {boyDetail.name}
+                    </button>
+                  )}
+                </div>
+
+                {/* Payment History */}
+                {payHistory.length > 0 && (
+                  <div style={{ background:'var(--bg)', borderRadius:12, padding:'14px', marginBottom:12 }}>
+                    <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t2)' }}>📋 PAYMENT HISTORY</div>
+                    {payHistory.map((p, i) => (
+                      <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid var(--card)' }}>
+                        <div>
+                          <div style={{ fontSize:12, fontWeight:600, color:'var(--gr-d)' }}>₹{Math.round(parseFloat(p.amount))}</div>
+                          {p.notes && <div style={{ fontSize:11, color:'var(--t2)' }}>{p.notes}</div>}
+                        </div>
+                        <div style={{ fontSize:11, color:'var(--t3)' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{ display:'flex', gap:8 }}>
                   <a href={`tel:${boyDetail.phone}`} style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, background:'#dcfce7', color:'#16a34a', borderRadius:10, padding:'10px', textDecoration:'none', fontWeight:700, fontSize:14 }}>📞 Call</a>
                   <button className="btn btn-secondary" style={{ flex:1, background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }} onClick={() => { setShowBoyDetail(false); suspendBoy(boyDetail.id) }}>🚫 Suspend</button>
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Payment Record Modal */}
+      {showPayModal && payBoy && (
+        <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowPayModal(false)}>
+          <div className={styles.modal} style={{ maxWidth:400 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0 }}>💰 Record Payment</h3>
+              <button onClick={() => setShowPayModal(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ background:'#fef3c7', borderRadius:12, padding:'12px 14px', marginBottom:16, fontSize:13 }}>
+              <strong>{payBoy.name}</strong> ko dena hai: <strong style={{ color:'#dc2626' }}>₹{Math.round(parseFloat(payBoy.payment_due||0))}</strong>
+            </div>
+
+            <form onSubmit={recordPayment}>
+              <div className="field">
+                <label>Amount Paid (₹)</label>
+                <input required type="number" min="1" step="0.01"
+                  value={payAmount}
+                  onChange={e => setPayAmount(e.target.value)}
+                  placeholder={`Max ₹${Math.round(parseFloat(payBoy.payment_due||0))}`}
+                />
+              </div>
+              <div className="field">
+                <label>Notes (optional)</label>
+                <input value={payNotes} onChange={e => setPayNotes(e.target.value)} placeholder="Cash, UPI, Bank transfer..." />
+              </div>
+              <div style={{ background:'var(--bg)', borderRadius:10, padding:'10px 12px', marginBottom:14, fontSize:12, color:'var(--t2)' }}>
+                <div>Total Earned: <strong>₹{Math.round(parseFloat(payBoy.total_earnings||0))}</strong></div>
+                <div>Previously Paid: <strong>₹{Math.round(parseFloat(payBoy.total_paid||0))}</strong></div>
+                <div>Currently Due: <strong style={{ color:'#dc2626' }}>₹{Math.round(parseFloat(payBoy.payment_due||0))}</strong></div>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button type="button" className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowPayModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" style={{ flex:2, background:'#16a34a', border:'none' }}>✅ Mark as Paid</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

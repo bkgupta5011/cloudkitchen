@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './login.module.css'
 import FoodFiLogo from '../components/FoodFiLogo'
@@ -7,10 +7,17 @@ import FoodFiLogo from '../components/FoodFiLogo'
 export default function LoginPage() {
   const router = useRouter()
   const [mode, setMode] = useState('login')
-  const [loginType, setLoginType] = useState('phone') // phone | email — phone is default
+  const [loginType, setLoginType] = useState('phone') // phone | email
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ name:'', email:'', phone:'', password:'', address:'' })
+
+  // OTP states
+  const [otpStep, setOtpStep] = useState('idle') // idle | sending | sent | verifying | verified
+  const [otpInput, setOtpInput] = useState('')
+  const [otpTimer, setOtpTimer] = useState(0)
+  const timerRef = useRef(null)
+  const otpInputRef = useRef(null)
 
   useEffect(() => {
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
@@ -22,26 +29,95 @@ export default function LoginPage() {
       })
   }, [])
 
+  // Countdown timer for resend OTP
+  useEffect(() => {
+    if (otpTimer > 0) {
+      timerRef.current = setTimeout(() => setOtpTimer(t => t - 1), 1000)
+    }
+    return () => clearTimeout(timerRef.current)
+  }, [otpTimer])
+
+  // Reset OTP state when switching mode or loginType
+  useEffect(() => {
+    setOtpStep('idle')
+    setOtpInput('')
+    setOtpTimer(0)
+  }, [mode, loginType])
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const phoneDigits = form.phone.replace(/[^0-9]/g, '')
+  const isPhoneSignup = mode === 'signup' && loginType === 'phone'
+  const phoneReady = phoneDigits.length === 10
+
+  // Step 1 — Send OTP
+  const sendOtp = async () => {
+    if (!phoneReady) { setError('10-digit valid phone number do'); return }
+    setError(''); setOtpStep('sending')
+    try {
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneDigits })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error); setOtpStep('idle'); return }
+      setOtpStep('sent')
+      setOtpTimer(60) // 60s cooldown before resend
+      setTimeout(() => otpInputRef.current?.focus(), 100)
+    } catch { setError('OTP send nahi hua. Dobara try karo.'); setOtpStep('idle') }
+  }
+
+  // Step 2 — Verify OTP
+  const verifyOtp = async () => {
+    if (otpInput.length !== 6) { setError('6-digit OTP enter karo'); return }
+    setError(''); setOtpStep('verifying')
+    try {
+      const res = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phoneDigits, otp: otpInput })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error); setOtpStep('sent'); return }
+      setOtpStep('verified')
+      setError('')
+    } catch { setError('OTP verify nahi hua.'); setOtpStep('sent') }
+  }
+
+  // Final submit
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError('')
+
+    // If phone signup and OTP not yet verified — trigger OTP send
+    if (isPhoneSignup && otpStep === 'idle') {
+      if (!phoneReady) { setError('Valid 10-digit phone number do'); return }
+      await sendOtp()
+      return
+    }
+
+    // If phone signup and OTP sent but not verified
+    if (isPhoneSignup && otpStep === 'sent') {
+      setError('Pehle OTP verify karo 👇')
+      return
+    }
+
+    setLoading(true)
     try {
-      // Build identifier: email or phone with +91
       const identifier = loginType === 'phone'
-        ? (form.phone.startsWith('+91') ? form.phone : '+91' + form.phone.replace(/\s/g,''))
+        ? (form.phone.startsWith('+91') ? form.phone : '+91' + phoneDigits)
         : form.email
 
       const res = await fetch('/api/auth', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: mode,
           role: 'customer',
           identifier,
           email: form.email,
-          phone: loginType === 'phone' ? identifier : form.phone,
+          phone: loginType === 'phone' ? ('+91' + phoneDigits) : (form.phone ? '+91' + form.phone.replace(/[^0-9]/g,'').replace(/^91/,'') : ''),
           password: form.password,
           name: form.name,
           address: form.address,
@@ -55,6 +131,15 @@ export default function LoginPage() {
       else router.push('/menu')
     } catch { setError('Kuch gadbad ho gayi. Dobara try karo.') }
     finally { setLoading(false) }
+  }
+
+  // What to show on the submit button
+  const submitLabel = () => {
+    if (loading) return <span className="spinner" />
+    if (mode === 'login') return 'Login'
+    if (isPhoneSignup && otpStep === 'idle') return '📱 OTP Bhejo'
+    if (isPhoneSignup && otpStep === 'sending') return <span className="spinner" />
+    return '✅ Account Banao'
   }
 
   return (
@@ -92,7 +177,7 @@ export default function LoginPage() {
             </>
           )}
 
-          {/* Email / Phone toggle for login identifier */}
+          {/* Email / Phone toggle */}
           <div style={{ display:'flex', gap:0, marginBottom:12, borderRadius:8, overflow:'hidden', border:'1.5px solid var(--bdr)' }}>
             {['email','phone'].map(t => (
               <button key={t} type="button"
@@ -113,14 +198,67 @@ export default function LoginPage() {
               <label>Phone Number</label>
               <div style={{ display:'flex', gap:0 }}>
                 <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:14, color:'#374151', fontWeight:600, whiteSpace:'nowrap' }}>🇮🇳 +91</span>
-                <input required value={form.phone} onChange={e => set('phone', e.target.value.replace(/[^0-9]/g,''))}
-                  placeholder="98765 43210" maxLength={10}
-                  style={{ borderRadius:'0 8px 8px 0', borderLeft:'none' }} />
+                <input
+                  required
+                  value={form.phone}
+                  onChange={e => { set('phone', e.target.value.replace(/[^0-9]/g,'')); if (otpStep !== 'idle') { setOtpStep('idle'); setOtpInput('') } }}
+                  placeholder="98765 43210"
+                  maxLength={10}
+                  style={{ borderRadius:'0 8px 8px 0', borderLeft:'none' }}
+                  disabled={otpStep === 'verified'}
+                />
+                {/* Verified badge */}
+                {otpStep === 'verified' && (
+                  <span style={{ padding:'10px 12px', background:'#dcfce7', border:'1.5px solid #86efac', borderLeft:'none', borderRadius:'0 8px 8px 0', fontSize:13, color:'#16a34a', fontWeight:700, whiteSpace:'nowrap' }}>
+                    ✓ Verified
+                  </span>
+                )}
               </div>
             </div>
           )}
 
-          {/* For signup, also collect email + phone */}
+          {/* OTP Section — only during signup with phone */}
+          {isPhoneSignup && otpStep === 'sent' && (
+            <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:10, padding:'14px 14px 10px', marginBottom:12 }}>
+              <p style={{ margin:'0 0 10px 0', fontSize:13, color:'#92400e', fontWeight:600 }}>
+                📲 OTP +91{phoneDigits} pe bheja gaya
+              </p>
+              <div style={{ display:'flex', gap:8 }}>
+                <input
+                  ref={otpInputRef}
+                  value={otpInput}
+                  onChange={e => setOtpInput(e.target.value.replace(/[^0-9]/g,''))}
+                  placeholder="6-digit OTP"
+                  maxLength={6}
+                  style={{ flex:1, textAlign:'center', letterSpacing:6, fontSize:20, fontWeight:700, padding:'10px 8px', border:'2px solid #f97316', borderRadius:8, outline:'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={verifyOtp}
+                  disabled={otpInput.length !== 6 || otpStep === 'verifying'}
+                  style={{ background: otpInput.length === 6 ? '#16a34a' : '#d1d5db', color:'#fff', border:'none', borderRadius:8, padding:'10px 16px', fontWeight:700, fontSize:14, cursor: otpInput.length === 6 ? 'pointer' : 'default', whiteSpace:'nowrap', minWidth:80 }}>
+                  {otpStep === 'verifying' ? <span className="spinner" /> : 'Verify'}
+                </button>
+              </div>
+              <div style={{ marginTop:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontSize:12, color:'#9ca3af' }}>OTP 5 minute mein expire hoga</span>
+                {otpTimer > 0
+                  ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend: {otpTimer}s</span>
+                  : <button type="button" onClick={sendOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Resend OTP</button>
+                }
+              </div>
+            </div>
+          )}
+
+          {/* OTP verified success */}
+          {isPhoneSignup && otpStep === 'verified' && (
+            <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:18 }}>✅</span>
+              <span style={{ fontSize:13, color:'#16a34a', fontWeight:600 }}>Phone number verify ho gaya!</span>
+            </div>
+          )}
+
+          {/* For signup, also collect the other field */}
           {mode === 'signup' && loginType === 'phone' && (
             <div className="field">
               <label>Email (optional)</label>
@@ -129,7 +267,7 @@ export default function LoginPage() {
           )}
           {mode === 'signup' && loginType === 'email' && (
             <div className="field">
-              <label>Phone Number</label>
+              <label>Phone Number (optional)</label>
               <div style={{ display:'flex', gap:0 }}>
                 <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:14, color:'#374151', fontWeight:600 }}>🇮🇳 +91</span>
                 <input value={form.phone} onChange={e => set('phone', e.target.value.replace(/[^0-9]/g,''))} placeholder="98765 43210" maxLength={10} style={{ borderRadius:'0 8px 8px 0', borderLeft:'none' }} />
@@ -153,8 +291,8 @@ export default function LoginPage() {
 
           {error && <div className={styles.error}>{error}</div>}
 
-          <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-            {loading ? <span className="spinner" /> : mode === 'login' ? 'Login' : 'Account Banao'}
+          <button type="submit" className="btn btn-primary btn-full" disabled={loading || otpStep === 'sending' || otpStep === 'verifying'}>
+            {submitLabel()}
           </button>
         </form>
 

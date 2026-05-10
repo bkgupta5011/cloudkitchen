@@ -96,8 +96,35 @@ export async function POST(request) {
   if (action === 'signup') {
 
     if (role === 'customer') {
-      if (!email || !password || !name) return NextResponse.json({ error: 'Name, email, password required' }, { status: 400 })
-      const existing = await sql`SELECT id FROM users WHERE email = ${email} OR (phone != '' AND phone = ${phone || ''})`
+      if (!email && !phone) return NextResponse.json({ error: 'Email ya phone required hai' }, { status: 400 })
+      if (!password || !name) return NextResponse.json({ error: 'Name aur password required hai' }, { status: 400 })
+
+      // If phone provided — verify OTP was completed
+      if (phone) {
+        const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
+        const normalizedPhone = '+91' + digits
+        const [otpRow] = await sql`
+          SELECT id FROM phone_otps
+          WHERE phone = ${normalizedPhone} AND verified = true
+            AND created_at > NOW() - INTERVAL '15 minutes'
+          ORDER BY created_at DESC LIMIT 1
+        `.catch(() => [])
+        if (!otpRow) {
+          return NextResponse.json({ error: 'Phone number verify nahi hua. Pehle OTP se verify karo.' }, { status: 400 })
+        }
+        // Cleanup used OTP
+        await sql`DELETE FROM phone_otps WHERE phone = ${normalizedPhone} AND verified = true`.catch(() => {})
+      }
+
+      // Check duplicate email or phone
+      let existing = []
+      if (email && phone) {
+        existing = await sql`SELECT id FROM users WHERE email = ${email} OR (phone != '' AND phone = ${phone})`
+      } else if (email) {
+        existing = await sql`SELECT id FROM users WHERE email = ${email}`
+      } else if (phone) {
+        existing = await sql`SELECT id FROM users WHERE phone != '' AND phone = ${phone}`
+      }
       if (existing.length) return NextResponse.json({ error: 'Email ya phone already registered hai' }, { status: 400 })
       const passwordHash = await hashPassword(password)
       const [user] = await sql`

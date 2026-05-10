@@ -18,32 +18,38 @@ async function ensureResetTable(sql) {
 }
 
 async function sendResetEmail(toEmail, resetLink) {
-  const { Resend } = await import('resend')
-  const resend = new Resend(process.env.RESEND_API_KEY)
-  const { error } = await resend.emails.send({
-    from: 'FoodFi Kitchen <noreply@foodfi.in>',
-    to: toEmail,
-    subject: '🔐 Password Reset - FoodFi',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
-        <div style="text-align:center; margin-bottom:24px;">
-          <h2 style="color:#e85d04;">🍽️ FoodFi Kitchen</h2>
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: 'FoodFi Kitchen <noreply@foodfi.in>',
+      to: toEmail,
+      subject: '🔐 Password Reset - FoodFi',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+          <div style="text-align:center; margin-bottom:24px;">
+            <h2 style="color:#e85d04;">🍽️ FoodFi Kitchen</h2>
+          </div>
+          <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
+          <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>
+          <div style="text-align:center; margin:28px 0;">
+            <a href="${resetLink}" style="background:#e85d04; color:#fff; padding:14px 32px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
+              🔑 Reset Password
+            </a>
+          </div>
+          <p style="color:#6b7280; font-size:13px;">Yeh link <strong>1 ghante</strong> mein expire ho jayega.</p>
+          <p style="color:#6b7280; font-size:13px;">Agar aapne yeh request nahi ki, toh is email ko ignore karein.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb; margin:20px 0;" />
+          <p style="color:#9ca3af; font-size:12px; text-align:center;">FoodFi &bull; foodfi.in</p>
         </div>
-        <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
-        <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>
-        <div style="text-align:center; margin:28px 0;">
-          <a href="${resetLink}" style="background:#e85d04; color:#fff; padding:14px 32px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
-            🔑 Reset Password
-          </a>
-        </div>
-        <p style="color:#6b7280; font-size:13px;">Yeh link <strong>1 ghante</strong> mein expire ho jayega.</p>
-        <p style="color:#6b7280; font-size:13px;">Agar aapne yeh request nahi ki, toh is email ko ignore karein.</p>
-        <hr style="border:none;border-top:1px solid #e5e7eb; margin:20px 0;" />
-        <p style="color:#9ca3af; font-size:12px; text-align:center;">FoodFi &bull; foodfi.in</p>
-      </div>
-    `,
+      `,
+    }),
   })
-  if (error) throw new Error(error.message || 'Resend error')
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.message || data.name || 'Email send failed')
 }
 
 // Rate limiting: identifier -> { count, lockedUntil }

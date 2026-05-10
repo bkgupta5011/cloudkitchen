@@ -20,14 +20,15 @@ export default function ForgotPasswordPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'forgot-password', email })
       })
-      const data = await res.json()
+      let data
+      try { data = await res.json() } catch { data = {} }
       if (!res.ok) {
-        setError(data.error || 'Email send nahi ho saka. Dobara try karo.')
+        setError(data.error || `Server error (${res.status}). Dobara try karo.`)
         return
       }
       setSent(true)
-    } catch {
-      setError('Kuch gadbad ho gayi. Dobara try karo.')
+    } catch (e) {
+      setError('Network error: ' + e.message)
     } finally {
       setLoading(false)
     }

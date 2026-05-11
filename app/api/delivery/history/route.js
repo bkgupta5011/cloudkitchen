@@ -151,11 +151,14 @@ export async function GET(request) {
     `
   } catch (e) {}
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     orders, stats, boyInfo, paymentHistory,
     allTime: {
       total_earned: parseFloat(liveCalc?.live_total_earned || 0),
       total_deliveries: parseInt(liveCalc?.live_total_deliveries || 0),
     }
   })
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+  response.headers.set('Pragma', 'no-cache')
+  return response
 }

@@ -521,6 +521,13 @@ export default function DeliveryPage() {
         {/* ── EARNINGS TAB ── */}
         {tab === 'earnings' && (
           <div style={{ padding:'0 14px' }}>
+            {/* Temp debug card — remove after fix confirmed */}
+            {(!stats?.total_earned && !allTime?.total_earned) && (
+              <div style={{ background:'#fef3c7', borderRadius:12, padding:'12px', marginBottom:12, fontSize:11, color:'#92400e' }}>
+                ⚠️ Debug: stats={JSON.stringify(stats)} | allTime={JSON.stringify(allTime)} | boyInfo.total_earnings={boyInfo?.total_earnings}
+              </div>
+            )}
+
             {/* Period selector */}
             <div style={{ display:'flex', gap:8, marginBottom:14 }}>
               {['today','week','month','all'].map(p => (

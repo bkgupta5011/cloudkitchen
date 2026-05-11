@@ -13,11 +13,17 @@ export default function LoginPage() {
   const [form, setForm] = useState({ name:'', email:'', phone:'', password:'', address:'' })
 
   // OTP states
-  const [otpStep, setOtpStep] = useState('idle') // idle | sending | sent | verifying | verified
+  const [otpStep, setOtpStep] = useState('idle') // idle | sending | sent | verifying | verified | failed
   const [otpInput, setOtpInput] = useState('')
   const [otpTimer, setOtpTimer] = useState(0)
   const timerRef = useRef(null)
   const otpInputRef = useRef(null)
+
+  // Firebase refs
+  const recaptchaVerifierRef = useRef(null)
+  const confirmationResultRef = useRef(null)
+  const firebaseTokenRef = useRef(null)
+  const recaptchaContainerRef = useRef(null)
 
   useEffect(() => {
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
@@ -42,6 +48,13 @@ export default function LoginPage() {
     setOtpStep('idle')
     setOtpInput('')
     setOtpTimer(0)
+    confirmationResultRef.current = null
+    firebaseTokenRef.current = null
+    // Clear recaptcha
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
   }, [mode, loginType])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -50,44 +63,76 @@ export default function LoginPage() {
   const isPhoneSignup = mode === 'signup' && loginType === 'phone'
   const phoneReady = phoneDigits.length === 10
 
-  // Step 1 — Send OTP
+  // Initialize Firebase RecaptchaVerifier
+  const getRecaptchaVerifier = async () => {
+    const { getFirebaseAuth } = await import('@/lib/firebase-client')
+    const { RecaptchaVerifier } = await import('firebase/auth')
+    const auth = getFirebaseAuth()
+    if (!auth) throw new Error('Firebase auth init failed')
+
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
+
+    const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+      size: 'invisible',
+      callback: () => {},
+      'expired-callback': () => {
+        if (recaptchaVerifierRef.current) {
+          try { recaptchaVerifierRef.current.clear() } catch(e) {}
+          recaptchaVerifierRef.current = null
+        }
+      }
+    })
+    recaptchaVerifierRef.current = verifier
+    return { auth, verifier }
+  }
+
+  // Step 1 — Send OTP via Firebase
   const sendOtp = async () => {
     if (!phoneReady) { setError('10-digit valid phone number do'); return }
     setError(''); setOtpStep('sending')
     try {
-      const res = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneDigits })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        // OTP send failed (e.g. Twilio trial limit) — allow signup without phone verify
-        setOtpStep('failed')
-        setError('')
-        return
-      }
+      const { signInWithPhoneNumber } = await import('firebase/auth')
+      const { auth, verifier } = await getRecaptchaVerifier()
+
+      const phoneE164 = '+91' + phoneDigits
+      const confirmationResult = await signInWithPhoneNumber(auth, phoneE164, verifier)
+      confirmationResultRef.current = confirmationResult
+
       setOtpStep('sent')
       setOtpTimer(60)
       setTimeout(() => otpInputRef.current?.focus(), 100)
-    } catch { setOtpStep('failed'); setError('') }
+    } catch (e) {
+      console.error('Firebase OTP send error:', e)
+      // Allow signup without OTP if Firebase fails
+      setOtpStep('failed')
+      setError('')
+    }
   }
 
-  // Step 2 — Verify OTP
+  // Step 2 — Verify OTP via Firebase
   const verifyOtp = async () => {
     if (otpInput.length !== 6) { setError('6-digit OTP enter karo'); return }
+    if (!confirmationResultRef.current) { setError('Pehle OTP bhejo'); return }
     setError(''); setOtpStep('verifying')
     try {
-      const res = await fetch('/api/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneDigits, otp: otpInput })
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error); setOtpStep('sent'); return }
+      const result = await confirmationResultRef.current.confirm(otpInput)
+      const idToken = await result.user.getIdToken()
+      firebaseTokenRef.current = idToken
       setOtpStep('verified')
       setError('')
-    } catch { setError('OTP verify nahi hua.'); setOtpStep('sent') }
+    } catch (e) {
+      console.error('Firebase OTP verify error:', e)
+      const msg = e.code === 'auth/invalid-verification-code'
+        ? 'Galat OTP. Dobara check karo.'
+        : e.code === 'auth/code-expired'
+        ? 'OTP expire ho gaya. Dobara bhejo.'
+        : 'OTP verify nahi hua. Dobara try karo.'
+      setError(msg)
+      setOtpStep('sent')
+    }
   }
 
   // Final submit
@@ -109,8 +154,6 @@ export default function LoginPage() {
     }
 
     // OTP failed — allow signup without phone verification
-    // (phoneVerified will be false, backend accepts it)
-
     setLoading(true)
     try {
       const identifier = loginType === 'phone'
@@ -129,7 +172,8 @@ export default function LoginPage() {
           password: form.password,
           name: form.name,
           address: form.address,
-          phoneVerified: otpStep === 'verified', // flag — OTP was successfully verified
+          phoneVerified: otpStep === 'verified',
+          firebaseToken: firebaseTokenRef.current || null,
         })
       })
       const data = await res.json()
@@ -154,6 +198,9 @@ export default function LoginPage() {
 
   return (
     <div className={styles.wrap}>
+      {/* Invisible reCAPTCHA container — required by Firebase */}
+      <div id="recaptcha-container" ref={recaptchaContainerRef} />
+
       <div className={styles.card}>
         <div className={styles.logo}>
           <FoodFiLogo size={64} style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(232,93,4,0.3)', marginBottom: 10 }} />
@@ -211,7 +258,7 @@ export default function LoginPage() {
                 <input
                   required
                   value={form.phone}
-                  onChange={e => { set('phone', e.target.value.replace(/[^0-9]/g,'')); if (otpStep !== 'idle') { setOtpStep('idle'); setOtpInput('') } }}
+                  onChange={e => { set('phone', e.target.value.replace(/[^0-9]/g,'')); if (otpStep !== 'idle') { setOtpStep('idle'); setOtpInput(''); confirmationResultRef.current = null; firebaseTokenRef.current = null } }}
                   placeholder="98765 43210"
                   maxLength={10}
                   style={{ borderRadius:'0 8px 8px 0', borderLeft:'none' }}
@@ -257,6 +304,13 @@ export default function LoginPage() {
                   : <button type="button" onClick={sendOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Resend OTP</button>
                 }
               </div>
+            </div>
+          )}
+
+          {/* OTP verifying state */}
+          {isPhoneSignup && otpStep === 'verifying' && (
+            <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+              <p style={{ margin:0, fontSize:13, color:'#92400e', fontWeight:600 }}>⏳ OTP verify ho raha hai...</p>
             </div>
           )}
 

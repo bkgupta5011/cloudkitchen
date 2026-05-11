@@ -90,7 +90,7 @@ export async function POST(request) {
   const body = await request.json()
   const { action, role, email, phone, identifier, password, name, address, adminKey,
           vehicleNumber, vehicleType, licenseNumber, aadharNumber, dateOfBirth,
-          emergencyContact, homeAddress } = body
+          emergencyContact, homeAddress, firebaseToken } = body
 
   // ── SIGNUP ──────────────────────────────────────────────────────
   if (action === 'signup') {
@@ -99,12 +99,29 @@ export async function POST(request) {
       if (!email && !phone) return NextResponse.json({ error: 'Email ya phone required hai' }, { status: 400 })
       if (!password || !name) return NextResponse.json({ error: 'Name aur password required hai' }, { status: 400 })
 
-      // Phone OTP check — only if phoneVerified flag is sent (frontend sends it after Twilio verify)
-      // This is optional: if Twilio trial limits are hit, signup still works via email
-      if (phone && body.phoneVerified) {
-        const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
-        const normalizedPhone = '+91' + digits
-        await sql`DELETE FROM phone_otps WHERE phone = ${normalizedPhone} AND verified = true`.catch(() => {})
+      // Firebase Phone Auth token verification (optional — if OTP was verified via Firebase)
+      if (firebaseToken && phone) {
+        try {
+          const apiKey = process.env.FIREBASE_API_KEY
+          const fbRes = await fetch(
+            `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: firebaseToken }) }
+          )
+          const fbData = await fbRes.json()
+          const fbUser = fbData.users?.[0]
+          if (!fbUser?.phoneNumber) {
+            return NextResponse.json({ error: 'Phone verification failed. Dobara try karo.' }, { status: 400 })
+          }
+          // Verify the token's phone matches what was submitted
+          const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
+          const normalizedPhone = '+91' + digits
+          if (fbUser.phoneNumber !== normalizedPhone) {
+            return NextResponse.json({ error: 'Phone number mismatch. Dobara verify karo.' }, { status: 400 })
+          }
+        } catch(e) {
+          console.error('Firebase token verify error in signup:', e)
+          // Non-fatal: allow signup to proceed
+        }
       }
 
       // Check duplicate email or phone

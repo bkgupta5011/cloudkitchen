@@ -1,70 +1,48 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
 
-// Verify OTP via Twilio Verify
-async function verifyOtpTwilio(phone_e164, otp) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID
-  const authToken  = process.env.TWILIO_AUTH_TOKEN
-  const serviceSid = process.env.TWILIO_VERIFY_SID
-
-  if (!accountSid || !authToken || !serviceSid) {
-    throw new Error('Twilio credentials not configured')
-  }
-
-  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64')
+// Verify Firebase Phone Auth idToken via REST API (no Admin SDK needed)
+async function verifyFirebaseToken(idToken) {
+  const apiKey = process.env.FIREBASE_API_KEY
+  if (!apiKey) throw new Error('Firebase API key not configured')
 
   const res = await fetch(
-    `https://verify.twilio.com/v2/Services/${serviceSid}/VerificationCheck`,
+    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
     {
       method: 'POST',
-      headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({ To: phone_e164, Code: otp }).toString()
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
     }
   )
 
   const data = await res.json()
 
-  // approved = correct OTP
-  if (data?.status !== 'approved') {
-    throw new Error('Galat OTP. Dobara check karo.')
+  if (!res.ok || !data.users?.[0]) {
+    throw new Error('Invalid Firebase token')
   }
 
-  return data
+  const user = data.users[0]
+  if (!user.phoneNumber) {
+    throw new Error('Phone number not found in Firebase token')
+  }
+
+  return { phoneNumber: user.phoneNumber, uid: user.localId }
 }
 
 export async function POST(request) {
   try {
-    const sql = getDb()
-    const { phone, otp } = await request.json()
+    const { firebaseToken } = await request.json()
 
-    if (!phone || !otp) {
-      return NextResponse.json({ error: 'Phone aur OTP dono required hain' }, { status: 400 })
+    if (!firebaseToken) {
+      return NextResponse.json({ error: 'Firebase token required' }, { status: 400 })
     }
 
-    const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
-    if (digits.length !== 10) {
-      return NextResponse.json({ error: 'Valid phone number do' }, { status: 400 })
-    }
+    const { phoneNumber, uid } = await verifyFirebaseToken(firebaseToken)
 
-    const normalizedPhone = '+91' + digits
-
-    // Verify with Twilio
-    await verifyOtpTwilio(normalizedPhone, String(otp).trim())
-
-    // Mark as verified in our DB
-    await sql`
-      UPDATE phone_otps SET verified = true
-      WHERE phone = ${normalizedPhone} AND verified = false
-    `.catch(() => {})
-
-    return NextResponse.json({ success: true, verified: true, phone: normalizedPhone })
+    return NextResponse.json({ success: true, verified: true, phone: phoneNumber, uid })
 
   } catch (e) {
-    console.error('Verify OTP error:', e)
-    return NextResponse.json({ error: e.message || 'OTP verify nahi hua. Dobara try karo.' }, { status: 500 })
+    console.error('Verify Firebase token error:', e)
+    return NextResponse.json({ error: e.message || 'Token verify nahi hua. Dobara try karo.' }, { status: 500 })
   }
 }

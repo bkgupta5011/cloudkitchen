@@ -61,11 +61,16 @@ export default function LoginPage() {
         body: JSON.stringify({ phone: phoneDigits })
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error); setOtpStep('idle'); return }
+      if (!res.ok) {
+        // OTP send failed (e.g. Twilio trial limit) — allow signup without phone verify
+        setOtpStep('failed')
+        setError('')
+        return
+      }
       setOtpStep('sent')
-      setOtpTimer(60) // 60s cooldown before resend
+      setOtpTimer(60)
       setTimeout(() => otpInputRef.current?.focus(), 100)
-    } catch { setError('OTP send nahi hua. Dobara try karo.'); setOtpStep('idle') }
+    } catch { setOtpStep('failed'); setError('') }
   }
 
   // Step 2 — Verify OTP
@@ -102,6 +107,9 @@ export default function LoginPage() {
       setError('Pehle OTP verify karo 👇')
       return
     }
+
+    // OTP failed — allow signup without phone verification
+    // (phoneVerified will be false, backend accepts it)
 
     setLoading(true)
     try {
@@ -140,6 +148,7 @@ export default function LoginPage() {
     if (mode === 'login') return 'Login'
     if (isPhoneSignup && otpStep === 'idle') return '📱 OTP Bhejo'
     if (isPhoneSignup && otpStep === 'sending') return <span className="spinner" />
+    if (isPhoneSignup && otpStep === 'failed') return '✅ Account Banao (bina OTP)'
     return '✅ Account Banao'
   }
 
@@ -248,6 +257,14 @@ export default function LoginPage() {
                   : <button type="button" onClick={sendOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Resend OTP</button>
                 }
               </div>
+            </div>
+          )}
+
+          {/* OTP failed — allow skip */}
+          {isPhoneSignup && otpStep === 'failed' && (
+            <div style={{ background:'#fef9c3', border:'1.5px solid #fde047', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
+              <p style={{ margin:'0 0 6px 0', fontSize:13, color:'#854d0e', fontWeight:600 }}>⚠️ OTP nahi bheja ja saka</p>
+              <p style={{ margin:0, fontSize:12, color:'#78350f' }}>Phone verify nahi hoga, par account ban jayega. Baad mein verify kar sakte ho.</p>
             </div>
           )}
 

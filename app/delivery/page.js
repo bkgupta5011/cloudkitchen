@@ -315,32 +315,38 @@ export default function DeliveryPage() {
   }, [installPrompt, isIOS, isInstalled])
 
   const loadData = async () => {
-    const [ordersRes, historyRes, profileRes] = await Promise.all([
-      fetch('/api/orders').then(r => r.json()),
-      fetch('/api/delivery/history?period=today').then(r => r.json()),
-      fetch('/api/profile').then(r => r.json()),
-    ])
-    const initial = ordersRes.orders || []
-    setOrders(initial)
-    lastOrderIds.current = new Set(initial.map(o => o.id))
-    initialLoadDone.current = true
-    setHistory(historyRes.orders || [])
-    setStats(historyRes.stats)
-    setAllTime(historyRes.allTime || null)
-    setPaymentHistory(historyRes.paymentHistory || [])
-    const info = historyRes.boyInfo || profileRes.profile
-    // Initial load: set ref from DB value, then set state
-    isOnlineRef.current = info?.is_online ?? false
-    setBoyInfo(info)
-    setProfileForm({ name: info?.name||'', phone: info?.phone||'', home_address: info?.home_address||'', emergency_contact: info?.emergency_contact||'' })
-    setLoading(false)
+    try {
+      const [ordersRes, historyRes, profileRes] = await Promise.all([
+        fetch('/api/orders').then(r => r.json()).catch(e => { console.error('orders fetch error:', e); return { orders: [] } }),
+        fetch('/api/delivery/history?period=today').then(async r => { const d = await r.json(); console.log('📊 historyRes status:', r.status, 'stats:', d?.stats, 'allTime:', d?.allTime); return d; }).catch(e => { console.error('history fetch error:', e); return {} }),
+        fetch('/api/profile').then(r => r.json()).catch(e => { console.error('profile fetch error:', e); return {} }),
+      ])
+      const initial = ordersRes.orders || []
+      setOrders(initial)
+      lastOrderIds.current = new Set(initial.map(o => o.id))
+      initialLoadDone.current = true
+      setHistory(historyRes.orders || [])
+      if (historyRes.stats) setStats(historyRes.stats)
+      setAllTime(historyRes.allTime || null)
+      setPaymentHistory(historyRes.paymentHistory || [])
+      const info = historyRes.boyInfo || profileRes.profile
+      if (info) {
+        isOnlineRef.current = info?.is_online ?? false
+        setBoyInfo(info)
+        setProfileForm({ name: info?.name||'', phone: info?.phone||'', home_address: info?.home_address||'', emergency_contact: info?.emergency_contact||'' })
+      }
+    } catch(e) {
+      console.error('loadData error:', e)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const loadHistory = async (p) => {
     setPeriod(p)
-    const res = await fetch(`/api/delivery/history?period=${p}`).then(r => r.json())
+    const res = await fetch(`/api/delivery/history?period=${p}`).then(r => r.json()).catch(() => ({}))
     setHistory(res.orders || [])
-    setStats(res.stats)
+    if (res.stats) setStats(res.stats)
     if (res.allTime) setAllTime(res.allTime)
     if (res.boyInfo) setBoyInfo(prev => ({ ...res.boyInfo, is_online: isOnlineRef.current ?? res.boyInfo.is_online }))
   }
@@ -545,7 +551,7 @@ export default function DeliveryPage() {
               <div style={{ fontSize:10, color:'#94a3b8', marginBottom:12 }}>Live calculation from orders — always accurate</div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:12 }}>
                 {[
-                  { label:'Kul Kamaai', val:`₹${Math.round(pf(allTime?.total_earned ?? boyInfo?.total_earnings))}`, color:'#16a34a', bg:'#dcfce7' },
+                  { label:'Kul Kamaai', val:`₹${Math.round(pf(allTime?.total_earned || boyInfo?.total_earnings))}`, color:'#16a34a', bg:'#dcfce7' },
                   { label:'Mila Hua', val:`₹${Math.round(pf(boyInfo?.total_paid))}`, color:'#2563eb', bg:'#dbeafe' },
                   { label:'Baaki Hai', val:`₹${Math.round(pf(boyInfo?.payment_due))}`, color: pf(boyInfo?.payment_due)>0?'#dc2626':'#64748b', bg: pf(boyInfo?.payment_due)>0?'#fef2f2':'#f1f5f9' },
                 ].map(({ label, val, color, bg }) => (

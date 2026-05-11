@@ -314,6 +314,59 @@ export async function POST(request) {
     }
   }
 
+  // ── FORGOT PASSWORD (PHONE / OTP) ──────────────────────────────
+  if (action === 'forgot-password-phone') {
+    try {
+      const { phone, firebaseToken } = body
+      if (!phone || !firebaseToken) {
+        return NextResponse.json({ error: 'Phone aur Firebase token required hai' }, { status: 400 })
+      }
+
+      // Verify Firebase token
+      const apiKey = process.env.FIREBASE_API_KEY
+      const fbRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: firebaseToken }) }
+      )
+      const fbData = await fbRes.json()
+      const fbUser = fbData.users?.[0]
+      if (!fbUser?.phoneNumber) {
+        return NextResponse.json({ error: 'Phone verification failed. Dobara try karo.' }, { status: 400 })
+      }
+
+      // Normalize phone
+      const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
+      const normalizedPhone = '+91' + digits
+
+      // Verify Firebase phone matches submitted phone
+      if (fbUser.phoneNumber !== normalizedPhone) {
+        return NextResponse.json({ error: 'Phone number mismatch.' }, { status: 400 })
+      }
+
+      // Find user by phone in any table
+      await ensureResetTable(sql)
+      const [cu] = await sql`SELECT id, email FROM users WHERE phone = ${normalizedPhone} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
+      const [db] = await sql`SELECT id, email FROM delivery_boys WHERE phone = ${normalizedPhone} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
+
+      const foundUser = cu || db
+      if (!foundUser || !foundUser.email) {
+        return NextResponse.json({ error: 'Is phone number se koi account nahi mila.' }, { status: 404 })
+      }
+
+      const email = foundUser.email
+      const resetToken = crypto.randomUUID()
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+
+      await sql`DELETE FROM password_reset_tokens WHERE email = ${email}`
+      await sql`INSERT INTO password_reset_tokens (email, token, expires_at) VALUES (${email}, ${resetToken}, ${expiresAt})`
+
+      return NextResponse.json({ success: true, token: resetToken })
+    } catch (e) {
+      console.error('Forgot password phone error:', e)
+      return NextResponse.json({ error: `Error: ${e.message}` }, { status: 500 })
+    }
+  }
+
   // ── RESET PASSWORD ──────────────────────────────────────────────
   if (action === 'reset-password') {
     const { token: resetToken, newPassword } = body

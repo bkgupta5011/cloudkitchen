@@ -68,13 +68,17 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
   const markerRef = useRef(null)
   const searchRef = useRef(null)
   const [pickedAddress, setPickedAddress] = useState('')
-  const [pickedLat, setPickedLat] = useState(initialLat || kitchenLat)
-  const [pickedLng, setPickedLng] = useState(initialLng || kitchenLng)
+  const hasInitial = Number.isFinite(initialLat) && Number.isFinite(initialLng)
+  const [pickedLat, setPickedLat] = useState(hasInitial ? initialLat : kitchenLat)
+  const [pickedLng, setPickedLng] = useState(hasInitial ? initialLng : kitchenLng)
   const [loading, setLoading] = useState(true)
   const [gpsLoading, setGpsLoading] = useState(false)
+  // Track if customer has manually selected a location (not just initial kitchen pin)
+  const [userSelected, setUserSelected] = useState(hasInitial)
 
-  const updatePin = useCallback(async (lat, lng) => {
+  const updatePin = useCallback(async (lat, lng, byUser = false) => {
     setPickedLat(lat); setPickedLng(lng)
+    if (byUser) setUserSelected(true)
     const addr = await reverseGeocode(lat, lng)
     setPickedAddress(addr)
   }, [])
@@ -86,7 +90,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
       fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'maps'}) }).catch(()=>{})
       const center = { lat: pickedLat, lng: pickedLng }
       const map = new gmaps.Map(mapRef.current, {
-        center, zoom: 15,
+        center, zoom: hasInitial ? 15 : 13,
         mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
         zoomControlOptions: { position: gmaps.ControlPosition.RIGHT_CENTER }
       })
@@ -110,20 +114,23 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
         fillColor: '#e85d04', fillOpacity: 0.05
       })
 
-      // Draggable delivery marker
+      // Draggable delivery marker — only show if user has a saved address
       const marker = new gmaps.Marker({
         position: center, map, draggable: true, title: 'Drag to your location',
-        animation: gmaps.Animation.DROP
+        animation: gmaps.Animation.DROP,
+        visible: hasInitial
       })
       markerRef.current = marker
       marker.addListener('dragend', () => {
         const pos = marker.getPosition()
-        updatePin(pos.lat(), pos.lng())
+        marker.setVisible(true)
+        updatePin(pos.lat(), pos.lng(), true)
       })
       map.addListener('click', (e) => {
         const pos = e.latLng
         marker.setPosition(pos)
-        updatePin(pos.lat(), pos.lng())
+        marker.setVisible(true)
+        updatePin(pos.lat(), pos.lng(), true)
       })
 
       // Places search box
@@ -139,13 +146,19 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
           const loc = place.geometry.location
           map.setCenter(loc); map.setZoom(16)
           marker.setPosition(loc)
+          marker.setVisible(true)
           setPickedLat(loc.lat()); setPickedLng(loc.lng())
           setPickedAddress(place.formatted_address)
+          setUserSelected(true)
         })
       }
 
-      // Initial reverse geocode
-      updatePin(pickedLat, pickedLng).then(() => setLoading(false))
+      // Initial reverse geocode only if customer has a saved address
+      if (hasInitial) {
+        updatePin(pickedLat, pickedLng).then(() => setLoading(false))
+      } else {
+        setLoading(false)
+      }
     })
     return () => { cancelled = true }
   }, [])
@@ -162,8 +175,9 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
           const pos2 = new window.google.maps.LatLng(lat, lng)
           map.setCenter(pos2); map.setZoom(16)
           marker.setPosition(pos2)
+          marker.setVisible(true)
         }
-        await updatePin(lat, lng)
+        await updatePin(lat, lng, true)
         setGpsLoading(false)
       },
       () => { alert('GPS nahi mila — manually search karo'); setGpsLoading(false) }
@@ -207,23 +221,31 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
             <div style={{ fontSize:12, color:'var(--t2)', textAlign:'center' }}>⏳ Location load ho rahi hai...</div>
           ) : (
             <>
-              <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
-                {outOfRange
-                  ? `⚠️ Ye location hamare delivery zone se bahar hai (${dist.toFixed(1)} km — max ${maxKm} km)`
-                  : `✅ ${dist.toFixed(1)} km kitchen se · ${pickedAddress || 'Location selected'}`
-                }
-              </div>
-              <div style={{ fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.4, wordBreak:'break-word' }}>
-                {pickedAddress}
-              </div>
+              {!userSelected ? (
+                <div style={{ fontSize:13, color:'#92400e', background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:8, padding:'10px 12px', marginBottom:10, textAlign:'center' }}>
+                  📍 Map pe click karo, pin drag karo ya GPS use karo apni location select karne ke liye
+                </div>
+              ) : (
+                <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
+                  {outOfRange
+                    ? `⚠️ Ye location hamare delivery zone se bahar hai (${dist !== null ? dist.toFixed(1) : '?'} km — max ${maxKm} km)`
+                    : `✅ ${dist !== null ? dist.toFixed(1) : '?'} km kitchen se · ${pickedAddress || 'Location selected'}`
+                  }
+                </div>
+              )}
+              {userSelected && pickedAddress && (
+                <div style={{ fontSize:11, color:'var(--t3)', marginBottom:10, lineHeight:1.4, wordBreak:'break-word' }}>
+                  {pickedAddress}
+                </div>
+              )}
               <div style={{ display:'flex', gap:8 }}>
                 <button onClick={onClose} style={{ flex:1, padding:'10px', background:'var(--bg)', border:'1px solid var(--bd2)', borderRadius:10, fontSize:13, cursor:'pointer' }}>
                   Cancel
                 </button>
                 <button
-                  disabled={outOfRange}
+                  disabled={!userSelected || outOfRange}
                   onClick={() => onConfirm({ address: pickedAddress, lat: pickedLat, lng: pickedLng })}
-                  style={{ flex:2, padding:'10px', background: outOfRange ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: outOfRange ? 'not-allowed' : 'pointer' }}>
+                  style={{ flex:2, padding:'10px', background: (!userSelected || outOfRange) ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: (!userSelected || outOfRange) ? 'not-allowed' : 'pointer' }}>
                   ✅ Ye Location Use Karo
                 </button>
               </div>

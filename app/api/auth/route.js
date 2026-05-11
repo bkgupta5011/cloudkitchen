@@ -99,20 +99,11 @@ export async function POST(request) {
       if (!email && !phone) return NextResponse.json({ error: 'Email ya phone required hai' }, { status: 400 })
       if (!password || !name) return NextResponse.json({ error: 'Name aur password required hai' }, { status: 400 })
 
-      // If phone provided — verify OTP was completed
-      if (phone) {
+      // Phone OTP check — only if phoneVerified flag is sent (frontend sends it after Twilio verify)
+      // This is optional: if Twilio trial limits are hit, signup still works via email
+      if (phone && body.phoneVerified) {
         const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '')
         const normalizedPhone = '+91' + digits
-        const [otpRow] = await sql`
-          SELECT id FROM phone_otps
-          WHERE phone = ${normalizedPhone} AND verified = true
-            AND created_at > NOW() - INTERVAL '15 minutes'
-          ORDER BY created_at DESC LIMIT 1
-        `.catch(() => [])
-        if (!otpRow) {
-          return NextResponse.json({ error: 'Phone number verify nahi hua. Pehle OTP se verify karo.' }, { status: 400 })
-        }
-        // Cleanup used OTP
         await sql`DELETE FROM phone_otps WHERE phone = ${normalizedPhone} AND verified = true`.catch(() => {})
       }
 

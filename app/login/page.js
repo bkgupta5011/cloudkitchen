@@ -121,6 +121,7 @@ export default function LoginPage() {
           password: form.password,
           name: form.name,
           address: form.address,
+          phoneVerified: otpStep === 'verified', // flag — OTP was successfully verified
         })
       })
       const data = await res.json()

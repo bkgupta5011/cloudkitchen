@@ -20,97 +20,106 @@ export async function GET(request) {
   if (period === 'today') {
     orders = await sql`
       SELECT o.id, o.order_number, o.delivery_address, o.total,
-        o.delivery_charge, o.status, o.created_at, o.delivered_at,
+        o.delivery_charge, o.distance_km, o.status, o.created_at, o.delivered_at,
         u.name as customer_name, u.phone as customer_phone,
-        ROUND(o.delivery_charge * 0.7, 2) as earned
+        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as earned
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
       WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
         AND o.created_at::date = CURRENT_DATE
       ORDER BY o.delivered_at DESC
     `
     ;[stats] = await sql`
       SELECT COUNT(*) as total_deliveries,
-        COALESCE(SUM(ROUND(delivery_charge * 0.7, 2)), 0) as total_earned,
-        COALESCE(AVG(delivery_charge), 0) as avg_delivery_charge
-      FROM orders
-      WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
-        AND created_at::date = CURRENT_DATE
+        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_earned,
+        COALESCE(AVG(o.delivery_charge), 0) as avg_delivery_charge
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
+        AND o.created_at::date = CURRENT_DATE
     `
   } else if (period === 'week') {
     orders = await sql`
       SELECT o.id, o.order_number, o.delivery_address, o.total,
-        o.delivery_charge, o.status, o.created_at, o.delivered_at,
+        o.delivery_charge, o.distance_km, o.status, o.created_at, o.delivered_at,
         u.name as customer_name, u.phone as customer_phone,
-        ROUND(o.delivery_charge * 0.7, 2) as earned
+        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as earned
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
       WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
         AND o.created_at >= NOW() - INTERVAL '7 days'
       ORDER BY o.delivered_at DESC
     `
     ;[stats] = await sql`
       SELECT COUNT(*) as total_deliveries,
-        COALESCE(SUM(ROUND(delivery_charge * 0.7, 2)), 0) as total_earned,
-        COALESCE(AVG(delivery_charge), 0) as avg_delivery_charge
-      FROM orders
-      WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
-        AND created_at >= NOW() - INTERVAL '7 days'
+        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_earned,
+        COALESCE(AVG(o.delivery_charge), 0) as avg_delivery_charge
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
+        AND o.created_at >= NOW() - INTERVAL '7 days'
     `
   } else if (period === 'month') {
     orders = await sql`
       SELECT o.id, o.order_number, o.delivery_address, o.total,
-        o.delivery_charge, o.status, o.created_at, o.delivered_at,
+        o.delivery_charge, o.distance_km, o.status, o.created_at, o.delivered_at,
         u.name as customer_name, u.phone as customer_phone,
-        ROUND(o.delivery_charge * 0.7, 2) as earned
+        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as earned
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
       WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
         AND o.created_at >= NOW() - INTERVAL '30 days'
       ORDER BY o.delivered_at DESC
     `
     ;[stats] = await sql`
       SELECT COUNT(*) as total_deliveries,
-        COALESCE(SUM(ROUND(delivery_charge * 0.7, 2)), 0) as total_earned,
-        COALESCE(AVG(delivery_charge), 0) as avg_delivery_charge
-      FROM orders
-      WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
-        AND created_at >= NOW() - INTERVAL '30 days'
+        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_earned,
+        COALESCE(AVG(o.delivery_charge), 0) as avg_delivery_charge
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
+        AND o.created_at >= NOW() - INTERVAL '30 days'
     `
   } else {
     orders = await sql`
       SELECT o.id, o.order_number, o.delivery_address, o.total,
-        o.delivery_charge, o.status, o.created_at, o.delivered_at,
+        o.delivery_charge, o.distance_km, o.status, o.created_at, o.delivered_at,
         u.name as customer_name, u.phone as customer_phone,
-        ROUND(o.delivery_charge * 0.7, 2) as earned
+        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as earned
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
       WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
       ORDER BY o.delivered_at DESC
     `
     ;[stats] = await sql`
       SELECT COUNT(*) as total_deliveries,
-        COALESCE(SUM(ROUND(delivery_charge * 0.7, 2)), 0) as total_earned,
-        COALESCE(AVG(delivery_charge), 0) as avg_delivery_charge
-      FROM orders
-      WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
+        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_earned,
+        COALESCE(AVG(o.delivery_charge), 0) as avg_delivery_charge
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
     `
   }
 
   const [boyInfo] = await sql`
-    SELECT name, phone, vehicle_number, rating, total_earnings, is_online,
+    SELECT name, phone, vehicle_number, rating, total_earnings, is_online, per_km_earning,
            COALESCE(payment_due, 0) as payment_due,
            COALESCE(total_paid, 0)  as total_paid
     FROM delivery_boys WHERE id = ${user.id}
   `
 
-  // Live recalculate total earnings from orders (source of truth — prevents drift)
+  // Live recalculate total earnings from orders using per_km_earning * distance_km (source of truth)
   const [liveCalc] = await sql`
     SELECT
-      COALESCE(SUM(ROUND(delivery_charge::numeric * 0.7, 2)), 0) as live_total_earned,
+      COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as live_total_earned,
       COUNT(*) as live_total_deliveries
-    FROM orders
-    WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
+    FROM orders o
+    JOIN delivery_boys db ON db.id = o.delivery_boy_id
+    WHERE o.delivery_boy_id = ${user.id} AND o.status = 'delivered'
   `
 
   // If stored total_earnings drifted from live calc — auto-correct it

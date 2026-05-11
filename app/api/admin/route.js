@@ -106,6 +106,46 @@ export async function GET(request) {
     return NextResponse.json({ records })
   }
 
+  if (type === 'payout') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    const boyId = searchParams.get('boyId')
+    if (!boyId) return NextResponse.json({ error: 'boyId required' }, { status: 400 })
+    await ensurePaymentTable(sql)
+    // Ensure boy_payout column exists
+    try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+
+    const orders = await sql`
+      SELECT o.id, o.order_number, o.created_at, o.delivered_at,
+        o.delivery_charge, o.distance_km, o.status,
+        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as boy_payout_calc
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${boyId}::uuid AND o.status = 'delivered'
+      ORDER BY o.delivered_at DESC NULLS LAST
+    `
+
+    const [summary] = await sql`
+      SELECT
+        COALESCE(SUM(o.delivery_charge), 0) as total_collected,
+        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_to_pay,
+        COALESCE(db.total_paid, 0) as total_paid,
+        GREATEST(0, COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) - COALESCE(db.total_paid, 0)) as balance_due
+      FROM orders o
+      JOIN delivery_boys db ON db.id = o.delivery_boy_id
+      WHERE o.delivery_boy_id = ${boyId}::uuid AND o.status = 'delivered'
+      GROUP BY db.total_paid
+    `
+
+    const paymentHistory = await sql`
+      SELECT amount, notes, created_at FROM payment_records
+      WHERE delivery_boy_id = ${boyId}::uuid
+      ORDER BY created_at DESC LIMIT 50
+    `
+
+    return NextResponse.json({ orders, summary: summary || { total_collected: 0, total_to_pay: 0, total_paid: 0, balance_due: 0 }, paymentHistory })
+  }
+
   if (type === 'pending_boys') {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })

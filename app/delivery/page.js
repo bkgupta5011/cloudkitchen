@@ -222,6 +222,7 @@ export default function DeliveryPage() {
   const alertCtxRef    = useRef(null)
   const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
+  const isOnlineRef    = useRef(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
 
@@ -328,6 +329,8 @@ export default function DeliveryPage() {
     setAllTime(historyRes.allTime || null)
     setPaymentHistory(historyRes.paymentHistory || [])
     const info = historyRes.boyInfo || profileRes.profile
+    // Initial load: set ref from DB value, then set state
+    isOnlineRef.current = info?.is_online ?? false
     setBoyInfo(info)
     setProfileForm({ name: info?.name||'', phone: info?.phone||'', home_address: info?.home_address||'', emergency_contact: info?.emergency_contact||'' })
     setLoading(false)
@@ -339,13 +342,14 @@ export default function DeliveryPage() {
     setHistory(res.orders || [])
     setStats(res.stats)
     if (res.allTime) setAllTime(res.allTime)
-    if (res.boyInfo) setBoyInfo(res.boyInfo)
+    if (res.boyInfo) setBoyInfo(prev => ({ ...res.boyInfo, is_online: isOnlineRef.current ?? res.boyInfo.is_online }))
   }
 
   const toggleOnline = async () => {
     setToggling(true)
     const next = !boyInfo?.is_online
     await fetch('/api/delivery/status', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isOnline: next }) })
+    isOnlineRef.current = next
     setBoyInfo(p => ({ ...p, is_online: next }))
     setToggling(false)
     showToast(next ? '🟢 Aap online ho gaye — orders milenge!' : '⚫ Aap offline ho gaye')
@@ -374,7 +378,7 @@ export default function DeliveryPage() {
       setStats(pr.stats)
       setHistory(pr.orders || [])
       if (pr.allTime) setAllTime(pr.allTime)
-      if (pr.boyInfo) setBoyInfo(pr.boyInfo)
+      if (pr.boyInfo) setBoyInfo(prev => ({ ...pr.boyInfo, is_online: isOnlineRef.current ?? pr.boyInfo.is_online }))
     } catch { showToast('❌ Try again') }
     setDelivering(null)
   }

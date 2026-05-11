@@ -192,6 +192,9 @@ export async function POST(request) {
   const finalDelivery = freeDelivery ? 0 : deliveryCharge
   const total = Math.max(0, subtotal - discountAmount) + finalDelivery
 
+  // Ensure boy_payout column exists
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+
   // Create order
   const [order] = await sql`
     INSERT INTO orders (
@@ -239,9 +242,14 @@ export async function POST(request) {
 
     if (availableBoys.length > 0) {
       assignedBoy = availableBoys[0]
-      // Assign to order
+      // Get per_km_earning for boy_payout calculation
+      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${assignedBoy.id}`
+      const perKm = parseFloat(boyRate?.per_km_earning || 0)
+      const distKm = distanceKm ? parseFloat(distanceKm) : null
+      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+      // Assign to order and save boy_payout
       await sql`
-        UPDATE orders SET delivery_boy_id = ${assignedBoy.id} WHERE id = ${order.id}
+        UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout} WHERE id = ${order.id}
       `
       // Notify delivery boy
       sendPushToUser(String(assignedBoy.id), {
@@ -331,7 +339,13 @@ export async function PATCH(request) {
 
     // Update earnings ONLY if it wasn't already delivered (prevent double counting)
     if (status === 'delivered' && !wasAlreadyDelivered && order.delivery_boy_id) {
-      const earned = parseFloat(order.delivery_charge || 0) * 0.7
+      // Use boy_payout if set, else fallback to per_km_earning * distance_km (or 3km default)
+      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${order.delivery_boy_id}`
+      const perKm = parseFloat(boyRate?.per_km_earning || 0)
+      const distKm = order.distance_km ? parseFloat(order.distance_km) : null
+      const earned = order.boy_payout
+        ? parseFloat(order.boy_payout)
+        : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
       await sql`
         UPDATE delivery_boys
         SET total_earnings = total_earnings + ${earned},
@@ -365,8 +379,13 @@ export async function PATCH(request) {
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
     if (status === 'delivered' && !wasAlreadyDelivered) {
-      // Update earnings — only if wasn't already delivered (prevent double counting)
-      const earned = parseFloat(order.delivery_charge || 0) * 0.7
+      // Update earnings — use boy_payout if set, else per_km_earning * distance_km (or 3km fallback)
+      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${user.id}`
+      const perKm = parseFloat(boyRate?.per_km_earning || 0)
+      const distKm = order.distance_km ? parseFloat(order.distance_km) : null
+      const earned = order.boy_payout
+        ? parseFloat(order.boy_payout)
+        : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
       await sql`
         UPDATE delivery_boys
         SET total_earnings = total_earnings + ${earned},

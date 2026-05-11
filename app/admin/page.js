@@ -52,6 +52,10 @@ export default function AdminPage() {
   const [payAmount, setPayAmount] = useState('')
   const [payNotes, setPayNotes] = useState('')
   const [payHistory, setPayHistory] = useState([])
+  const [showPayoutModal, setShowPayoutModal] = useState(false)
+  const [payoutBoy, setPayoutBoy] = useState(null)
+  const [payoutData, setPayoutData] = useState(null)
+  const [payoutLoading, setPayoutLoading] = useState(false)
   const [notices, setNotices] = useState([])
   const [newNotice, setNewNotice] = useState({ message: '', emoji: '📢' })
   const [noticeEmojis] = useState(['📢', '🎉', '🔥', '❤️', '🍽️', '✨', '🎁', '💯', '🙏', '👋'])
@@ -448,6 +452,16 @@ export default function AdminPage() {
     setShowPayModal(true)
   }
 
+  const openPayoutModal = async (boy) => {
+    setPayoutBoy(boy)
+    setPayoutData(null)
+    setPayoutLoading(true)
+    setShowPayoutModal(true)
+    const d = await fetch(`/api/admin?type=payout&boyId=${boy.id}`).then(r => r.json())
+    setPayoutData(d)
+    setPayoutLoading(false)
+  }
+
   const recordPayment = async (e) => {
     e.preventDefault()
     if (!parseFloat(payAmount) || parseFloat(payAmount) <= 0) { showToast('❌ Valid amount daalo'); return }
@@ -839,7 +853,8 @@ export default function AdminPage() {
                     </span>
                     <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                       <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px' }} onClick={() => openBoyDetail(b)}>👁 Details</button>
-                      {due > 0 && <button className="btn btn-primary" style={{ fontSize:10, padding:'3px 8px', background:'#16a34a', border:'none' }} onClick={() => openPayModal(b)}>💰 Pay</button>}
+                      <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px', background:'#fef9c3', color:'#854d0e', border:'1px solid #fde047' }} onClick={() => openPayoutModal(b)}>💰 Payout</button>
+                      {due > 0 && <button className="btn btn-primary" style={{ fontSize:10, padding:'3px 8px', background:'#16a34a', border:'none' }} onClick={() => openPayModal(b)}>💳 Pay</button>}
                       <button className="btn btn-secondary" style={{ fontSize:10, padding:'3px 8px', background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5' }}
                         onClick={() => suspendBoy(b.id)}>🚫 Suspend</button>
                     </div>
@@ -1683,6 +1698,92 @@ export default function AdminPage() {
                 <button type="submit" className="btn btn-primary" style={{ flex:2, background:'#16a34a', border:'none' }}>✅ Mark as Paid</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Payout Detail Modal */}
+      {showPayoutModal && payoutBoy && (
+        <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowPayoutModal(false)}>
+          <div className={styles.modal} style={{ maxWidth:640, maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0 }}>💰 Payout — {payoutBoy.name}</h3>
+              <button onClick={() => setShowPayoutModal(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+            </div>
+
+            {payoutLoading && <div style={{ textAlign:'center', padding:'40px', color:'var(--t2)' }}>Loading...</div>}
+
+            {!payoutLoading && payoutData && (
+              <>
+                {/* Summary cards */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, marginBottom:16 }}>
+                  {[
+                    { label:'Customer Paid', val:`₹${Math.round(parseFloat(payoutData.summary?.total_collected||0))}`, color:'#2563eb', bg:'#dbeafe' },
+                    { label:'Boy Payout', val:`₹${Math.round(parseFloat(payoutData.summary?.total_to_pay||0))}`, color:'#16a34a', bg:'#dcfce7' },
+                    { label:'Already Paid', val:`₹${Math.round(parseFloat(payoutData.summary?.total_paid||0))}`, color:'#7c3aed', bg:'#f5f3ff' },
+                    { label:'Balance Due', val:`₹${Math.round(parseFloat(payoutData.summary?.balance_due||0))}`, color:'#dc2626', bg:'#fef2f2' },
+                  ].map(({ label, val, color, bg }) => (
+                    <div key={label} style={{ background:bg, borderRadius:10, padding:'10px 8px', textAlign:'center' }}>
+                      <div style={{ fontSize:10, color:'#64748b', marginBottom:3, fontWeight:600 }}>{label}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Record payment button */}
+                {parseFloat(payoutData.summary?.balance_due||0) > 0 && (
+                  <button className="btn btn-primary" style={{ width:'100%', background:'#16a34a', border:'none', marginBottom:16 }}
+                    onClick={() => { setShowPayoutModal(false); openPayModal({ ...payoutBoy, payment_due: payoutData.summary.balance_due }) }}>
+                    💳 Record Payment of ₹{Math.round(parseFloat(payoutData.summary.balance_due))}
+                  </button>
+                )}
+
+                {/* Order-wise table */}
+                <div style={{ marginBottom:16 }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:8, letterSpacing:0.5 }}>ORDER-WISE BREAKDOWN</div>
+                  {payoutData.orders?.length === 0 && (
+                    <div style={{ textAlign:'center', padding:'20px', color:'var(--t2)', fontSize:13 }}>Koi delivered order nahi</div>
+                  )}
+                  {payoutData.orders?.length > 0 && (
+                    <div style={{ background:'var(--bg)', borderRadius:12, overflow:'hidden', border:'1px solid var(--bd)' }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'60px 90px 70px 90px 90px', gap:8, padding:'8px 12px', background:'var(--card)', fontSize:10, fontWeight:700, color:'var(--t2)' }}>
+                        <span>ORDER</span><span>DATE</span><span>DIST</span><span>CUST PAID</span><span>BOY PAYOUT</span>
+                      </div>
+                      {payoutData.orders.map((o, i) => (
+                        <div key={o.id} style={{ display:'grid', gridTemplateColumns:'60px 90px 70px 90px 90px', gap:8, padding:'8px 12px', borderTop:'1px solid var(--bd)', fontSize:12, alignItems:'center' }}>
+                          <span style={{ fontWeight:700, color:'#2563eb' }}>#{o.order_number}</span>
+                          <span style={{ color:'var(--t2)' }}>{new Date(o.delivered_at||o.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</span>
+                          <span>{o.distance_km ? `${parseFloat(o.distance_km).toFixed(1)} km` : '~3 km*'}</span>
+                          <span style={{ color:'#2563eb', fontWeight:600 }}>₹{Math.round(parseFloat(o.delivery_charge||0))}</span>
+                          <span style={{ color:'#16a34a', fontWeight:700 }}>₹{Math.round(parseFloat(o.boy_payout_calc||0))}</span>
+                        </div>
+                      ))}
+                      {payoutData.orders.some(o => !o.distance_km) && (
+                        <div style={{ padding:'6px 12px', fontSize:10, color:'var(--t3)', borderTop:'1px solid var(--bd)' }}>* Distance unavailable — 3km default assumed</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payment ledger */}
+                {payoutData.paymentHistory?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize:12, fontWeight:700, color:'var(--t2)', marginBottom:8, letterSpacing:0.5 }}>PAYMENT LEDGER</div>
+                    <div style={{ background:'var(--bg)', borderRadius:12, overflow:'hidden', border:'1px solid var(--bd)' }}>
+                      {payoutData.paymentHistory.map((p, i) => (
+                        <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', borderTop: i>0?'1px solid var(--bd)':'none' }}>
+                          <div>
+                            <div style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>✅ ₹{Math.round(parseFloat(p.amount))} paid</div>
+                            {p.notes && <div style={{ fontSize:11, color:'var(--t2)' }}>{p.notes}</div>}
+                          </div>
+                          <div style={{ fontSize:11, color:'var(--t3)' }}>{new Date(p.created_at).toLocaleDateString('en-IN')}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

@@ -216,16 +216,64 @@ export async function POST(request) {
     `
   }
 
+  // ── AUTO-ASSIGN DELIVERY BOY ──────────────────────────────────────
+  let assignedBoy = null
+  try {
+    // Find available delivery boys: online + approved + not currently out for delivery
+    const availableBoys = await sql`
+      SELECT db.id, db.name, db.phone,
+        COUNT(o.id) FILTER (WHERE o.status IN ('confirmed','preparing')) AS active_orders
+      FROM delivery_boys db
+      LEFT JOIN orders o ON o.delivery_boy_id = db.id
+        AND o.status IN ('confirmed', 'preparing', 'out_for_delivery')
+      WHERE db.is_online = true
+        AND db.status = 'approved'
+        AND NOT EXISTS (
+          SELECT 1 FROM orders
+          WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
+        )
+      GROUP BY db.id, db.name, db.phone
+      ORDER BY active_orders ASC, RANDOM()
+      LIMIT 1
+    `
+
+    if (availableBoys.length > 0) {
+      assignedBoy = availableBoys[0]
+      // Assign to order
+      await sql`
+        UPDATE orders SET delivery_boy_id = ${assignedBoy.id} WHERE id = ${order.id}
+      `
+      // Notify delivery boy
+      sendPushToUser(String(assignedBoy.id), {
+        title: '📦 Naya Delivery Assignment!',
+        body: `Order #${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 50)}`,
+        url: '/delivery',
+        tag: `delivery-${order.id}`,
+        requireInteraction: true,
+      }, 'delivery').catch(() => {})
+    }
+  } catch (e) {
+    console.error('Auto-assign error:', e)
+    // Non-fatal — order still placed, admin can manually assign
+  }
+
   // Notify all admins — new order arrived
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,
-    body: `₹${Math.round(order.total)} · ${items.map(i => i.name).join(', ').slice(0, 60)}`,
+    body: assignedBoy
+      ? `✅ Auto-assigned: ${assignedBoy.name} · ₹${Math.round(order.total)}`
+      : `⚠️ Koi delivery boy available nahi — manually assign karo · ₹${Math.round(order.total)}`,
     url: '/admin',
     tag: 'new-order',
     requireInteraction: true,
   }).catch(() => {})
 
-  return NextResponse.json({ order, orderNumber: order.order_number }, { status: 201 })
+  return NextResponse.json({
+    order: { ...order, delivery_boy_id: assignedBoy?.id || null },
+    orderNumber: order.order_number,
+    autoAssigned: !!assignedBoy,
+    deliveryBoyName: assignedBoy?.name || null,
+  }, { status: 201 })
 }
 
 // PATCH - update order status (admin) or mark delivered (delivery boy)

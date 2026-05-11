@@ -275,6 +275,7 @@ export default function CartPage() {
   const [error, setError] = useState('')
   const [placed, setPlaced] = useState(false)
   const [orderNum, setOrderNum] = useState(null)
+  const [deliveryBoyName, setDeliveryBoyName] = useState(null)
   const [kitchenLat, setKitchenLat] = useState(25.5801392)
   const [kitchenLng, setKitchenLng] = useState(85.1569214)
   const [maxKm, setMaxKm] = useState(5)
@@ -445,7 +446,9 @@ export default function CartPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error); return }
       localStorage.removeItem('ck_cart')
-      setOrderNum(data.orderNumber); setPlaced(true)
+      setOrderNum(data.orderNumber)
+      setDeliveryBoyName(data.deliveryBoyName || null)
+      setPlaced(true)
     } catch { setError('Something went wrong') }
     finally { setLoading(false) }
   }
@@ -456,6 +459,11 @@ export default function CartPage() {
         <div className={styles.checkCircle}>✓</div>
         <h2>Order Placed!</h2>
         <p>Order #{orderNum} confirmed</p>
+        {deliveryBoyName && (
+          <p style={{ fontSize:14, color:'#16a34a', fontWeight:600, margin:'4px 0 8px' }}>
+            🛵 {deliveryBoyName} aapka order deliver karenge
+          </p>
+        )}
         <p className={styles.eta}>Estimated delivery: {estimatedTime}–{estimatedTime + 10} mins</p>
         <div className={styles.trackSteps}>
           {[['Order Confirmed','done','Just now'],['Being Prepared','active','Kitchen is cooking'],['Out for Delivery','wait','Soon'],['Delivered','wait','Pay cash on arrival']].map(([label,state,sub]) => (

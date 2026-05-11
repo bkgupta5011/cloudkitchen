@@ -317,9 +317,9 @@ export default function DeliveryPage() {
   const loadData = async () => {
     try {
       const [ordersRes, historyRes, profileRes] = await Promise.all([
-        fetch('/api/orders').then(r => r.json()).catch(e => { console.error('orders fetch error:', e); return { orders: [] } }),
-        fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(async r => { const d = await r.json(); console.log('📊 historyRes status:', r.status, 'stats:', d?.stats, 'allTime:', d?.allTime, 'boyInfo.earnings:', d?.boyInfo?.total_earnings); return d; }).catch(e => { console.error('history fetch error:', e); return {} }),
-        fetch('/api/profile').then(r => r.json()).catch(e => { console.error('profile fetch error:', e); return {} }),
+        fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] })),
+        fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
+        fetch('/api/profile').then(r => r.json()).catch(() => ({})),
       ])
       const initial = ordersRes.orders || []
       setOrders(initial)
@@ -521,13 +521,6 @@ export default function DeliveryPage() {
         {/* ── EARNINGS TAB ── */}
         {tab === 'earnings' && (
           <div style={{ padding:'0 14px' }}>
-            {/* Temp debug card — remove after fix confirmed */}
-            {(pf(stats?.total_earned) === 0 && pf(allTime?.total_earned) === 0 && pf(boyInfo?.total_earnings) === 0) && (
-              <div style={{ background:'#fef3c7', borderRadius:12, padding:'12px', marginBottom:12, fontSize:11, color:'#92400e' }}>
-                ⚠️ Debug: stats={JSON.stringify(stats)} | allTime={JSON.stringify(allTime)} | boyInfo.earnings={boyInfo?.total_earnings}
-              </div>
-            )}
-
             {/* Period selector */}
             <div style={{ display:'flex', gap:8, marginBottom:14 }}>
               {['today','week','month','all'].map(p => (

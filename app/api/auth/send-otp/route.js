@@ -8,7 +8,7 @@ async function ensureOtpTable(sql) {
     CREATE TABLE IF NOT EXISTS phone_otps (
       id          SERIAL PRIMARY KEY,
       phone       VARCHAR(20) NOT NULL,
-      otp         VARCHAR(6)  NOT NULL,
+      otp         VARCHAR(6),
       expires_at  TIMESTAMP   NOT NULL,
       verified    BOOLEAN     DEFAULT false,
       created_at  TIMESTAMP   DEFAULT NOW()
@@ -17,34 +17,36 @@ async function ensureOtpTable(sql) {
   await sql`CREATE INDEX IF NOT EXISTS idx_phone_otps_phone ON phone_otps(phone)`.catch(() => {})
 }
 
-// Send OTP via Fast2SMS Quick SMS (no DLT needed!)
-async function sendOtpFast2SMS(mobileDigits, otp) {
-  const apiKey = process.env.FAST2SMS_API_KEY
-  if (!apiKey) throw new Error('Fast2SMS API key not configured')
+// Send OTP via Twilio Verify — most reliable, no DLT needed
+async function sendOtpTwilio(phone_e164) {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID
+  const authToken  = process.env.TWILIO_AUTH_TOKEN
+  const serviceSid = process.env.TWILIO_VERIFY_SID
 
-  const message = `FoodFi OTP: ${otp}. Valid 5 minutes. Do not share with anyone. - FoodFi Cloud Kitchen`
+  if (!accountSid || !authToken || !serviceSid) {
+    throw new Error('Twilio credentials not configured')
+  }
 
-  const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
-    method: 'POST',
-    headers: {
-      'authorization': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      route: 'q',               // Quick SMS — no DLT required
-      message: message,
-      numbers: mobileDigits,    // 10-digit number only
-    })
-  })
+  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64')
+
+  const res = await fetch(
+    `https://verify.twilio.com/v2/Services/${serviceSid}/Verifications`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ To: phone_e164, Channel: 'sms' }).toString()
+    }
+  )
 
   const data = await res.json()
 
-  if (!data?.return) {
-    const errMsg = Array.isArray(data?.message)
-      ? data.message.join(', ')
-      : (data?.message || JSON.stringify(data))
-    throw new Error(errMsg)
+  if (data?.status !== 'pending') {
+    throw new Error(data?.message || 'OTP send failed')
   }
+
   return data
 }
 
@@ -87,18 +89,15 @@ export async function POST(request) {
     // Delete old unverified OTPs
     await sql`DELETE FROM phone_otps WHERE phone = ${normalizedPhone} AND verified = false`
 
-    // Generate 6-digit OTP
-    const otp = String(Math.floor(100000 + Math.random() * 900000))
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString()
-
-    // Save to DB
+    // Save placeholder (Twilio generates OTP internally)
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 min
     await sql`
       INSERT INTO phone_otps (phone, otp, expires_at)
-      VALUES (${normalizedPhone}, ${otp}, ${expiresAt})
+      VALUES (${normalizedPhone}, 'twilio', ${expiresAt})
     `
 
-    // Send via Fast2SMS Quick SMS
-    await sendOtpFast2SMS(digits, otp)
+    // Send via Twilio Verify
+    await sendOtpTwilio(normalizedPhone)
 
     return NextResponse.json({ success: true, message: `OTP +91${digits} pe bhej diya gaya` })
 

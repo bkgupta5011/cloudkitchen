@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
 import crypto from 'crypto'
-import { sendPasswordResetOtp } from '@/lib/email'
+import { sendPasswordResetOtp, sendPasswordResetLink } from '@/lib/email'
 
 async function ensureResetTable(sql) {
   await sql`
@@ -22,41 +22,6 @@ async function ensureResetTable(sql) {
   } catch(e) {}
 }
 
-async function sendResetEmail(toEmail, resetLink) {
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: 'FoodFi Cloud Kitchen <noreply@foodfi.in>',
-      to: toEmail,
-      subject: '🔐 Password Reset - FoodFi Cloud Kitchen',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
-          <div style="text-align:center; margin-bottom:24px;">
-            <h2 style="color:#e85d04; margin:0; font-size:22px;">🍽️ FoodFi</h2>
-            <h3 style="color:#1e293b; margin:4px 0 0 0; font-size:18px;">Cloud Kitchen</h3>
-          </div>
-          <p style="font-size:16px; color:#1f2937;">Namaste! 🙏</p>
-          <p style="color:#374151;">Aapne password reset request ki hai. Neeche button pe click karke naya password set karein:</p>
-          <div style="text-align:center; margin:28px 0;">
-            <a href="${resetLink}" style="background:#e85d04; color:#fff; padding:14px 32px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px;">
-              🔑 Reset Password
-            </a>
-          </div>
-          <p style="color:#6b7280; font-size:13px;">Yeh link <strong>1 ghante</strong> mein expire ho jayega.</p>
-          <p style="color:#6b7280; font-size:13px;">Agar aapne yeh request nahi ki, toh is email ko ignore karein.</p>
-          <hr style="border:none;border-top:1px solid #e5e7eb; margin:20px 0;" />
-          <p style="color:#9ca3af; font-size:12px; text-align:center;">FoodFi &bull; foodfi.in</p>
-        </div>
-      `,
-    }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message || data.name || 'Email send failed')
-}
 
 async function ensureResetOtpsTable(sql) {
   await sql`
@@ -319,7 +284,7 @@ export async function POST(request) {
       const baseUrl = 'https://foodfi.in'
       const resetLink = `${baseUrl}/reset-password?token=${resetToken}`
 
-      await sendResetEmail(email, resetLink)
+      await sendPasswordResetLink(email, resetLink)
 
       return NextResponse.json({ success: true })
     } catch (e) {

@@ -623,6 +623,7 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+            <div className={styles.tableWrap}>
             <div className={styles.table}>
               <div className={`${styles.tHead} ${styles.ordCols}`}><span>Order</span><span>Customer</span><span>Amount</span><span>Time</span><span>Status</span><span>Delivery Boy</span></div>
               {filteredOrders.map(o => {
@@ -661,6 +662,7 @@ export default function AdminPage() {
                 </div>
               )})}
               {filteredOrders.length === 0 && <div style={{ padding:'24px', textAlign:'center', color:'var(--t2)' }}>Koi order nahi mila</div>}
+            </div>
             </div>
           </>
         )}

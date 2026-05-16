@@ -23,11 +23,17 @@
 .filters { display: flex; gap: 5px; flex-wrap: wrap; }
 .fChip { padding: 4px 11px; border: 0.5px solid var(--bd); border-radius: 20px; cursor: pointer; font-size: 11px; color: var(--t2); background: transparent; font-family: inherit; transition: all 0.15s; }
 .fChip.active { background: var(--or); border-color: var(--or); color: #fff; }
-.table { background: var(--card); border: 0.5px solid var(--bd); border-radius: 10px; overflow: hidden; }
-.tHead { display: grid; gap: 8px; padding: 10px 14px; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: 0.4px; }
+.tableWrap { border: 0.5px solid var(--bd); border-radius: 10px; overflow: auto; max-height: 65vh; scroll-behavior: smooth; }
+.tableWrap::-webkit-scrollbar { width: 5px; height: 5px; }
+.tableWrap::-webkit-scrollbar-track { background: transparent; }
+.tableWrap::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+.tableWrap::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+.tableWrap::-webkit-scrollbar-corner { background: transparent; }
+.table { background: var(--card); border-radius: 10px; min-width: 660px; }
+.tHead { display: grid; gap: 8px; padding: 10px 14px; background: var(--bg); font-size: 11px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: 0.4px; position: sticky; top: 0; z-index: 2; border-bottom: 0.5px solid var(--bd); }
 .tRow { display: grid; gap: 8px; padding: 12px 14px; border-top: 0.5px solid var(--bd); align-items: center; font-size: 12px; transition: background 0.15s; }
 .tRow:hover { background: var(--bg); }
-.ordCols { grid-template-columns: 60px 1fr 70px 60px 110px 100px; }
+.ordCols { grid-template-columns: 60px 1fr 70px 60px 120px 120px; }
 .boyCols { grid-template-columns: 1fr 100px 100px 80px 80px; }
 .orderId { font-weight: 600; color: var(--or); font-size: 12px; }
 .statSel { padding: 4px 7px; border: 0.5px solid var(--bd); border-radius: 6px; background: var(--bg); color: var(--t1); font-size: 11px; cursor: pointer; outline: none; font-family: inherit; }

@@ -1,135 +1,212 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from '../login/login.module.css'
 import FoodFiLogo from '../components/FoodFiLogo'
 
+function detectType(val) {
+  if (!val) return 'unknown'
+  if (val.includes('@') || /[a-zA-Z]/.test(val)) return 'email'
+  if (/^[0-9]+$/.test(val)) return 'phone'
+  return 'unknown'
+}
+
 export default function ForgotPasswordPage() {
   const router = useRouter()
 
-  // mode: 'email' | 'phone'
-  const [mode, setMode] = useState('email')
-  const [input, setInput] = useState('')       // email or phone digits
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  // Email flow
-  const [emailSent, setEmailSent] = useState(false)
-
-  // Phone / OTP flow
-  const [otpStep, setOtpStep] = useState('idle') // idle | sending | sent | verifying | verified
-  const [otpInput, setOtpInput] = useState('')
-  const [otpTimer, setOtpTimer] = useState(0)
-  const timerRef = useRef(null)
-  const otpInputRef = useRef(null)
-  const confirmationResultRef = useRef(null)
-
-  const switchMode = (m) => {
-    setMode(m); setInput(''); setError('')
-    setOtpStep('idle'); setOtpInput(''); setOtpTimer(0)
-    confirmationResultRef.current = null
-    if (timerRef.current) clearTimeout(timerRef.current)
-  }
-
-  const startTimer = () => {
-    setOtpTimer(60)
-    const tick = () => setOtpTimer(t => { if (t <= 1) return 0; timerRef.current = setTimeout(tick, 1000); return t - 1 })
-    timerRef.current = setTimeout(tick, 1000)
-  }
-
-  // ── EMAIL FLOW ──────────────────────────────────────────────────
-  const handleEmailSubmit = async (e) => {
-    e.preventDefault()
-    setError(''); setLoading(true)
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'forgot-password', email: input })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'Kuch gadbad ho gayi.'); return }
-      setEmailSent(true)
-    } catch (e) {
-      setError('Network error: ' + e.message)
-    } finally { setLoading(false) }
-  }
-
-  // ── PHONE / OTP FLOW ────────────────────────────────────────────
-  const phoneDigits = input.replace(/[^0-9]/g, '')
+  const [identifier, setIdentifier] = useState('')
+  const loginType = detectType(identifier)
+  const phoneDigits = identifier.replace(/[^0-9]/g, '')
   const phoneReady = phoneDigits.length === 10
+  const emailReady = identifier.includes('@') && identifier.includes('.')
 
+  // Steps: 'idle' → 'sending' → 'sent' → 'verifying' → 'verified' (shows password form) → 'done'
+  const [otpStep, setOtpStep] = useState('idle')
+  const [otpInput, setOtpInput] = useState(['', '', '', '', '', ''])
+  const [otpTimer, setOtpTimer] = useState(0)
+  const otpBoxRefs = useRef([])
+  const timerRef = useRef(null)
+
+  // Firebase phone OTP
+  const recaptchaVerifierRef = useRef(null)
+  const confirmationResultRef = useRef(null)
+  const recaptchaContainerRef = useRef(null)
+
+  // After OTP verified — reset token + new password form
+  const [resetToken, setResetToken] = useState(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [done, setDone] = useState(false)
+
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  // Timer countdown
+  useEffect(() => {
+    if (otpTimer > 0) {
+      timerRef.current = setTimeout(() => setOtpTimer(t => t - 1), 1000)
+    }
+    return () => clearTimeout(timerRef.current)
+  }, [otpTimer])
+
+  const otpString = otpInput.join('')
+
+  const handleIdentifierChange = (val) => {
+    const type = detectType(val)
+    if (type === 'phone') {
+      val = val.replace(/[^0-9]/g, '')
+      if (val.length > 10) return
+    }
+    setIdentifier(val)
+    setError('')
+    if (otpStep !== 'idle') {
+      setOtpStep('idle')
+      setOtpInput(['', '', '', '', '', ''])
+      confirmationResultRef.current = null
+    }
+  }
+
+  // 6 OTP boxes
+  const handleOtpBox = (index, val) => {
+    if (!/^[0-9]?$/.test(val)) return
+    const next = [...otpInput]
+    next[index] = val
+    setOtpInput(next)
+    if (val && index < 5) otpBoxRefs.current[index + 1]?.focus()
+  }
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && !otpInput[index] && index > 0) otpBoxRefs.current[index - 1]?.focus()
+    if (e.key === 'Enter' && otpString.length === 6) verifyOtp()
+  }
+  const handleOtpPaste = (e) => {
+    const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6)
+    if (pasted.length === 6) { setOtpInput(pasted.split('')); otpBoxRefs.current[5]?.focus() }
+    e.preventDefault()
+  }
+
+  // ── Firebase RecaptchaVerifier ──────────────────────────────────
   const getRecaptchaVerifier = async () => {
     const { getFirebaseAuth } = await import('@/lib/firebase-client')
     const { RecaptchaVerifier } = await import('firebase/auth')
     const auth = getFirebaseAuth()
     if (!auth) throw new Error('Firebase init failed')
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch (e) {}
+      recaptchaVerifierRef.current = null
+    }
     const verifier = new RecaptchaVerifier(auth, 'fp-recaptcha-container', {
       size: 'invisible', callback: () => {}
     })
+    recaptchaVerifierRef.current = verifier
     return { auth, verifier }
   }
 
+  // ── SEND OTP ────────────────────────────────────────────────────
   const sendOtp = async () => {
-    if (!phoneReady) { setError('Valid 10-digit phone number do'); return }
-    setError(''); setOtpStep('sending')
+    if (loginType === 'phone' && !phoneReady) { setError('Valid 10-digit phone number do'); return }
+    if (loginType === 'email' && !emailReady) { setError('Valid email address do'); return }
+    if (loginType === 'unknown') { setError('Email ya phone number do'); return }
+
+    setError(''); setLoading(true); setOtpStep('sending')
+    setOtpInput(['', '', '', '', '', ''])
+
     try {
-      const { signInWithPhoneNumber } = await import('firebase/auth')
-      const { auth, verifier } = await getRecaptchaVerifier()
-      const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
-      confirmationResultRef.current = result
+      if (loginType === 'phone') {
+        const { signInWithPhoneNumber } = await import('firebase/auth')
+        const { auth, verifier } = await getRecaptchaVerifier()
+        const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
+        confirmationResultRef.current = result
+      } else {
+        // Email OTP via our API
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'send-reset-otp', email: identifier })
+        })
+        const data = await res.json()
+        if (!res.ok) { setError(data.error || 'OTP nahi bheja ja saka'); setOtpStep('idle'); return }
+      }
       setOtpStep('sent')
-      startTimer()
-      setTimeout(() => otpInputRef.current?.focus(), 100)
+      setOtpTimer(60)
+      setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     } catch (e) {
-      console.error('OTP send error:', e)
+      console.error('Send OTP error:', e)
       setError('OTP nahi bheja ja saka. Dobara try karo.')
       setOtpStep('idle')
-    }
+    } finally { setLoading(false) }
   }
 
+  // ── VERIFY OTP ──────────────────────────────────────────────────
   const verifyOtp = async () => {
-    if (otpInput.length !== 6) { setError('6-digit OTP daalo'); return }
-    setError(''); setOtpStep('verifying')
+    if (otpString.length !== 6) { setError('6-digit OTP daalo'); return }
+    setError(''); setOtpStep('verifying'); setLoading(true)
     try {
-      const result = await confirmationResultRef.current.confirm(otpInput)
-      const firebaseToken = await result.user.getIdToken()
-      setOtpStep('verified')
+      let token = null
 
-      // Ask backend to generate a reset token for this phone
-      setLoading(true)
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'forgot-password-phone', phone: '+91' + phoneDigits, firebaseToken })
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data.token) {
-        setError(data.error || 'Account nahi mila is number se.')
-        setOtpStep('sent')
-        return
+      if (loginType === 'phone') {
+        const result = await confirmationResultRef.current.confirm(otpString)
+        const firebaseToken = await result.user.getIdToken()
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'forgot-password-phone', phone: '+91' + phoneDigits, firebaseToken })
+        })
+        const data = await res.json()
+        if (!res.ok || !data.token) { setError(data.error || 'Account nahi mila is number se.'); setOtpStep('sent'); return }
+        token = data.token
+      } else {
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify-reset-otp', email: identifier, otp: otpString })
+        })
+        const data = await res.json()
+        if (!res.ok || !data.token) { setError(data.error || 'OTP galat hai.'); setOtpStep('sent'); return }
+        token = data.token
       }
-      // Redirect to reset-password with the token
-      router.push('/reset-password?token=' + data.token)
+
+      setResetToken(token)
+      setOtpStep('verified')
     } catch (e) {
+      console.error('Verify OTP error:', e)
       const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
         : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Resend karo.'
-        : 'OTP verify nahi hua.'
+        : 'OTP verify nahi hua. Dobara try karo.'
       setError(msg)
       setOtpStep('sent')
     } finally { setLoading(false) }
   }
 
-  const handlePhoneSubmit = async (e) => {
+  // ── SAVE NEW PASSWORD ───────────────────────────────────────────
+  const savePassword = async (e) => {
     e.preventDefault()
-    if (otpStep === 'idle') { await sendOtp(); return }
-    if (otpStep === 'sent') { setError('Pehle OTP verify karo 👇'); return }
+    if (newPassword !== confirmPassword) { setError('Dono passwords match nahi kar rahe'); return }
+    if (newPassword.length < 6) { setError('Password kam se kam 6 characters ka hona chahiye'); return }
+    setError(''); setSaving(true)
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset-password', token: resetToken, newPassword })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Password reset nahi hua.'); return }
+      setDone(true)
+    } catch { setError('Kuch gadbad ho gayi. Dobara try karo.') }
+    finally { setSaving(false) }
   }
 
-  // ── RENDER ──────────────────────────────────────────────────────
+  // ── Identifier prefix display ────────────────────────────────────
+  const prefix = loginType === 'phone'
+    ? <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:14, color:'#374151', fontWeight:600, whiteSpace:'nowrap', display:'flex', alignItems:'center' }}>🇮🇳 +91</span>
+    : loginType === 'email'
+    ? <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:16, display:'flex', alignItems:'center' }}>📧</span>
+    : <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:13, color:'#9ca3af', display:'flex', alignItems:'center' }}>@/📱</span>
+
   return (
     <div className={styles.wrap}>
-      <div id="fp-recaptcha-container" />
+      <div id="fp-recaptcha-container" ref={recaptchaContainerRef} />
 
       <div className={styles.card}>
         <div className={styles.logo}>
@@ -143,122 +220,156 @@ export default function ForgotPasswordPage() {
           <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Password Reset</p>
         </div>
 
-        {/* Email sent success */}
-        {emailSent ? (
-          <div style={{ textAlign: 'center', padding: '16px 0' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>📧</div>
-            <h3 style={{ color: '#1f2937', marginBottom: 8 }}>Email bhej di gayi!</h3>
-            <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>
-              <strong>{input}</strong> pe password reset link bheja gaya hai.<br />
-              Apna inbox check karein (Spam bhi dekh lein).
-            </p>
-            <button className="btn btn-primary btn-full" style={{ marginTop: 20 }} onClick={() => router.push('/login')}>
-              Login Page pe Jao
+        {/* ── DONE ── */}
+        {done ? (
+          <div style={{ textAlign:'center', padding:'16px 0' }}>
+            <div style={{ fontSize:52, marginBottom:12 }}>✅</div>
+            <h3 style={{ color:'#1f2937', marginBottom:8, fontSize:18 }}>Password badal gaya!</h3>
+            <p style={{ color:'#6b7280', fontSize:14 }}>Ab naye password se login karein.</p>
+            <button className="btn btn-primary btn-full" style={{ marginTop:20 }} onClick={() => router.push('/login')}>
+              Login Karein →
             </button>
           </div>
-        ) : (
+        ) : resetToken ? (
+          /* ── NEW PASSWORD FORM (after OTP verified) ── */
           <>
-            {/* Mode toggle */}
-            <div style={{ display:'flex', gap:0, marginBottom:16, borderRadius:8, overflow:'hidden', border:'1.5px solid var(--bdr)' }}>
-              {[['email','📧 Email'],['phone','📱 Phone']].map(([m, label]) => (
-                <button key={m} type="button"
-                  onClick={() => switchMode(m)}
-                  style={{ flex:1, padding:'9px', border:'none', background: mode===m ? '#e85d04' : '#fff', color: mode===m ? '#fff' : '#6b7280', fontWeight:600, cursor:'pointer', fontSize:13 }}>
-                  {label}
-                </button>
-              ))}
+            <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', marginBottom:16, display:'flex', alignItems:'center', gap:8 }}>
+              <span style={{ fontSize:20 }}>✅</span>
+              <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>Verify ho gaya! Naya password set karein.</span>
+            </div>
+            <form onSubmit={savePassword}>
+              <div className="field">
+                <label>Naya Password</label>
+                <input type="password" required value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                  placeholder="••••••••" minLength={6} autoFocus />
+              </div>
+              <div className="field">
+                <label>Password Confirm Karein</label>
+                <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••" minLength={6} />
+              </div>
+              {error && <div className={styles.error}>{error}</div>}
+              <button type="submit" className="btn btn-primary btn-full" disabled={saving}>
+                {saving ? <span className="spinner" /> : '🔐 Password Save Karein'}
+              </button>
+            </form>
+          </>
+        ) : (
+          /* ── IDENTIFIER + OTP FLOW ── */
+          <>
+            <p style={{ fontSize:13, color:'#6b7280', marginBottom:16, lineHeight:1.6 }}>
+              Registered email ya mobile number daalo — OTP se verify karke password reset karo.
+            </p>
+
+            {/* Identifier input */}
+            <div className="field">
+              <label style={{ display:'flex', alignItems:'center', gap:6 }}>
+                Email ya Mobile Number
+                {loginType === 'phone' && <span style={{ fontSize:11, background:'#fff7ed', color:'#e85d04', border:'1px solid #fed7aa', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>📱 Mobile</span>}
+                {loginType === 'email' && <span style={{ fontSize:11, background:'#eff6ff', color:'#2563eb', border:'1px solid #bfdbfe', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>📧 Email</span>}
+              </label>
+              <div style={{ display:'flex' }}>
+                {prefix}
+                <input
+                  type={loginType === 'email' ? 'email' : 'text'}
+                  value={identifier}
+                  onChange={e => handleIdentifierChange(e.target.value)}
+                  placeholder={loginType === 'phone' ? '98765 43210' : loginType === 'email' ? 'you@email.com' : 'Email ya 10-digit mobile...'}
+                  maxLength={loginType === 'phone' ? 10 : 100}
+                  inputMode={loginType === 'phone' ? 'numeric' : 'email'}
+                  disabled={otpStep === 'sent' || otpStep === 'verifying'}
+                  style={{ borderRadius:'0 8px 8px 0', borderLeft:'none', flex:1 }}
+                  autoFocus
+                />
+              </div>
             </div>
 
-            {/* EMAIL mode */}
-            {mode === 'email' && (
-              <form onSubmit={handleEmailSubmit}>
-                <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, lineHeight: 1.6 }}>
-                  Registered email daalo — reset link bhej denge.
+            {/* OTP Box — shown after sent */}
+            {(otpStep === 'sent' || otpStep === 'verifying') && (
+              <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:12, padding:'16px', marginBottom:12 }}>
+                <p style={{ margin:'0 0 12px 0', fontSize:13, color:'#92400e', fontWeight:600, textAlign:'center' }}>
+                  {loginType === 'email'
+                    ? `📧 OTP ${identifier} pe bheja gaya`
+                    : `📲 OTP +91${phoneDigits} pe bheja gaya`}
                 </p>
-                <div className="field">
-                  <label>Email Address</label>
-                  <input type="email" value={input} onChange={e => setInput(e.target.value)}
-                    placeholder="you@email.com" required />
+
+                {/* 6 individual OTP boxes */}
+                <div style={{ display:'flex', gap:8, justifyContent:'center', marginBottom:14 }} onPaste={handleOtpPaste}>
+                  {otpInput.map((digit, i) => (
+                    <input
+                      key={i}
+                      ref={el => otpBoxRefs.current[i] = el}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      onChange={e => handleOtpBox(i, e.target.value)}
+                      onKeyDown={e => handleOtpKeyDown(i, e)}
+                      style={{
+                        width:42, height:52, textAlign:'center', fontSize:22, fontWeight:700,
+                        border: digit ? '2px solid #f97316' : '2px solid #e5e7eb',
+                        borderRadius:10, outline:'none',
+                        background: digit ? '#fff7ed' : '#fff',
+                        color:'#1f2937', transition:'all 0.15s',
+                        boxShadow: digit ? '0 0 0 3px rgba(249,115,22,0.1)' : 'none'
+                      }}
+                    />
+                  ))}
                 </div>
-                {error && <div className={styles.error}>{error}</div>}
-                <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-                  {loading ? <span className="spinner" /> : '📧 Reset Link Bhejo'}
+
+                {/* Verify button — below boxes */}
+                <button
+                  type="button"
+                  onClick={verifyOtp}
+                  disabled={otpString.length !== 6 || loading}
+                  style={{
+                    width:'100%', padding:'13px', fontSize:15, fontWeight:700, border:'none',
+                    borderRadius:10, cursor: otpString.length === 6 ? 'pointer' : 'not-allowed',
+                    background: otpString.length === 6 ? '#16a34a' : '#d1d5db',
+                    color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                    transition:'background 0.2s',
+                  }}>
+                  {loading && otpStep === 'verifying'
+                    ? <><span className="spinner" /> Verify ho raha hai...</>
+                    : <><span style={{ fontSize:18 }}>✓</span> OTP Verify Karo</>}
                 </button>
-              </form>
+
+                <div style={{ marginTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <span style={{ fontSize:12, color:'#9ca3af' }}>
+                    {loginType === 'email' ? '10 min' : '5 min'} mein expire hoga
+                  </span>
+                  {otpTimer > 0
+                    ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend {otpTimer}s mein</span>
+                    : <button type="button" onClick={sendOtp}
+                        style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>
+                        🔄 Resend OTP
+                      </button>
+                  }
+                </div>
+              </div>
             )}
 
-            {/* PHONE mode */}
-            {mode === 'phone' && (
-              <form onSubmit={handlePhoneSubmit}>
-                <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14, lineHeight: 1.6 }}>
-                  Registered phone number daalo — OTP se verify karke password reset karo.
-                </p>
+            {error && <div className={styles.error}>{error}</div>}
 
-                <div className="field">
-                  <label>Phone Number</label>
-                  <div style={{ display:'flex', gap:0 }}>
-                    <span style={{ padding:'10px 12px', background:'#f3f4f6', border:'1.5px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:14, color:'#374151', fontWeight:600, whiteSpace:'nowrap' }}>
-                      🇮🇳 +91
-                    </span>
-                    <input
-                      value={input}
-                      onChange={e => { setInput(e.target.value.replace(/[^0-9]/g,'')); if (otpStep !== 'idle') { setOtpStep('idle'); setOtpInput('') } }}
-                      placeholder="98765 43210"
-                      maxLength={10}
-                      required
-                      disabled={otpStep === 'verified'}
-                      style={{ borderRadius:'0 8px 8px 0', borderLeft:'none' }}
-                    />
-                  </div>
-                </div>
+            {/* Main CTA button */}
+            {otpStep === 'idle' && (
+              <button
+                type="button"
+                onClick={sendOtp}
+                disabled={loading || (loginType === 'phone' ? !phoneReady : loginType === 'email' ? !emailReady : true)}
+                className="btn btn-primary btn-full">
+                {loading
+                  ? <span className="spinner" />
+                  : loginType === 'phone' ? '📱 OTP Bhejo'
+                  : loginType === 'email' ? '📧 OTP Bhejo'
+                  : 'OTP Bhejo'}
+              </button>
+            )}
 
-                {/* OTP box */}
-                {(otpStep === 'sent' || otpStep === 'verifying') && (
-                  <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:10, padding:'14px 14px 10px', marginBottom:12 }}>
-                    <p style={{ margin:'0 0 10px 0', fontSize:13, color:'#92400e', fontWeight:600 }}>
-                      📲 OTP +91{phoneDigits} pe bheja gaya
-                    </p>
-                    <div style={{ display:'flex', gap:8 }}>
-                      <input
-                        ref={otpInputRef}
-                        value={otpInput}
-                        onChange={e => setOtpInput(e.target.value.replace(/[^0-9]/g,''))}
-                        placeholder="6-digit OTP"
-                        maxLength={6}
-                        style={{ flex:1, textAlign:'center', letterSpacing:6, fontSize:20, fontWeight:700, padding:'10px 8px', border:'2px solid #f97316', borderRadius:8, outline:'none' }}
-                      />
-                      <button type="button" onClick={verifyOtp}
-                        disabled={otpInput.length !== 6 || otpStep === 'verifying' || loading}
-                        style={{ background: otpInput.length === 6 ? '#16a34a' : '#d1d5db', color:'#fff', border:'none', borderRadius:8, padding:'10px 16px', fontWeight:700, fontSize:14, cursor: otpInput.length === 6 ? 'pointer' : 'default', whiteSpace:'nowrap', minWidth:80 }}>
-                        {otpStep === 'verifying' || loading ? <span className="spinner" /> : 'Verify'}
-                      </button>
-                    </div>
-                    <div style={{ marginTop:8, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <span style={{ fontSize:12, color:'#9ca3af' }}>OTP 5 minute mein expire hoga</span>
-                      {otpTimer > 0
-                        ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend: {otpTimer}s</span>
-                        : <button type="button" onClick={sendOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Resend OTP</button>
-                      }
-                    </div>
-                  </div>
-                )}
-
-                {/* Verified state */}
-                {otpStep === 'verified' && (
-                  <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
-                    <span style={{ fontSize:18 }}>✅</span>
-                    <span style={{ fontSize:13, color:'#16a34a', fontWeight:600 }}>Verified! Reset page pe ja rahe hain...</span>
-                  </div>
-                )}
-
-                {error && <div className={styles.error}>{error}</div>}
-
-                {otpStep === 'idle' && (
-                  <button type="submit" className="btn btn-primary btn-full" disabled={!phoneReady || otpStep === 'sending'}>
-                    {otpStep === 'sending' ? <span className="spinner" /> : '📱 OTP Bhejo'}
-                  </button>
-                )}
-              </form>
+            {otpStep === 'sending' && (
+              <button className="btn btn-primary btn-full" disabled>
+                <span className="spinner" /> OTP bheja ja raha hai...
+              </button>
             )}
           </>
         )}

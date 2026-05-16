@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
 import crypto from 'crypto'
+import { sendPasswordResetOtp } from '@/lib/email'
 
 async function ensureResetTable(sql) {
   await sql`
@@ -55,6 +56,19 @@ async function sendResetEmail(toEmail, resetLink) {
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.message || data.name || 'Email send failed')
+}
+
+async function ensureResetOtpsTable(sql) {
+  await sql`
+    CREATE TABLE IF NOT EXISTS reset_otps (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      identifier VARCHAR(255) NOT NULL,
+      otp VARCHAR(6) NOT NULL,
+      expires_at TIMESTAMP NOT NULL,
+      used BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `
 }
 
 // Rate limiting: identifier -> { count, lockedUntil }
@@ -364,6 +378,67 @@ export async function POST(request) {
     } catch (e) {
       console.error('Forgot password phone error:', e)
       return NextResponse.json({ error: `Error: ${e.message}` }, { status: 500 })
+    }
+  }
+
+  // ── SEND EMAIL OTP FOR PASSWORD RESET ───────────────────────────
+  if (action === 'send-reset-otp') {
+    try {
+      const { email } = body
+      if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
+
+      // Check user exists (check users + delivery_boys)
+      const [userRow] = await sql`SELECT id FROM users WHERE LOWER(email) = LOWER(${email}) LIMIT 1`
+      const [dbRow]   = await sql`SELECT id FROM delivery_boys WHERE LOWER(email) = LOWER(${email}) LIMIT 1`
+      if (!userRow && !dbRow) {
+        return NextResponse.json({ error: 'Is email se koi account nahi mila' }, { status: 404 })
+      }
+
+      // Generate 6-digit OTP
+      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 min
+
+      await ensureResetOtpsTable(sql)
+      await sql`DELETE FROM reset_otps WHERE identifier = LOWER(${email})`
+      await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (LOWER(${email}), ${otp}, ${expiresAt})`
+
+      await sendPasswordResetOtp(email, otp)
+
+      return NextResponse.json({ success: true })
+    } catch (e) {
+      console.error('Send reset OTP error:', e)
+      return NextResponse.json({ error: 'OTP nahi bheja ja saka: ' + e.message }, { status: 500 })
+    }
+  }
+
+  // ── VERIFY EMAIL OTP → RETURN RESET TOKEN ───────────────────────
+  if (action === 'verify-reset-otp') {
+    try {
+      const { email, otp } = body
+      if (!email || !otp) return NextResponse.json({ error: 'Email aur OTP required' }, { status: 400 })
+
+      await ensureResetOtpsTable(sql)
+      const [otpRow] = await sql`
+        SELECT * FROM reset_otps
+        WHERE identifier = LOWER(${email}) AND otp = ${otp} AND used = false AND expires_at > NOW()
+        LIMIT 1
+      `
+      if (!otpRow) return NextResponse.json({ error: 'Galat ya expired OTP. Dobara try karo.' }, { status: 400 })
+
+      // Mark OTP as used
+      await sql`UPDATE reset_otps SET used = true WHERE id = ${otpRow.id}`
+
+      // Issue reset token
+      await ensureResetTable(sql)
+      const resetToken = crypto.randomUUID()
+      const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      await sql`DELETE FROM password_reset_tokens WHERE email = LOWER(${email})`
+      await sql`INSERT INTO password_reset_tokens (email, token, expires_at) VALUES (LOWER(${email}), ${resetToken}, ${tokenExpiry})`
+
+      return NextResponse.json({ success: true, token: resetToken })
+    } catch (e) {
+      console.error('Verify reset OTP error:', e)
+      return NextResponse.json({ error: 'OTP verify nahi hua: ' + e.message }, { status: 500 })
     }
   }
 

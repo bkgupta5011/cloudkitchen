@@ -4,6 +4,8 @@ import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
+import { sendOrderConfirmationEmail, sendOrderCancelEmail } from '@/lib/email'
+import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
 export async function GET(request) {
@@ -11,6 +13,9 @@ export async function GET(request) {
   const token = request.cookies.get('ck_token')?.value
   const user = verifyToken(token)
   if (!user) return NextResponse.json({ error: 'Login required' }, { status: 401 })
+
+  // Auto open/close kitchen by schedule on every customer order page load
+  if (user.role === 'customer') await checkAndUpdateKitchenSchedule()
 
   const { searchParams } = new URL(request.url)
   const status = searchParams.get('status')
@@ -219,6 +224,24 @@ export async function POST(request) {
     `
   }
 
+  // ── SEND CONFIRMATION EMAIL (fire-and-forget) ─────────────────────
+  try {
+    const [customerRow] = await sql`SELECT email FROM users WHERE id = ${user.id}`
+    if (customerRow?.email) {
+      sendOrderConfirmationEmail({
+        toEmail: customerRow.email,
+        customerName: user.name,
+        orderNumber: order.order_number,
+        items: orderItems,
+        subtotal,
+        discountAmount,
+        deliveryCharge: finalDelivery,
+        total,
+        deliveryAddress,
+      }).catch(() => {})
+    }
+  } catch {}
+
   // ── AUTO-ASSIGN DELIVERY BOY ──────────────────────────────────────
   let assignedBoy = null
   try {
@@ -411,6 +434,56 @@ export async function PATCH(request) {
     }
 
     return NextResponse.json({ order })
+  }
+
+  // ── CUSTOMER: CANCEL ORDER ───────────────────────────────────────
+  if (user.role === 'customer') {
+    const { orderId, action } = body
+    if (action !== 'cancel') return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+
+    const [order] = await sql`
+      SELECT o.*, u.email as customer_email
+      FROM orders o
+      LEFT JOIN users u ON o.user_id = u.id
+      WHERE o.id = ${orderId} AND o.user_id = ${user.id}
+    `
+    if (!order) return NextResponse.json({ error: 'Order nahi mila' }, { status: 404 })
+
+    if (!['pending', 'confirmed'].includes(order.status)) {
+      return NextResponse.json({
+        error: 'Order ab cancel nahi ho sakta — kitchen mein ban raha hai ya raste mein hai'
+      }, { status: 400 })
+    }
+
+    await sql`UPDATE orders SET status = 'cancelled' WHERE id = ${orderId} AND user_id = ${user.id}`
+
+    // Notify admin
+    sendPushToRole('admin', {
+      title: `❌ Order #${order.order_number} Cancel Ho Gaya`,
+      body: `Customer ne order cancel kar diya — ₹${Math.round(order.total)}`,
+      url: '/admin', tag: `cancel-${order.id}`, requireInteraction: true,
+    }).catch(() => {})
+
+    // Notify assigned delivery boy (if any)
+    if (order.delivery_boy_id) {
+      sendPushToUser(String(order.delivery_boy_id), {
+        title: `❌ Order #${order.order_number} Cancel Ho Gaya`,
+        body: 'Customer ne order cancel kar diya. Yeh order ab aapka nahi hai.',
+        url: '/delivery', tag: `cancel-${order.id}`,
+      }, 'delivery').catch(() => {})
+    }
+
+    // Send cancellation email (fire-and-forget)
+    if (order.customer_email) {
+      sendOrderCancelEmail({
+        toEmail: order.customer_email,
+        customerName: user.name,
+        orderNumber: order.order_number,
+        total: order.total,
+      }).catch(() => {})
+    }
+
+    return NextResponse.json({ success: true })
   }
 
   return NextResponse.json({ error: 'Not allowed' }, { status: 403 })

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 
 function adminOnly(request) {
   const token = request.cookies.get('ck_token')?.value
@@ -211,8 +212,9 @@ export async function GET(request) {
     return NextResponse.json({ todayStats, weekStats, topItems, revenueChart, customerCount: customerCount[0].count })
   }
 
-  // Default: kitchen settings (public)
+  // Default: kitchen settings (public) — also check auto open/close schedule
   await ensureKitchenColumns(sql)
+  await checkAndUpdateKitchenSchedule()
   const [settings] = await sql`
     SELECT is_open, kitchen_name, address, phone, lat, lng,
            max_delivery_km, open_time, close_time, estimated_time, auto_schedule,

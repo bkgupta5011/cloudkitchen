@@ -206,7 +206,7 @@ function viewBill(order, items) {
   w.document.close()
 }
 
-function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, onBill, onReorder, reorderLoading, onRated }) {
+function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, onBill, onReorder, reorderLoading, onRated, onCancel, cancelLoading }) {
   const stepIdx = STATUS_STEPS.indexOf(order.status)
   const isCancelled = order.status === 'cancelled'
   const isDelivered = order.status === 'delivered'
@@ -279,14 +279,24 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
         <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:6 }}>
           <span className={styles.total}>₹{Math.round(order.total)}</span>
           <div style={{ display:'flex', gap:6 }}>
-            <button onClick={onBill}
-              style={{ background:'#f0fdf4', color:'#16a34a', border:'1px solid #86efac', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-              🧾 Bill
-            </button>
-            <button onClick={onReorder} disabled={reorderLoading}
-              style={{ background:'#fff7ed', color:'#e85d04', border:'1px solid #e85d04', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-              {reorderLoading ? '⏳' : '🔄 Reorder'}
-            </button>
+            {isDelivered && (
+              <>
+                <button onClick={onBill}
+                  style={{ background:'#f0fdf4', color:'#16a34a', border:'1px solid #86efac', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  🧾 Bill
+                </button>
+                <button onClick={onReorder} disabled={reorderLoading}
+                  style={{ background:'#fff7ed', color:'#e85d04', border:'1px solid #e85d04', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  {reorderLoading ? '⏳' : '🔄 Reorder'}
+                </button>
+              </>
+            )}
+            {isActive && (
+              <button onClick={onCancel} disabled={cancelLoading}
+                style={{ background:'#fef2f2', color:'#dc2626', border:'1px solid #fca5a5', borderRadius:8, padding:'5px 12px', fontSize:12, fontWeight:600, cursor: cancelLoading ? 'not-allowed' : 'pointer', opacity: cancelLoading ? 0.7 : 1 }}>
+                {cancelLoading ? '⏳' : '✕ Cancel'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -329,6 +339,7 @@ export default function OrdersPage() {
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [orderItems, setOrderItems] = useState({})
   const [reorderLoading, setReorderLoading] = useState(null)
+  const [cancelLoading, setCancelLoading] = useState(null)
   const [showNotifDrawer, setShowNotifDrawer] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const pollRef = useRef(null)
@@ -426,6 +437,29 @@ export default function OrdersPage() {
     } finally { setReorderLoading(null) }
   }
 
+  const cancelOrder = async (orderId) => {
+    if (!confirm('Kya aap sach mein yeh order cancel karna chahte hain?')) return
+    setCancelLoading(orderId)
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'cancel' })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Order cancel nahi ho saka')
+        return
+      }
+      // Refresh orders
+      loadOrders()
+    } catch {
+      alert('Kuch gadbad ho gayi, dobara try karein')
+    } finally {
+      setCancelLoading(null)
+    }
+  }
+
   const logout = async () => {
     await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'logout'}) })
     router.push('/login')
@@ -486,6 +520,8 @@ export default function OrdersPage() {
                       onReorder={() => reorder(order.id)}
                       reorderLoading={reorderLoading===order.id}
                       onRated={r => setRatings(prev => ({...prev, [order.id]:{rating:r}}))}
+                      onCancel={() => cancelOrder(order.id)}
+                      cancelLoading={cancelLoading===order.id}
                     />
                   ))}
                 </div>
@@ -504,6 +540,8 @@ export default function OrdersPage() {
                       onReorder={() => reorder(order.id)}
                       reorderLoading={reorderLoading===order.id}
                       onRated={r => setRatings(prev => ({...prev, [order.id]:{rating:r}}))}
+                      onCancel={() => cancelOrder(order.id)}
+                      cancelLoading={cancelLoading===order.id}
                     />
                   ))}
                 </div>

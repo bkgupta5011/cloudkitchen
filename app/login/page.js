@@ -211,6 +211,24 @@ export default function LoginPage() {
       const idToken = await result.user.getIdToken()
       firebaseTokenRef.current = idToken
       setOtpStep('verified')
+      // If login mode — auto-login immediately after verify
+      if (mode === 'login' && loginMethod === 'otp') {
+        setLoading(true)
+        try {
+          const res = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'login-otp', phone: '+91' + loginPhoneDigits, firebaseToken: idToken })
+          })
+          const data = await res.json()
+          if (!res.ok) { setError(data.error || 'Login nahi hua. Dobara try karo.'); setOtpStep('idle'); return }
+          const { user } = data
+          if (user.role === 'admin') router.push('/admin')
+          else if (user.role === 'delivery') router.push('/delivery')
+          else router.push('/menu')
+        } catch { setError('Kuch gadbad ho gayi. Dobara try karo.'); setOtpStep('idle') }
+        finally { setLoading(false) }
+      }
     } catch (e) {
       const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
         : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Dobara bhejo.'

@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './admin.module.css'
 import { usePushNotifications } from '@/lib/usePush'
+import { RECIPES, RECIPE_CATEGORIES, COMBO_GUIDE, KITCHEN_STANDARDS, printRecipeBook } from '@/lib/recipes'
 
 const SECTIONS = [
   { id: 'orders',    label: '📋 Orders',           badge: 'orders' },
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'analytics', label: '📊 Analytics' },
   { id: 'notices',   label: '📣 Notices' },
   { id: 'broadcast', label: '📢 Broadcast' },
+  { id: 'recipes',   label: '📖 Recipe Book' },
 ]
 
 export default function AdminPage() {
@@ -73,6 +75,11 @@ export default function AdminPage() {
   const [broadcastForm, setBroadcastForm] = useState({ title: '', body: '', target: 'customer', url: '' })
   const [broadcastSending, setBroadcastSending] = useState(false)
   const [broadcastResult, setBroadcastResult] = useState(null)
+  // Recipe Book
+  const [recipeCat, setRecipeCat] = useState('Sab Recipes')
+  const [recipeSearch, setRecipeSearch] = useState('')
+  const [expandedRecipe, setExpandedRecipe] = useState(null)
+  const [recipeTab, setRecipeTab] = useState({}) // { recipeId: 'ingredients'|'vidhi'|'serving' }
   const lastOrderCount = useRef(0)
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
@@ -1412,6 +1419,272 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+        {/* ── RECIPE BOOK ── */}
+        {section === 'recipes' && (() => {
+          const filteredRecipes = RECIPES.filter(r => {
+            const matchCat = recipeCat === 'Sab Recipes' || r.category === recipeCat
+            const matchSearch = !recipeSearch || r.name.toLowerCase().includes(recipeSearch.toLowerCase()) ||
+              r.usedIn?.some(u => u.toLowerCase().includes(recipeSearch.toLowerCase())) ||
+              r.description?.toLowerCase().includes(recipeSearch.toLowerCase())
+            return matchCat && matchSearch
+          })
+          return (
+            <>
+              {/* Header */}
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16, flexWrap:'wrap', gap:12 }}>
+                <div>
+                  <h2 style={{ fontSize:20, fontWeight:700, color:'var(--t1)' }}>📖 FoodFi Recipe Book</h2>
+                  <p style={{ fontSize:12, color:'var(--t2)', marginTop:4 }}>Chef Saif ke liye — Patna/Bihar North Indian Style · Sab quantities per 100g main ingredient</p>
+                </div>
+                <button
+                  onClick={() => printRecipeBook(recipeCat)}
+                  style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 18px', background:'#e85d04', color:'#fff', border:'none', borderRadius:10, cursor:'pointer', fontSize:13, fontWeight:700 }}>
+                  📥 PDF Download karein
+                </button>
+              </div>
+
+              {/* Search */}
+              <input
+                type="text" placeholder="🔍 Recipe ya menu item dhundho..."
+                value={recipeSearch} onChange={e => setRecipeSearch(e.target.value)}
+                style={{ width:'100%', padding:'10px 14px', border:'1px solid var(--bd)', borderRadius:10, fontSize:13, background:'var(--card)', color:'var(--t1)', marginBottom:12, outline:'none' }}
+              />
+
+              {/* Category Tabs */}
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:16 }}>
+                {RECIPE_CATEGORIES.map(cat => (
+                  <button key={cat}
+                    onClick={() => setRecipeCat(cat)}
+                    style={{ padding:'5px 14px', borderRadius:20, border:`1.5px solid ${recipeCat===cat?'#e85d04':'var(--bd)'}`, background:recipeCat===cat?'#e85d04':'var(--card)', color:recipeCat===cat?'#fff':'var(--t2)', fontSize:12, cursor:'pointer', fontWeight:recipeCat===cat?700:400, transition:'all 0.15s' }}>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Stats */}
+              <div style={{ fontSize:11, color:'var(--t2)', marginBottom:14 }}>
+                {filteredRecipes.length} recipes dikh rahi hain · {RECIPES.length} total base recipes
+              </div>
+
+              {/* Recipe Cards */}
+              <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                {filteredRecipes.map(recipe => {
+                  const isExpanded = expandedRecipe === recipe.id
+                  const activeTab = recipeTab[recipe.id] || 'ingredients'
+                  return (
+                    <div key={recipe.id} style={{ background:'var(--card)', border:`1.5px solid ${isExpanded?'#e85d04':'var(--bd)'}`, borderRadius:12, overflow:'hidden', transition:'border 0.2s' }}>
+                      {/* Card Header */}
+                      <div onClick={() => { setExpandedRecipe(isExpanded ? null : recipe.id); if(!recipeTab[recipe.id]) setRecipeTab(p=>({...p,[recipe.id]:'ingredients'})) }}
+                        style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px', cursor:'pointer' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                          <span style={{ fontSize:28 }}>{recipe.emoji}</span>
+                          <div>
+                            <div style={{ fontSize:14, fontWeight:700, color:'var(--t1)' }}>{recipe.name}</div>
+                            <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:2, flexWrap:'wrap' }}>
+                              <span style={{ fontSize:10, background:'#fff7ed', color:'#e85d04', borderRadius:4, padding:'1px 6px' }}>{recipe.category}</span>
+                              <span style={{ fontSize:10, color:'var(--t3)' }}>⏱ {recipe.prepTime} · 🔥 {recipe.cookTime}</span>
+                              <span style={{ fontSize:10, color:'var(--t3)' }}>🍽 {recipe.batchYield}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <span style={{ color:'var(--t2)', fontSize:18, transform:isExpanded?'rotate(180deg)':'none', transition:'transform 0.2s' }}>▼</span>
+                      </div>
+
+                      {/* Used In Tags */}
+                      {recipe.usedIn?.length > 0 && (
+                        <div style={{ padding:'0 16px 10px', display:'flex', gap:4, flexWrap:'wrap' }}>
+                          {recipe.usedIn.map(item => (
+                            <span key={item} style={{ fontSize:10, background:'var(--bg)', color:'var(--t2)', borderRadius:4, padding:'2px 7px', border:'0.5px solid var(--bd)' }}>{item}</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Expanded Content */}
+                      {isExpanded && (
+                        <div style={{ borderTop:'1px solid var(--bd)', padding:'0 0 16px' }}>
+                          {/* Description */}
+                          <p style={{ padding:'12px 16px 8px', fontSize:12, color:'var(--t2)', lineHeight:1.6 }}>{recipe.description}</p>
+
+                          {/* Tab Switcher */}
+                          <div style={{ display:'flex', gap:0, padding:'0 16px 12px', borderBottom:'1px solid var(--bd)' }}>
+                            {[
+                              { id:'ingredients', label:'🛒 Samagri', show: recipe.ingredients?.length > 0 || recipe.spices?.length > 0 },
+                              { id:'vidhi', label:'👨‍🍳 Vidhi', show: recipe.steps?.length > 0 },
+                              { id:'serving', label:'🍽 Serving & Tips', show: true },
+                            ].filter(t => t.show).map((tab, idx, arr) => (
+                              <button key={tab.id} onClick={() => setRecipeTab(p=>({...p,[recipe.id]:tab.id}))}
+                                style={{ padding:'7px 14px', fontSize:11, fontWeight:activeTab===tab.id?700:400, cursor:'pointer', border:'1px solid var(--bd)', borderRight: idx===arr.length-1?'1px solid var(--bd)':'none', borderRadius: idx===0?'8px 0 0 8px':idx===arr.length-1?'0 8px 8px 0':'0', background:activeTab===tab.id?'#e85d04':'var(--bg)', color:activeTab===tab.id?'#fff':'var(--t2)', transition:'all 0.15s' }}>
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* INGREDIENTS TAB */}
+                          {activeTab === 'ingredients' && (
+                            <div style={{ padding:'14px 16px' }}>
+                              {recipe.ingredients?.length > 0 && (
+                                <>
+                                  <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t1)' }}>🛒 Samagri (per 100g main ingredient)</div>
+                                  <div style={{ overflowX:'auto', marginBottom:16 }}>
+                                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                                      <thead>
+                                        <tr style={{ background:'#fff7ed' }}>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#e85d04', fontSize:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Ingredient</th>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#e85d04', fontSize:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Matra</th>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#e85d04', fontSize:10, textTransform:'uppercase', letterSpacing:'0.5px' }}>Note</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {recipe.ingredients.map((item, i) => (
+                                          <tr key={i} style={{ borderBottom:'1px solid var(--bd)', background: i%2===0?'var(--card)':'var(--bg)' }}>
+                                            <td style={{ padding:'6px 10px', fontSize:12 }}>{item.name}</td>
+                                            <td style={{ padding:'6px 10px', fontSize:12, fontWeight:700, color:'#e85d04' }}>{item.qty}</td>
+                                            <td style={{ padding:'6px 10px', fontSize:11, color:'var(--t2)' }}>{item.note || '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </>
+                              )}
+                              {recipe.spices?.length > 0 && (
+                                <>
+                                  <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t1)' }}>🌶 Masale</div>
+                                  <div style={{ overflowX:'auto' }}>
+                                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                                      <thead>
+                                        <tr style={{ background:'#fef3c7' }}>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#d97706', fontSize:10, textTransform:'uppercase' }}>Masala</th>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#d97706', fontSize:10, textTransform:'uppercase' }}>Matra</th>
+                                          <th style={{ padding:'7px 10px', textAlign:'left', color:'#d97706', fontSize:10, textTransform:'uppercase' }}>Note</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {recipe.spices.map((item, i) => (
+                                          <tr key={i} style={{ borderBottom:'1px solid var(--bd)', background: i%2===0?'var(--card)':'var(--bg)' }}>
+                                            <td style={{ padding:'6px 10px', fontSize:12 }}>{item.name}</td>
+                                            <td style={{ padding:'6px 10px', fontSize:12, fontWeight:700, color:'#d97706' }}>{item.qty}</td>
+                                            <td style={{ padding:'6px 10px', fontSize:11, color:'var(--t2)' }}>{item.note || '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </>
+                              )}
+                              {!recipe.ingredients?.length && !recipe.spices?.length && (
+                                <div style={{ fontSize:12, color:'var(--t2)', padding:'8px 0' }}>Yeh recipe ek base recipe ka combination hai — upar diye gaye recipe ko refer karein.</div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* VIDHI TAB */}
+                          {activeTab === 'vidhi' && (
+                            <div style={{ padding:'14px 16px' }}>
+                              {recipe.steps?.length > 0 ? (
+                                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                                  {recipe.steps.map(step => (
+                                    <div key={step.num} style={{ display:'flex', gap:12, alignItems:'flex-start' }}>
+                                      <div style={{ minWidth:28, height:28, borderRadius:'50%', background:'#e85d04', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>{step.num}</div>
+                                      <div>
+                                        <div style={{ fontSize:12, fontWeight:700, color:'var(--t1)', marginBottom:3 }}>{step.title}</div>
+                                        <div style={{ fontSize:12, color:'var(--t2)', lineHeight:1.7 }}>{step.detail}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div style={{ fontSize:12, color:'var(--t2)' }}>Steps ke liye Rajma Tadka recipe → pehle Rajma base recipe dekhein, phir fresh ghee tadka add karein.</div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* SERVING & TIPS TAB */}
+                          {activeTab === 'serving' && (
+                            <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:12 }}>
+                              {recipe.serving && (
+                                <div style={{ background:'#f0fdf4', border:'1px solid #86efac', borderRadius:8, padding:'12px 14px' }}>
+                                  <div style={{ fontSize:12, fontWeight:700, color:'#15803d', marginBottom:6 }}>🍽 Serving Style</div>
+                                  <div style={{ fontSize:12, color:'#166534', lineHeight:1.7 }}>{recipe.serving}</div>
+                                </div>
+                              )}
+                              {recipe.tips?.length > 0 && (
+                                <div style={{ background:'#fffbeb', border:'1px solid #fcd34d', borderRadius:8, padding:'12px 14px' }}>
+                                  <div style={{ fontSize:12, fontWeight:700, color:'#b45309', marginBottom:8 }}>💡 Chef Tips</div>
+                                  <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                                    {recipe.tips.map((tip, i) => (
+                                      <div key={i} style={{ fontSize:12, color:'#92400e', lineHeight:1.6, display:'flex', gap:8 }}>
+                                        <span style={{ flexShrink:0 }}>→</span>
+                                        <span>{tip}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Combo Guide */}
+              {(recipeCat === 'Sab Recipes' || !recipeSearch) && (
+                <div style={{ marginTop:24, background:'var(--card)', border:'1px solid var(--bd)', borderRadius:14, overflow:'hidden' }}>
+                  <div style={{ padding:'14px 16px', background:'#fff7ed', borderBottom:'1px solid var(--bd)' }}>
+                    <h3 style={{ fontSize:14, fontWeight:700, color:'#e85d04' }}>🍱 Combo Guide — Kaunse Item Se Kya Banta Hai</h3>
+                    <p style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Har menu item kaun kaun se base recipes se banta hai</p>
+                  </div>
+                  <div style={{ overflowX:'auto', maxHeight:'50vh', overflowY:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11, minWidth:500 }}>
+                      <thead>
+                        <tr style={{ background:'var(--bg)', position:'sticky', top:0, zIndex:1 }}>
+                          <th style={{ padding:'8px 12px', textAlign:'left', color:'var(--t2)', fontWeight:700, fontSize:10, textTransform:'uppercase', borderBottom:'1px solid var(--bd)' }}>Menu Item</th>
+                          <th style={{ padding:'8px 12px', textAlign:'left', color:'var(--t2)', fontWeight:700, fontSize:10, textTransform:'uppercase', borderBottom:'1px solid var(--bd)' }}>Base Recipe(s)</th>
+                          <th style={{ padding:'8px 12px', textAlign:'left', color:'var(--t2)', fontWeight:700, fontSize:10, textTransform:'uppercase', borderBottom:'1px solid var(--bd)' }}>Special Note</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {COMBO_GUIDE.map((c, i) => (
+                          <tr key={i} style={{ borderBottom:'1px solid var(--bd)', background: i%2===0?'var(--card)':'var(--bg)' }}>
+                            <td style={{ padding:'7px 12px', fontWeight:600, color:'var(--t1)', fontSize:12 }}>{c.item}</td>
+                            <td style={{ padding:'7px 12px', color:'#e85d04', fontSize:11 }}>{c.base.join(' + ')}</td>
+                            <td style={{ padding:'7px 12px', color:'var(--t2)', fontSize:11 }}>{c.note || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Kitchen Standards */}
+              {(recipeCat === 'Sab Recipes' || !recipeSearch) && (
+                <div style={{ marginTop:16, marginBottom:24, background:'var(--card)', border:'1px solid var(--bd)', borderRadius:14, overflow:'hidden' }}>
+                  <div style={{ padding:'14px 16px', background:'#f0fdf4', borderBottom:'1px solid var(--bd)' }}>
+                    <h3 style={{ fontSize:14, fontWeight:700, color:'#15803d' }}>✅ FoodFi Kitchen Standards & Quality Checklist</h3>
+                  </div>
+                  <div style={{ padding:'16px', display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(240px, 1fr))', gap:12 }}>
+                    {KITCHEN_STANDARDS.map(std => (
+                      <div key={std.category} style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px' }}>
+                        <div style={{ fontSize:12, fontWeight:700, color:'var(--t1)', marginBottom:8 }}>{std.category}</div>
+                        {std.points.map((p, i) => (
+                          <div key={i} style={{ fontSize:11, color:'var(--t2)', marginBottom:5, lineHeight:1.5, display:'flex', gap:6 }}>
+                            <span style={{ color:'#22c55e', flexShrink:0 }}>✓</span>
+                            <span>{p}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        })()}
+
       </main>
 
       {/* Order Detail Modal */}

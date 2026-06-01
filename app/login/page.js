@@ -225,37 +225,47 @@ export default function LoginPage() {
     setError('')
 
     if (mode === 'signup') {
-      // Validate both email and phone collected
       if (!form.email) { setError('Email address required hai'); return }
       if (!signupPhoneReady) { setError('Valid 10-digit phone number required hai'); return }
-      // Trigger OTP if not done yet
       if (otpStep === 'idle') { await sendOtp(); return }
       if (otpStep === 'sent') { setError('Pehle phone OTP verify karo 👇'); return }
-      // OTP failed — allow signup without verification
+    }
+
+    // OTP Login validation
+    if (mode === 'login' && loginType === 'phone' && loginMethod === 'otp') {
+      if (loginPhoneDigits.length !== 10) { setError('Valid 10-digit phone number do'); return }
+      if (otpStep === 'idle' || otpStep === 'failed') { await sendLoginOtp(); return }
+      if (otpStep === 'sending') return
+      if (otpStep === 'sent') { setError('Pehle OTP verify karo 👇'); return }
+      if (otpStep !== 'verified') return
+      // verified — proceed to submit
     }
 
     setLoading(true)
     try {
-      let payload = { action: mode, role: 'customer', password: form.password }
+      let payload
 
       if (mode === 'signup') {
         payload = {
-          ...payload,
-          name: form.name,
-          address: form.address,
-          email: form.email,
-          phone: '+91' + signupPhoneDigits,
-          identifier: form.email, // primary identifier
+          action: 'signup', role: 'customer', password: form.password,
+          name: form.name, address: form.address,
+          email: form.email, phone: '+91' + signupPhoneDigits,
+          identifier: form.email,
           phoneVerified: otpStep === 'verified',
           firebaseToken: firebaseTokenRef.current || null,
         }
-      } else {
-        // Login: send auto-detected identifier
-        const finalIdentifier = loginType === 'phone'
-          ? '+91' + loginPhoneDigits
-          : identifier
+      } else if (mode === 'login' && loginType === 'phone' && loginMethod === 'otp') {
+        // OTP Login — Firebase verified
         payload = {
-          ...payload,
+          action: 'login-otp',
+          phone: '+91' + loginPhoneDigits,
+          firebaseToken: firebaseTokenRef.current,
+        }
+      } else {
+        // Password Login (email or phone)
+        const finalIdentifier = loginType === 'phone' ? '+91' + loginPhoneDigits : identifier
+        payload = {
+          action: 'login', role: 'customer', password: form.password,
           identifier: finalIdentifier,
           email: loginType === 'email' ? identifier : '',
           phone: loginType === 'phone' ? '+91' + loginPhoneDigits : '',
@@ -280,11 +290,46 @@ export default function LoginPage() {
   // ── Submit button label ─────────────────────────────────────────
   const submitLabel = () => {
     if (loading) return <span className="spinner" />
-    if (mode === 'login') return 'Login'
+    if (mode === 'login') {
+      if (loginType === 'phone' && loginMethod === 'otp') {
+        if (otpStep === 'idle' || otpStep === 'failed') return '📲 OTP Bhejo'
+        if (otpStep === 'sending') return <span className="spinner" />
+        if (otpStep === 'sent' || otpStep === 'verifying') return '✓ OTP Verify Karo'
+        if (otpStep === 'verified') return <><span className="spinner" /> Login ho raha hai...</>
+      }
+      return '🔑 Login'
+    }
     if (otpStep === 'idle') return '📱 Phone Verify Karo'
     if (otpStep === 'sending') return <span className="spinner" />
     if (otpStep === 'failed') return '✅ Account Banao (bina OTP)'
     return '✅ Account Banao'
+  }
+
+  // ── Login method toggle (only for phone) ──────────────────────
+  const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'otp'
+
+  // Reset login OTP when identifier changes
+  useEffect(() => {
+    if (loginType !== 'phone') setLoginMethod('password')
+    setOtpStep('idle'); setOtpInput(['','','','','','']); setOtpTimer(0)
+    confirmationResultRef.current = null; firebaseTokenRef.current = null
+  }, [identifier])
+
+  // ── Send OTP for LOGIN (phone) ─────────────────────────────────
+  const sendLoginOtp = async () => {
+    if (loginPhoneDigits.length !== 10) { setError('Valid 10-digit phone number do'); return }
+    setError(''); setOtpStep('sending'); setOtpInput(['','','','','',''])
+    try {
+      const { signInWithPhoneNumber } = await import('firebase/auth')
+      const { auth, verifier } = await getRecaptchaVerifier()
+      const result = await signInWithPhoneNumber(auth, '+91' + loginPhoneDigits, verifier)
+      confirmationResultRef.current = result
+      setOtpStep('sent'); setOtpTimer(60)
+      setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
+    } catch (e) {
+      console.error('Login OTP error:', e)
+      setOtpStep('failed'); setError('OTP bhejne mein problem aayi. Dobara try karein.')
+    }
   }
 
   // ── LOGIN identifier prefix ─────────────────────────────────────
@@ -510,13 +555,105 @@ export default function LoginPage() {
             </div>
           )}
 
-          {/* Password */}
-          <div className="field">
-            <label>Password</label>
-            <input type="password" required value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••" minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
-          </div>
+          {/* ── Phone Login Method Toggle ── */}
+          {mode === 'login' && loginType === 'phone' && loginPhoneDigits.length === 10 && (
+            <div style={{ display:'flex', gap:0, marginBottom:14, border:'1.5px solid var(--bdr)', borderRadius:10, overflow:'hidden' }}>
+              <button type="button"
+                onClick={() => { setLoginMethod('password'); setOtpStep('idle'); setOtpInput(['','','','','','']); confirmationResultRef.current = null; firebaseTokenRef.current = null }}
+                style={{ flex:1, padding:'9px', fontSize:13, fontWeight:700, border:'none', cursor:'pointer', transition:'all 0.15s',
+                  background: loginMethod === 'password' ? '#e85d04' : 'var(--bg)',
+                  color: loginMethod === 'password' ? '#fff' : 'var(--t2)' }}>
+                🔑 Password
+              </button>
+              <button type="button"
+                onClick={() => { setLoginMethod('otp'); setOtpStep('idle'); setOtpInput(['','','','','','']); confirmationResultRef.current = null; firebaseTokenRef.current = null }}
+                style={{ flex:1, padding:'9px', fontSize:13, fontWeight:700, border:'none', borderLeft:'1.5px solid var(--bdr)', cursor:'pointer', transition:'all 0.15s',
+                  background: loginMethod === 'otp' ? '#e85d04' : 'var(--bg)',
+                  color: loginMethod === 'otp' ? '#fff' : 'var(--t2)' }}>
+                📱 OTP se Login
+              </button>
+            </div>
+          )}
 
-          {mode === 'login' && (
+          {/* Password field — show only for password login */}
+          {!(mode === 'login' && loginType === 'phone' && loginMethod === 'otp') && (
+            <div className="field">
+              <label>Password</label>
+              <input type="password" required={!(mode === 'login' && loginMethod === 'otp')} value={form.password} onChange={e => set('password', e.target.value)} placeholder="••••••••" minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+            </div>
+          )}
+
+          {/* ── OTP Login Flow (phone) ── */}
+          {mode === 'login' && loginType === 'phone' && loginMethod === 'otp' && (
+            <div style={{ marginBottom:14 }}>
+              {/* Send OTP button */}
+              {(otpStep === 'idle' || otpStep === 'failed') && (
+                <button type="button" onClick={sendLoginOtp}
+                  style={{ width:'100%', padding:'12px', background:'#fff7ed', color:'#e85d04', border:'1.5px solid #fed7aa', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' }}>
+                  📲 OTP Bhejo — +91{loginPhoneDigits}
+                </button>
+              )}
+              {otpStep === 'sending' && (
+                <div style={{ textAlign:'center', padding:'12px', fontSize:13, color:'#9ca3af' }}>⏳ OTP bheja ja raha hai...</div>
+              )}
+
+              {/* OTP boxes */}
+              {(otpStep === 'sent' || otpStep === 'verifying') && (
+                <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:12, padding:'16px' }}>
+                  <p style={{ margin:'0 0 12px', fontSize:13, color:'#92400e', fontWeight:600, textAlign:'center' }}>
+                    📲 OTP +91{loginPhoneDigits} pe bheja gaya
+                  </p>
+                  <div style={{ display:'flex', gap:8, justifyContent:'center', marginBottom:14 }} onPaste={handleOtpPaste}>
+                    {otpInput.map((digit, i) => (
+                      <input key={i}
+                        ref={el => otpBoxRefs.current[i] = el}
+                        type="text" inputMode="numeric" maxLength={1}
+                        value={digit}
+                        onChange={e => handleOtpBox(i, e.target.value)}
+                        onKeyDown={e => handleOtpKeyDown(i, e)}
+                        style={{
+                          width:42, height:52, textAlign:'center', fontSize:22, fontWeight:700,
+                          border: digit ? '2px solid #f97316' : '2px solid #e5e7eb',
+                          borderRadius:10, outline:'none',
+                          background: digit ? '#fff7ed' : '#fff',
+                          color:'#1f2937', transition:'all 0.15s',
+                          boxShadow: digit ? '0 0 0 3px rgba(249,115,22,0.1)' : 'none'
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <button type="button" onClick={verifyOtp}
+                    disabled={otpString.length !== 6 || otpStep === 'verifying'}
+                    style={{
+                      width:'100%', padding:'13px', fontSize:15, fontWeight:700, border:'none',
+                      borderRadius:10, cursor: otpString.length === 6 ? 'pointer' : 'not-allowed',
+                      background: otpString.length === 6 ? '#e85d04' : '#d1d5db',
+                      color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', gap:8, transition:'background 0.2s',
+                    }}>
+                    {otpStep === 'verifying'
+                      ? <><span className="spinner" /> Verify ho raha hai...</>
+                      : <><span style={{ fontSize:18 }}>✓</span> OTP Verify Karo</>}
+                  </button>
+                  <div style={{ marginTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={{ fontSize:12, color:'#9ca3af' }}>5 min mein expire hoga</span>
+                    {otpTimer > 0
+                      ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend {otpTimer}s mein</span>
+                      : <button type="button" onClick={sendLoginOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>🔄 Resend OTP</button>}
+                  </div>
+                </div>
+              )}
+
+              {/* OTP Verified */}
+              {otpStep === 'verified' && (
+                <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', display:'flex', alignItems:'center', gap:8 }}>
+                  <span style={{ fontSize:20 }}>✅</span>
+                  <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>OTP verify ho gaya! Login ho raha hai...</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode === 'login' && loginMethod === 'password' && (
             <div style={{ textAlign:'right', marginBottom:8 }}>
               <button type="button" onClick={() => router.push('/forgot-password')}
                 style={{ background:'none', border:'none', color:'#e85d04', fontSize:13, cursor:'pointer' }}>

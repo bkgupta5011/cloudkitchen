@@ -236,6 +236,68 @@ export async function POST(request) {
     return res
   }
 
+  // ── LOGIN WITH OTP (phone + Firebase token) ─────────────────────
+  if (action === 'login-otp') {
+    const { phone, firebaseToken } = body
+    if (!phone || !firebaseToken) {
+      return NextResponse.json({ error: 'Phone aur OTP verification required hai' }, { status: 400 })
+    }
+
+    // Verify Firebase ID token via Google Identity Toolkit
+    try {
+      const apiKey = process.env.FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY
+      const verifyRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: firebaseToken }) }
+      )
+      const verifyData = await verifyRes.json()
+      if (!verifyData.users?.[0]) {
+        return NextResponse.json({ error: 'OTP verification fail ho gayi. Dobara try karein.' }, { status: 401 })
+      }
+      const firebasePhone = verifyData.users[0].phoneNumber // e.g. "+919876543210"
+      const normalizedPhone = phone.startsWith('+') ? phone : '+91' + phone.replace(/[^0-9]/g, '')
+      if (firebasePhone !== normalizedPhone) {
+        return NextResponse.json({ error: 'Phone number mismatch. Dobara try karein.' }, { status: 401 })
+      }
+    } catch (e) {
+      return NextResponse.json({ error: 'OTP verify nahi ho saka. Dobara try karein.' }, { status: 401 })
+    }
+
+    // Find user by phone in all tables
+    const phoneVariants = [phone, phone.replace(/^\+91/, ''), '+91' + phone.replace(/[^0-9]/g, '')]
+    let user = null; let detectedRole = null
+
+    // Check delivery boys
+    await ensureDeliveryBoyColumns(sql)
+    for (const p of phoneVariants) {
+      const boys = await sql`SELECT * FROM delivery_boys WHERE phone = ${p} LIMIT 1`
+      if (boys[0]) { user = boys[0]; detectedRole = 'delivery'; break }
+    }
+
+    // Check customers
+    if (!user) {
+      for (const p of phoneVariants) {
+        const custs = await sql`SELECT * FROM users WHERE phone = ${p} LIMIT 1`
+        if (custs[0]) { user = custs[0]; detectedRole = 'customer'; break }
+      }
+    }
+
+    if (!user) {
+      return NextResponse.json({ error: 'Is phone se koi account nahi mila. Pehle Sign Up karein.' }, { status: 404 })
+    }
+
+    // Check delivery boy status
+    if (detectedRole === 'delivery') {
+      if (user.status === 'pending') return NextResponse.json({ error: '⏳ Aapki application pending hai. Approve hone ka wait karein.' }, { status: 403 })
+      if (user.status === 'suspended') return NextResponse.json({ error: '🚫 Account suspend hai. Admin se contact karein.' }, { status: 403 })
+    }
+
+    const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
+    const loginRes = NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: detectedRole } })
+    loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+    return loginRes
+  }
+
   // ── LOGOUT ──────────────────────────────────────────────────────
   if (action === 'logout') {
     const res = NextResponse.json({ success: true })

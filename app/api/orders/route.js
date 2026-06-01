@@ -5,6 +5,7 @@ import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail } from '@/lib/email'
+import { sendOrderConfirmedSms, sendOrderDeliveredSms } from '@/lib/sms'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
@@ -345,7 +346,7 @@ export async function PATCH(request) {
       }, 'delivery').catch(() => {})
     }
 
-    // Notify customer of status change
+    // Notify customer of status change (push + SMS)
     if (status && order.user_id) {
       const statusMessages = {
         confirmed:        { title: '✅ Order Confirm Ho Gaya!', body: `Order #${order.order_number} kitchen ne accept kar liya — prepare ho raha hai` },
@@ -356,7 +357,19 @@ export async function PATCH(request) {
       }
       const msg = statusMessages[status]
       if (msg) {
+        // Push notification
         sendPushToUser(String(order.user_id), { ...msg, url: '/orders', tag: `order-${order.id}` }, 'customer').catch(() => {})
+        // SMS for confirmed and delivered — fetch customer phone
+        if (status === 'confirmed' || status === 'delivered') {
+          const [cust] = await sql`SELECT phone FROM users WHERE id = ${order.user_id}`
+          if (cust?.phone) {
+            if (status === 'confirmed') {
+              sendOrderConfirmedSms(cust.phone, order.order_number, order.total).catch(() => {})
+            } else {
+              sendOrderDeliveredSms(cust.phone, order.order_number).catch(() => {})
+            }
+          }
+        }
       }
     }
 

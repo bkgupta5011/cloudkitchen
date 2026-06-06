@@ -1,4 +1,5 @@
 import './globals.css'
+import PWAInstall from './components/PWAInstall'
 
 export const metadata = {
   title: 'FoodFi — Fresh Food Delivered',
@@ -23,6 +24,7 @@ export default function RootLayout({ children }) {
       </head>
       <body>
         {children}
+        <PWAInstall />
         <script dangerouslySetInnerHTML={{ __html: `
           if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

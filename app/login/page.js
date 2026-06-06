@@ -76,6 +76,20 @@ export default function LoginPage() {
     }
   }, [mode])
 
+  // Reset OTP when login method changes to OTP (fresh state)
+  useEffect(() => {
+    if (loginMethod === 'otp') {
+      setOtpStep('idle')
+      setOtpInput(['','','','','',''])
+      setOtpTimer(0)
+      confirmationResultRef.current = null
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear() } catch(e) {}
+        recaptchaVerifierRef.current = null
+      }
+    }
+  }, [loginMethod])
+
   // ── GPS Location Fetch (Google Maps Geocoding API) ──────────────
   const fetchLocation = () => {
     if (!navigator.geolocation) { setError('Aapka browser GPS support nahi karta'); return }
@@ -331,22 +345,63 @@ export default function LoginPage() {
     if (loginType !== 'phone') setLoginMethod('password')
     setOtpStep('idle'); setOtpInput(['','','','','','']); setOtpTimer(0)
     confirmationResultRef.current = null; firebaseTokenRef.current = null
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
   }, [identifier])
 
   // ── Send OTP for LOGIN (phone) ─────────────────────────────────
   const sendLoginOtp = async () => {
     if (loginPhoneDigits.length !== 10) { setError('Valid 10-digit phone number do'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['','','','','',''])
+
+    // Always clean up previous verifier before creating a new one
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
+    confirmationResultRef.current = null
+
     try {
-      const { signInWithPhoneNumber } = await import('firebase/auth')
-      const { auth, verifier } = await getRecaptchaVerifier()
+      const { getFirebaseAuth } = await import('@/lib/firebase-client')
+      const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth')
+      const auth = getFirebaseAuth()
+      if (!auth) throw new Error('Firebase auth init failed')
+
+      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+        callback: () => {},
+        'expired-callback': () => {
+          if (recaptchaVerifierRef.current) {
+            try { recaptchaVerifierRef.current.clear() } catch(e) {}
+            recaptchaVerifierRef.current = null
+          }
+        }
+      })
+      recaptchaVerifierRef.current = verifier
+
       const result = await signInWithPhoneNumber(auth, '+91' + loginPhoneDigits, verifier)
       confirmationResultRef.current = result
       setOtpStep('sent'); setOtpTimer(60)
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     } catch (e) {
-      console.error('Login OTP error:', e)
-      setOtpStep('failed'); setError('OTP bhejne mein problem aayi. Dobara try karein.')
+      console.error('Login OTP error:', e.code, e.message)
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear() } catch(err) {}
+        recaptchaVerifierRef.current = null
+      }
+      setOtpStep('failed')
+      const msg = e.code === 'auth/too-many-requests'
+        ? 'Bahut zyada OTP requests ho gayi. 10-15 minute baad try karein.'
+        : e.code === 'auth/invalid-phone-number'
+        ? 'Phone number galat hai. 10-digit Indian number daalo.'
+        : e.code === 'auth/captcha-check-failed'
+        ? 'reCAPTCHA fail hua. Page refresh (F5) karke try karein.'
+        : e.code === 'auth/network-request-failed'
+        ? 'Network error. Internet check karein aur dobara try karein.'
+        : `OTP nahi bheja ja saka (${e.code || e.message}). Page refresh karke try karein.`
+      setError(msg)
     }
   }
 

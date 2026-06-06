@@ -428,13 +428,19 @@ export async function PATCH(request) {
             payment_due    = payment_due + ${earned}
         WHERE id = ${user.id}
       `
-      // Notify customer
+      // Notify customer — push + SMS
       if (order.user_id) {
         sendPushToUser(String(order.user_id), {
           title: '🎉 Order Deliver Ho Gaya!',
           body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋`,
           url: '/orders', tag: `order-${order.id}`
         }, 'customer').catch(() => {})
+
+        // SMS notification
+        const [cust] = await sql`SELECT phone FROM users WHERE id = ${order.user_id}`
+        if (cust?.phone) {
+          sendOrderDeliveredSms(cust.phone, order.order_number).catch(() => {})
+        }
       }
     }
 

@@ -34,6 +34,9 @@ export default function LoginPage() {
   const timerRef = useRef(null)
   const otpBoxRefs = useRef([])
 
+  // Login method toggle (password or otp) — declared here so useEffects below can use it
+  const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'otp'
+
   // Firebase refs
   const recaptchaVerifierRef = useRef(null)
   const confirmationResultRef = useRef(null)
@@ -336,9 +339,6 @@ export default function LoginPage() {
     if (otpStep === 'failed') return '✅ Account Banao (bina OTP)'
     return '✅ Account Banao'
   }
-
-  // ── Login method toggle (only for phone) ──────────────────────
-  const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'otp'
 
   // Reset login OTP when identifier changes
   useEffect(() => {

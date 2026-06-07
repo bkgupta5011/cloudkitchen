@@ -322,6 +322,8 @@ export default function CartPage() {
   const [placed, setPlaced] = useState(false)
   const [orderNum, setOrderNum] = useState(null)
   const [deliveryBoyName, setDeliveryBoyName] = useState(null)
+  const [userName, setUserName] = useState('')
+  const [showThankYou, setShowThankYou] = useState(false)
   const [kitchenLat, setKitchenLat] = useState(25.5801392)
   const [kitchenLng, setKitchenLng] = useState(85.1569214)
   const [maxKm, setMaxKm] = useState(5)
@@ -333,13 +335,16 @@ export default function CartPage() {
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
   const pricingRef = useRef([])
 
-  // 🎉 Confetti when order is placed
+  // 🎉 Confetti + thank-you when order is placed
   useEffect(() => {
     if (placed) {
       launchConfetti()
-      // Second burst after 800ms for extra celebration
-      const t = setTimeout(launchConfetti, 800)
-      return () => clearTimeout(t)
+      const t1 = setTimeout(launchConfetti, 900)
+      const t2 = setTimeout(launchConfetti, 2200)
+      setShowThankYou(true)
+      // Hide thank-you overlay after 5s
+      const t3 = setTimeout(() => setShowThankYou(false), 5000)
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
     }
   }, [placed])
 
@@ -347,6 +352,9 @@ export default function CartPage() {
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
     fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
+    // Fetch customer name for thank-you message
+    fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
+      .then(r => r.json()).then(d => { if (d.user?.name) setUserName(d.user.name.split(' ')[0]) }).catch(() => {})
 
     // Load settings + pricing + addresses together so delivery charge can be computed immediately
     Promise.all([
@@ -511,6 +519,24 @@ export default function CartPage() {
 
   if (placed) return (
     <div className={styles.successWrap}>
+
+      {/* ── Thank You Overlay — shows for 5s then fades out ── */}
+      {showThankYou && (
+        <div className={styles.thankYouOverlay} onAnimationEnd={() => setShowThankYou(false)}>
+          <div className={styles.thankYouEmoji}>🙏</div>
+          <div className={styles.thankYouName}>
+            Thank You{userName ? `, ${userName}` : ''}!
+          </div>
+          <div className={styles.thankYouTagline}>
+            Aapka order hamare liye bahut khaas hai
+          </div>
+          <div className={styles.thankYouSub}>
+            We promise to serve you with love & care ❤️
+          </div>
+          <div className={styles.thankYouTimer} />
+        </div>
+      )}
+
       <div className={styles.successCard}>
         <div className={styles.checkCircle}>✓</div>
         <h2>Order Placed!</h2>

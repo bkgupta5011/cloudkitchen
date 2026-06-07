@@ -24,6 +24,50 @@
 .codNotice { background: var(--gr-l); border: 0.5px solid var(--gr); border-radius: 10px; padding: 12px 14px; font-size: 13px; color: #166534; }
 .error { background: var(--rd-l); border: 0.5px solid var(--rd); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #991b1b; }
 .empty { text-align: center; padding: 60px 20px; color: var(--t2); }
+/* ── Thank You Overlay ──────────────────────────────────── */
+@keyframes thankYouIn {
+  0%   { opacity: 0; transform: scale(0.85) translateY(20px); }
+  12%  { opacity: 1; transform: scale(1) translateY(0); }
+  80%  { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(1.04) translateY(-10px); }
+}
+@keyframes timerShrink {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
+@keyframes floatEmoji {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50%      { transform: translateY(-12px) rotate(5deg); }
+}
+.thankYouOverlay {
+  position: fixed; inset: 0; z-index: 9998;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #431407ee 0%, #1a0a00ee 100%);
+  padding: 32px 24px; text-align: center;
+  animation: thankYouIn 5s ease-in-out forwards;
+}
+.thankYouEmoji {
+  font-size: 72px; margin-bottom: 20px;
+  animation: floatEmoji 1.6s ease-in-out infinite;
+}
+.thankYouName {
+  font-size: 30px; font-weight: 800; color: #fff;
+  margin-bottom: 12px; line-height: 1.2;
+  text-shadow: 0 2px 20px rgba(232,93,4,0.6);
+}
+.thankYouTagline {
+  font-size: 16px; color: #fed7aa; font-weight: 500;
+  margin-bottom: 8px; line-height: 1.5;
+}
+.thankYouSub {
+  font-size: 13px; color: #fdba74; margin-bottom: 32px;
+}
+.thankYouTimer {
+  height: 3px; background: #e85d04; border-radius: 2px;
+  width: 180px; margin: 0 auto;
+  animation: timerShrink 5s linear forwards;
+}
+
 .successWrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
 .successCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 20px; padding: 32px 24px; max-width: 400px; width: 100%; text-align: center; animation: popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both; }
 @keyframes popIn { from { opacity:0; transform: scale(0.7) translateY(30px); } to { opacity:1; transform: scale(1) translateY(0); } }

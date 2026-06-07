@@ -127,6 +127,8 @@ export default function MenuPage() {
   const [itemRatings, setItemRatings] = useState({})
   const [showNotifDrawer, setShowNotifDrawer] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [kitchenPhone, setKitchenPhone] = useState(null)
+  const [stockPopup, setStockPopup] = useState(null) // { itemName, available }
   const notifPollRef = useRef(null)
   const lastUnreadRef = useRef(-1)
 
@@ -163,6 +165,7 @@ export default function MenuPage() {
       setUser(authData.user)
       setMenuItems(menuData.items || [])
       setKitchenOpen(settingsData.settings?.is_open ?? true)
+      setKitchenPhone(settingsData.settings?.phone || null)
       setOffers(offersData.offers || [])
       setItemRatings(ratingsData.itemRatings || {})
       setLoading(false)
@@ -176,7 +179,16 @@ export default function MenuPage() {
 
   const addItem = (id) => {
     if (!kitchenOpen) return
-    const nc = { ...cart, [id]: (cart[id] || 0) + 1 }
+    const item = menuItems.find(m => m.id === id)
+    const currentQty = cart[id] || 0
+    // Stock limit check — only if stock_count is set (not null)
+    if (item && item.stock_count !== null && item.stock_count !== undefined) {
+      if (currentQty >= item.stock_count) {
+        setStockPopup({ itemName: item.name, available: item.stock_count })
+        return
+      }
+    }
+    const nc = { ...cart, [id]: currentQty + 1 }
     saveCart(nc)
   }
 
@@ -462,6 +474,79 @@ export default function MenuPage() {
 
       {/* Notification Drawer */}
       {showNotifDrawer && <NotificationDrawer onClose={() => setShowNotifDrawer(false)} />}
+
+      {/* Stock Limit Popup */}
+      {stockPopup && (
+        <div
+          onClick={() => setStockPopup(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+            zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: 20, padding: '28px 24px',
+              maxWidth: 360, width: '100%', boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
+              textAlign: 'center', fontFamily: 'inherit'
+            }}
+          >
+            {/* Emoji header */}
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🙏</div>
+
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: '#1a1a1a', margin: '0 0 10px' }}>
+              We&apos;re Sorry!
+            </h3>
+
+            <p style={{ fontSize: 14, color: '#4b5563', lineHeight: 1.6, margin: '0 0 16px' }}>
+              Only <strong>{stockPopup.available}</strong> serving{stockPopup.available !== 1 ? 's' : ''} of{' '}
+              <strong>{stockPopup.itemName}</strong> are available right now.
+            </p>
+
+            <div style={{
+              background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12,
+              padding: '14px 16px', marginBottom: 20
+            }}>
+              <p style={{ fontSize: 13, color: '#92400e', margin: '0 0 8px', fontWeight: 600 }}>
+                🎉 Planning a party or large order?
+              </p>
+              <p style={{ fontSize: 13, color: '#78350f', margin: '0 0 12px', lineHeight: 1.5 }}>
+                We&apos;d love to prepare fresh for you! Please call us and we&apos;ll arrange everything specially.
+              </p>
+              {kitchenPhone ? (
+                <a
+                  href={`tel:${kitchenPhone}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: '#e85d04', color: '#fff', borderRadius: 10,
+                    padding: '10px 20px', fontSize: 15, fontWeight: 700,
+                    textDecoration: 'none', letterSpacing: 0.3
+                  }}
+                >
+                  📞 Call to Order: {kitchenPhone}
+                </a>
+              ) : (
+                <p style={{ fontSize: 13, color: '#92400e', margin: 0, fontWeight: 600 }}>
+                  📞 Please call the kitchen to place a large order.
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setStockPopup(null)}
+              style={{
+                background: '#f3f4f6', color: '#374151', border: 'none',
+                borderRadius: 10, padding: '10px 28px', fontSize: 14,
+                fontWeight: 600, cursor: 'pointer', width: '100%'
+              }}
+            >
+              Got it, Thanks!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

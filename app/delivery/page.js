@@ -403,6 +403,7 @@ export default function DeliveryPage() {
   // Orders currently being accepted/rejected — prevent poll from re-adding them
   const respondingOrderIdsRef = useRef(new Set())
   const wakeLockRef = useRef(null)
+  const sharedAudioCtx = useRef(null) // Pre-warmed AudioContext — avoids mobile autoplay block
   // Live location tracking refs
   const locationWatchRef    = useRef(null)
   const locationIntervalRef = useRef(null)
@@ -533,29 +534,61 @@ export default function DeliveryPage() {
     return () => clearInterval(pendingPollRef.current)
   }, [])
 
+  // ── Unlock AudioContext on first user touch (mobile autoplay policy) ──
+  useEffect(() => {
+    const unlock = () => {
+      try {
+        if (!sharedAudioCtx.current) {
+          sharedAudioCtx.current = new (window.AudioContext || window.webkitAudioContext)()
+        }
+        if (sharedAudioCtx.current.state === 'suspended') {
+          sharedAudioCtx.current.resume().catch(() => {})
+        }
+      } catch {}
+    }
+    // First touch/click unlocks the audio context for all future plays
+    document.addEventListener('touchstart', unlock, { once: true, passive: true })
+    document.addEventListener('click',      unlock, { once: true })
+    return () => {
+      document.removeEventListener('touchstart', unlock)
+      document.removeEventListener('click',      unlock)
+    }
+  }, [])
+
   // ── Alarm: rings while there are pending orders AND boy is online ──
   useEffect(() => {
     const playRing = () => {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)()
-        // Two-tone "ding ding" ringtone pattern
-        const pattern = [
-          { freq:1046, start:0,    dur:0.15 },
-          { freq:1318, start:0.18, dur:0.15 },
-          { freq:1046, start:0.55, dur:0.15 },
-          { freq:1318, start:0.73, dur:0.15 },
-        ]
-        pattern.forEach(({ freq, start, dur }) => {
-          const o = ctx.createOscillator(), g = ctx.createGain()
-          o.type = 'sine'; o.frequency.value = freq
-          o.connect(g); g.connect(ctx.destination)
-          g.gain.setValueAtTime(0, ctx.currentTime + start)
-          g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + start + 0.04)
-          g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur)
-          o.start(ctx.currentTime + start)
-          o.stop(ctx.currentTime + start + dur + 0.01)
-        })
-        setTimeout(() => { try { ctx.close() } catch {} }, 2000)
+        // Use shared (pre-warmed) context if available, else create new
+        const ctx = sharedAudioCtx.current || new (window.AudioContext || window.webkitAudioContext)()
+        if (!sharedAudioCtx.current) sharedAudioCtx.current = ctx
+
+        const doPlay = () => {
+          // Two-tone "ding ding" ringtone pattern
+          const pattern = [
+            { freq:1046, start:0,    dur:0.15 },
+            { freq:1318, start:0.18, dur:0.15 },
+            { freq:1046, start:0.55, dur:0.15 },
+            { freq:1318, start:0.73, dur:0.15 },
+          ]
+          pattern.forEach(({ freq, start, dur }) => {
+            const o = ctx.createOscillator(), g = ctx.createGain()
+            o.type = 'sine'; o.frequency.value = freq
+            o.connect(g); g.connect(ctx.destination)
+            g.gain.setValueAtTime(0, ctx.currentTime + start)
+            g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + start + 0.04)
+            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur)
+            o.start(ctx.currentTime + start)
+            o.stop(ctx.currentTime + start + dur + 0.01)
+          })
+        }
+
+        // Resume if suspended (required on mobile after page load without gesture)
+        if (ctx.state === 'suspended') {
+          ctx.resume().then(doPlay).catch(() => {})
+        } else {
+          doPlay()
+        }
       } catch {}
     }
 
@@ -707,11 +740,12 @@ export default function DeliveryPage() {
 
   const loadData = async () => {
     try {
-      const [ordersRes, historyRes, profileRes, statusRes] = await Promise.all([
+      const [ordersRes, historyRes, profileRes, statusRes, pendingRes] = await Promise.all([
         fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] })),
         fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
         fetch('/api/profile').then(r => r.json()).catch(() => ({})),
         fetch('/api/delivery/status').then(r => r.json()).catch(() => ({})),
+        fetch('/api/delivery/pending').then(r => r.json()).catch(() => ({ orders: [] })),
       ])
       const initial = ordersRes.orders || []
       setOrders(initial)
@@ -733,6 +767,9 @@ export default function DeliveryPage() {
       } else if (info) {
         setIsOnline(info?.is_online ?? false)
       }
+      // Load pending orders immediately — alarm starts right away when page opens from notification tap
+      const pending = (pendingRes.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
+      if (pending.length > 0) setPendingOrders(pending)
     } catch(e) {
       console.error('loadData error:', e)
     } finally {

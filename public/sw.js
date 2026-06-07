@@ -1,7 +1,7 @@
 // FoodFi Service Worker — Push Notifications + PWA Cache
 // v3 — broadcast dispatch: ring all boys, accept/reject from notification
 
-const CACHE = 'foodfi-v3'
+const CACHE = 'foodfi-v4'
 const OFFLINE_URL = '/'
 
 // Install — cache essential pages
@@ -154,16 +154,27 @@ self.addEventListener('notificationclick', (e) => {
     return
   }
 
-  // ── Default tap — open/focus delivery page ──
+  // ── Default tap — open/focus /delivery page specifically ──
+  const targetUrl = (url && url.includes('/delivery')) ? url : '/delivery'
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      for (const c of list) {
-        if (c.url.includes(self.location.origin) && 'focus' in c) {
-          c.focus()
-          return
-        }
+      // First choice: an already-open delivery page
+      const deliveryClient = list.find(c => c.url.includes('/delivery'))
+      if (deliveryClient) {
+        deliveryClient.focus()
+        // Also post alarm signal in case the page missed the push message
+        deliveryClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: e.notification.data || {} })
+        return
       }
-      return clients.openWindow(url || '/delivery')
+      // Second choice: any origin window — navigate it to delivery
+      const anyClient = list.find(c => c.url.includes(self.location.origin) && 'focus' in c)
+      if (anyClient) {
+        anyClient.focus()
+        anyClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: e.notification.data || {} })
+        return
+      }
+      // No window open — open a new one
+      return clients.openWindow(targetUrl)
     })
   )
 })

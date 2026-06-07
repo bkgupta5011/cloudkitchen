@@ -357,6 +357,7 @@ export default function DeliveryPage() {
   const initialLoadDone = useRef(false)
   // Orders currently being accepted/rejected — prevent poll from re-adding them
   const respondingOrderIdsRef = useRef(new Set())
+  const wakeLockRef = useRef(null)
   // Live location tracking refs
   const locationWatchRef    = useRef(null)
   const locationIntervalRef = useRef(null)
@@ -411,6 +412,67 @@ export default function DeliveryPage() {
     return () => clearInterval(pollRef.current)
   }, [])
 
+  // ── Service Worker message listener ──────────────────────────────
+  // Handles: NEW_ORDER_ALARM (immediate alarm without waiting for poll)
+  //          ORDER_TAKEN     (another boy accepted — dismiss alarm)
+  //          ORDER_RESPOND_RESULT (action button pressed from notification bar)
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return
+
+    const fetchPendingImmediate = async () => {
+      try {
+        const d = await fetch('/api/delivery/pending').then(r => r.json())
+        const filtered = (d.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
+        setPendingOrders(filtered)
+      } catch {}
+    }
+
+    const handler = (e) => {
+      const msg = e.data
+      if (!msg) return
+
+      if (msg.type === 'NEW_ORDER_ALARM') {
+        // New order arrived — fetch immediately instead of waiting 5s poll
+        fetchPendingImmediate()
+      }
+
+      if (msg.type === 'ORDER_TAKEN') {
+        // Another boy accepted (or this boy rejected from notification bar) — remove from alarm list
+        const { orderId } = msg
+        if (orderId) {
+          respondingOrderIdsRef.current.add(orderId)
+          setPendingOrders(p => p.filter(o => o.id !== orderId))
+        }
+      }
+
+      if (msg.type === 'ORDER_RESPOND_RESULT') {
+        // Boy responded via notification action button (Accept/Reject from notification bar)
+        const { action, success, reason, orderId, orderNumber } = msg
+        if (action === 'accept') {
+          if (success) {
+            showToast(`✅ Order #${orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
+            // Refresh assigned orders
+            fetch('/api/orders').then(r => r.json()).then(d => {
+              const newOrders = d.orders || []
+              setOrders(newOrders)
+              lastOrderIds.current = new Set(newOrders.map(o => o.id))
+            }).catch(() => {})
+          } else if (reason === 'already_taken') {
+            showToast('⚠️ Ye order kisi aur ne le liya')
+          }
+        }
+        if (action === 'reject') {
+          showToast('❌ Order reject kar diya')
+        }
+        // Either way, fetch fresh pending list
+        fetchPendingImmediate()
+      }
+    }
+
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
+
   // ── Pending unassigned orders — poll every 5s ─────────────────────
   useEffect(() => {
     const fetchPending = async () => {
@@ -457,16 +519,31 @@ export default function DeliveryPage() {
         playRing() // immediate first ring
         alarmIntervalRef.current = setInterval(playRing, 2500)
       }
+      // Keep screen on while ringing
+      if ('wakeLock' in navigator && !wakeLockRef.current) {
+        navigator.wakeLock.request('screen').then(lock => {
+          wakeLockRef.current = lock
+        }).catch(() => {})
+      }
     } else {
       if (alarmIntervalRef.current) {
         clearInterval(alarmIntervalRef.current)
         alarmIntervalRef.current = null
+      }
+      // Release wake lock
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
       }
     }
     return () => {
       if (alarmIntervalRef.current) {
         clearInterval(alarmIntervalRef.current)
         alarmIntervalRef.current = null
+      }
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {})
+        wakeLockRef.current = null
       }
     }
   }, [pendingOrders.length, isOnline])

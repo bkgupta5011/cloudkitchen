@@ -330,10 +330,11 @@ export async function POST(request) {
     onlineBoyCount = onlineBoys.length
     for (const boy of onlineBoys) {
       sendPushToUser(String(boy.id), {
-        title: '🔔 Naya Order! Jaldi Accept Karo',
-        body:  `#${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 45)}`,
-        url:   '/delivery',
-        tag:   `new-order-${order.id}`,
+        title:   '🔔 Naya Order! Jaldi Accept Karo',
+        body:    `#${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 45)}`,
+        url:     '/delivery',
+        tag:     `new-order-${order.id}`,
+        orderId: order.id,          // ← so SW can call accept/reject API directly
         requireInteraction: true,
       }, 'delivery').catch(() => {})
     }

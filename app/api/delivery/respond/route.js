@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { sendPushToRole } from '@/lib/push'
+import { sendPushToRole, sendPushToUser } from '@/lib/push'
 
 export async function POST(request) {
   const sql  = getDb()
@@ -68,6 +68,26 @@ export async function POST(request) {
   }
 
   const order = updated[0]
+
+  // ── Dismiss notification on ALL other online boys ─────────────────
+  // Same tag replaces the ringing notification → their phone stops buzzing
+  try {
+    const otherBoys = await sql`
+      SELECT id FROM delivery_boys
+      WHERE is_online = true AND status = 'approved' AND id != ${user.id}
+    `
+    for (const boy of otherBoys) {
+      sendPushToUser(String(boy.id), {
+        title:   'Order Kisi Aur Ne Liya',
+        body:    'Agli order ka wait karo 🛵',
+        url:     '/delivery',
+        tag:     `new-order-${orderId}`,   // Same tag → replaces ringing notification
+        orderId: orderId,
+        isDismiss: true,
+        requireInteraction: false,
+      }, 'delivery').catch(() => {})
+    }
+  } catch {}
 
   // Notify admins — boy has accepted, waiting for kitchen to confirm
   sendPushToRole('admin', {

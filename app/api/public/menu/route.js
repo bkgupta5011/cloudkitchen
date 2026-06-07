@@ -1,4 +1,7 @@
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+export const revalidate = 0
+
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 
@@ -20,8 +23,17 @@ function sortCategories(cats) {
   })
 }
 
-// Public menu API — no auth required
-export async function GET() {
+function noCacheHeaders(res) {
+  res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0')
+  res.headers.set('Pragma', 'no-cache')
+  res.headers.set('Expires', '0')
+  res.headers.set('CDN-Cache-Control', 'no-store')
+  res.headers.set('Vercel-CDN-Cache-Control', 'no-store')
+  return res
+}
+
+// Public menu API — no auth required, never cached
+export async function GET(request) {
   try {
     const sql = getDb()
 
@@ -71,20 +83,17 @@ export async function GET() {
       LIMIT 6
     `
 
-    const res = NextResponse.json({
+    return noCacheHeaders(NextResponse.json({
       items,
       categories,
       kitchen: kitchen || null,
       freeDeliveryKm: freeDelivery?.max_km || null,
       offers,
       reviews,
-    })
-    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
-    return res
+      _ts: Date.now(), // debug: confirm fresh response
+    }))
   } catch (e) {
     console.error('Public menu API error:', e)
-    const res = NextResponse.json({ items: [], categories: [], kitchen: null, offers: [], reviews: [] })
-    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
-    return res
+    return noCacheHeaders(NextResponse.json({ items: [], categories: [], kitchen: null, offers: [], reviews: [] }))
   }
 }

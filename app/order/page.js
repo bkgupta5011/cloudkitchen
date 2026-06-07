@@ -103,7 +103,8 @@ export default function OrderPage() {
   const [hoveredId, setHoveredId] = useState(null)
 
   const loadMenu = () => {
-    fetch('/api/public/menu', { cache: 'no-store' })
+    // Timestamp in URL bypasses ALL caching layers (CDN, browser, proxy)
+    fetch(`/api/public/menu?_=${Date.now()}`, { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         setItems(data.items || [])

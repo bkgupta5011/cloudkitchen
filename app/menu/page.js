@@ -95,6 +95,237 @@ function playNotifSound() {
   } catch {}
 }
 
+// ── Item Detail Modal (bottom-sheet, premium) ─────────────────────────
+function ItemDetailModal({ item, qty, onAdd, onRemove, onClose, kitchenOpen, dp, rating }) {
+  const isSoldOut = item.stock_count !== null && item.stock_count !== undefined && item.stock_count === 0
+
+  // Close on backdrop click
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9998,
+        background: 'rgba(0,0,0,0.6)',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        animation: 'itemBgIn 0.22s ease',
+      }}
+    >
+      <style>{`
+        @keyframes itemBgIn   { from{opacity:0} to{opacity:1} }
+        @keyframes itemSlideUp{ from{transform:translateY(100%)} to{transform:translateY(0)} }
+        @keyframes itemImgIn  { from{transform:scale(1.06)} to{transform:scale(1)} }
+      `}</style>
+
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff',
+          borderRadius: '24px 24px 0 0',
+          width: '100%', maxWidth: 520,
+          maxHeight: '92vh',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 -8px 48px rgba(0,0,0,0.22)',
+          animation: 'itemSlideUp 0.32s cubic-bezier(0.32,0.72,0,1)',
+        }}
+      >
+        {/* ── Image section ── */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          {/* Image */}
+          <div style={{
+            width: '100%', height: 260, overflow: 'hidden',
+            background: '#f1f5f9',
+          }}>
+            {item.image_url
+              ? <img
+                  src={item.image_url}
+                  alt={item.name}
+                  style={{
+                    width: '100%', height: '100%', objectFit: 'cover',
+                    animation: 'itemImgIn 0.4s ease',
+                    filter: isSoldOut ? 'grayscale(60%) brightness(0.75)' : 'none',
+                  }}
+                />
+              : <div style={{
+                  width: '100%', height: '100%',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 80,
+                  background: 'linear-gradient(135deg,#fff7ed,#fef3c7)',
+                }}>🍛</div>
+            }
+          </div>
+
+          {/* Gradient overlay at bottom of image */}
+          <div style={{
+            position: 'absolute', bottom: 0, left: 0, right: 0, height: 90,
+            background: 'linear-gradient(to top, rgba(0,0,0,0.72) 0%, transparent 100%)',
+          }} />
+
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute', top: 14, right: 14,
+              width: 36, height: 36, borderRadius: '50%',
+              background: 'rgba(0,0,0,0.45)', border: 'none',
+              color: '#fff', fontSize: 18, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backdropFilter: 'blur(4px)',
+            }}>✕</button>
+
+          {/* Veg/non-veg badge top-left */}
+          <div style={{
+            position: 'absolute', top: 14, left: 14,
+            background: item.is_veg ? '#16a34a' : '#dc2626',
+            borderRadius: 8, padding: '3px 10px',
+            fontSize: 11, fontWeight: 800, color: '#fff', letterSpacing: 0.5,
+          }}>
+            {item.is_veg ? '🟢 VEG' : '🔴 NON-VEG'}
+          </div>
+
+          {/* Item name over gradient */}
+          <div style={{
+            position: 'absolute', bottom: 12, left: 18, right: 18,
+            color: '#fff', fontSize: 22, fontWeight: 900,
+            textShadow: '0 2px 8px rgba(0,0,0,0.6)',
+            letterSpacing: 0.3, lineHeight: 1.25,
+          }}>{item.name}</div>
+
+          {/* Sold Out overlay */}
+          {isSoldOut && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <div style={{
+                background: 'rgba(220,38,38,0.88)', color: '#fff',
+                padding: '8px 22px', borderRadius: 12,
+                fontSize: 15, fontWeight: 900, letterSpacing: 1,
+              }}>SOLD OUT</div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Scrollable details ── */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px 0' }}>
+
+          {/* Price row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 26, fontWeight: 900, color: '#e85d04' }}>₹{dp}</span>
+            {item.discount_percent > 0 && <>
+              <span style={{ fontSize: 14, color: '#9ca3af', textDecoration: 'line-through' }}>₹{item.price}</span>
+              <span style={{
+                background: '#dcfce7', color: '#16a34a',
+                borderRadius: 8, padding: '2px 10px',
+                fontSize: 12, fontWeight: 800,
+              }}>{item.discount_percent}% OFF</span>
+            </>}
+          </div>
+
+          {/* Rating */}
+          {rating?.avg >= 1 && rating?.count >= 1 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <span style={{ fontSize: 14, color: '#f59e0b', letterSpacing: -1 }}>
+                {'★'.repeat(Math.round(rating.avg))}{'☆'.repeat(5 - Math.round(rating.avg))}
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>{rating.avg.toFixed(1)}</span>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>({rating.count} reviews)</span>
+              {rating.avg >= 4.5 && rating.count >= 3 && (
+                <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 8, padding: '1px 8px', fontSize: 11, fontWeight: 800 }}>🏆 Most Loved</span>
+              )}
+            </div>
+          )}
+
+          {/* Description */}
+          {item.description && (
+            <p style={{
+              fontSize: 14, color: '#4b5563', lineHeight: 1.65,
+              margin: '0 0 16px',
+            }}>{item.description}</p>
+          )}
+
+          {/* Stock info */}
+          {!isSoldOut && item.stock_count !== null && item.stock_count !== undefined && item.stock_count <= 5 && (
+            <div style={{
+              background: '#fff7ed', border: '1px solid #fed7aa',
+              borderRadius: 10, padding: '8px 14px',
+              fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 14,
+            }}>
+              ⚡ Sirf {item.stock_count} bacha hai — jaldi order karo!
+            </div>
+          )}
+
+          {/* Spacer so content clears sticky button */}
+          <div style={{ height: 16 }} />
+        </div>
+
+        {/* ── Sticky Add to Cart ── */}
+        <div style={{
+          padding: '14px 20px 28px',
+          borderTop: '1px solid #f3f4f6',
+          background: '#fff',
+          flexShrink: 0,
+        }}>
+          {isSoldOut ? (
+            <button disabled style={{
+              width: '100%', padding: 16,
+              background: '#f3f4f6', color: '#9ca3af',
+              border: 'none', borderRadius: 14,
+              fontSize: 15, fontWeight: 800, cursor: 'not-allowed',
+            }}>❌ Sold Out</button>
+
+          ) : !kitchenOpen ? (
+            <button disabled style={{
+              width: '100%', padding: 16,
+              background: '#fef3c7', color: '#92400e',
+              border: 'none', borderRadius: 14,
+              fontSize: 15, fontWeight: 800, cursor: 'not-allowed',
+            }}>🔒 Kitchen Abhi Band Hai</button>
+
+          ) : qty === 0 ? (
+            <button
+              onClick={onAdd}
+              style={{
+                width: '100%', padding: 16,
+                background: 'linear-gradient(135deg,#e85d04,#f97316)',
+                color: '#fff', border: 'none', borderRadius: 14,
+                fontSize: 16, fontWeight: 900, cursor: 'pointer',
+                boxShadow: '0 6px 20px rgba(232,93,4,0.4)',
+                letterSpacing: 0.5,
+              }}>
+              🛒 Add to Cart — ₹{dp}
+            </button>
+
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 0,
+                background: '#fff7ed', border: '2px solid #e85d04',
+                borderRadius: 14, overflow: 'hidden', flexShrink: 0,
+              }}>
+                <button onClick={onRemove} style={{
+                  width: 52, height: 52, background: 'none', border: 'none',
+                  fontSize: 22, fontWeight: 900, color: '#e85d04', cursor: 'pointer',
+                }}>−</button>
+                <span style={{ width: 40, textAlign: 'center', fontSize: 18, fontWeight: 800, color: '#1a1a1a' }}>{qty}</span>
+                <button onClick={onAdd} style={{
+                  width: 52, height: 52, background: '#e85d04', border: 'none',
+                  fontSize: 22, fontWeight: 900, color: '#fff', cursor: 'pointer',
+                }}>+</button>
+              </div>
+              <div style={{ flex: 1, fontSize: 14, color: '#6b7280', fontWeight: 600 }}>
+                Cart mein hai · ₹{dp * qty} total
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Star display helper ───────────────────────────────────────────────
 function StarDisplay({ avg, count }) {
   if (!avg || count < 1) return null
@@ -129,7 +360,8 @@ export default function MenuPage() {
   const [showNotifDrawer, setShowNotifDrawer] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [kitchenPhone, setKitchenPhone] = useState(null)
-  const [stockPopup, setStockPopup] = useState(null) // { itemName, available }
+  const [stockPopup, setStockPopup] = useState(null)   // { itemName, available }
+  const [selectedItem, setSelectedItem] = useState(null) // item detail modal
   const notifPollRef = useRef(null)
   const lastUnreadRef = useRef(-1)
 
@@ -445,7 +677,10 @@ export default function MenuPage() {
           const cardClass = `${styles.menuCard} ${isSoldOut ? styles.menuCardSoldOut : ''}`
 
           return (
-            <div key={item.id} className={cardClass}>
+            <div key={item.id} className={cardClass}
+              onClick={() => setSelectedItem(item)}
+              style={{ cursor: 'pointer' }}
+            >
               <div className={styles.cardLeft}>
                 <div className={styles.cardTitle}>
                   <span className={`veg-dot ${item.is_veg ? 'veg' : 'nonveg'}`} />
@@ -486,20 +721,22 @@ export default function MenuPage() {
                   )}
                 </div>
 
-                {/* Action button area */}
-                {isSoldOut ? (
-                  <button className={styles.soldOutBtn} disabled>❌ Sold Out</button>
-                ) : !kitchenOpen ? (
-                  <button className={styles.closedBtn} disabled>🔒 Closed</button>
-                ) : qty === 0 ? (
-                  <button className={styles.addBtn} onClick={() => addItem(item.id)}>+ Add</button>
-                ) : (
-                  <div className={styles.qtyCtl}>
-                    <button onClick={() => removeItem(item.id)}>−</button>
-                    <span>{qty}</span>
-                    <button onClick={() => addItem(item.id)}>+</button>
-                  </div>
-                )}
+                {/* Action button area — stopPropagation so card click doesn't fire */}
+                <div onClick={e => e.stopPropagation()}>
+                  {isSoldOut ? (
+                    <button className={styles.soldOutBtn} disabled>❌ Sold Out</button>
+                  ) : !kitchenOpen ? (
+                    <button className={styles.closedBtn} disabled>🔒 Closed</button>
+                  ) : qty === 0 ? (
+                    <button className={styles.addBtn} onClick={() => addItem(item.id)}>+ Add</button>
+                  ) : (
+                    <div className={styles.qtyCtl}>
+                      <button onClick={() => removeItem(item.id)}>−</button>
+                      <span>{qty}</span>
+                      <button onClick={() => addItem(item.id)}>+</button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )
@@ -518,6 +755,20 @@ export default function MenuPage() {
 
       {/* Floating Support Chat */}
       <SupportChat />
+
+      {/* Item Detail Modal */}
+      {selectedItem && (
+        <ItemDetailModal
+          item={selectedItem}
+          qty={cart[selectedItem.id] || 0}
+          dp={discPrice(selectedItem)}
+          rating={itemRatings[selectedItem.id]}
+          kitchenOpen={kitchenOpen}
+          onAdd={() => addItem(selectedItem.id)}
+          onRemove={() => removeItem(selectedItem.id)}
+          onClose={() => setSelectedItem(null)}
+        />
+      )}
 
       {/* Notification Drawer */}
       {showNotifDrawer && <NotificationDrawer onClose={() => setShowNotifDrawer(false)} />}

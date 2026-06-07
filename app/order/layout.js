@@ -139,6 +139,9 @@ export const metadata = {
       'max-snippet': -1,
     },
   },
+  verification: {
+    google: 'google6c3d9354bbab7542',
+  },
   other: {
     'geo.region': 'IN-BR',
     'geo.placename': 'Patna, Bihar',

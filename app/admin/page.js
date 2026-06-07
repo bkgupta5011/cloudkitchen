@@ -92,7 +92,9 @@ export default function AdminPage() {
   const [recipeSearch, setRecipeSearch] = useState('')
   const [expandedRecipe, setExpandedRecipe] = useState(null)
   const [recipeTab, setRecipeTab] = useState({}) // { recipeId: 'ingredients'|'vidhi'|'serving' }
+  const [newOrderPopup, setNewOrderPopup] = useState([]) // new orders for popup
   const lastOrderCount = useRef(0)
+  const lastOrderIdsRef = useRef(new Set())             // tracks active order IDs across polls
   const lastAppCount = useRef(0)
   const alertCtxRef = useRef(null)
   const supportCtxRef = useRef(null)
@@ -110,10 +112,10 @@ export default function AdminPage() {
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
       alertCtxRef.current = ctx
 
-      // 10 second ka alarm — har 0.55s pe ek ding-dong pair
-      const totalSecs = 10
+      // 15 second ka alarm — har 0.55s pe ek ding-dong pair
+      const totalSecs = 15
       const step = 0.55
-      const numBeeps = Math.ceil(totalSecs / step) // ~18 pairs
+      const numBeeps = Math.ceil(totalSecs / step) // ~27 pairs
 
       for (let i = 0; i < numBeeps; i++) {
         const base = ctx.currentTime + i * step
@@ -135,8 +137,8 @@ export default function AdminPage() {
         o2.start(base + 0.27); o2.stop(base + 0.51)
       }
 
-      // 10 second baad auto-close
-      setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 11000)
+      // 15 second baad auto-close
+      setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 16000)
     } catch (e) {}
   }
 
@@ -196,18 +198,26 @@ export default function AdminPage() {
           fetch('/api/admin?type=pending_boys').then(r => r.json()),
         ])
         const latest = ordRes.orders || []
-        const activeCount = latest.filter(o => !['delivered','cancelled'].includes(o.status)).length
-        if (lastOrderCount.current > 0 && activeCount > lastOrderCount.current) {
+        const activeOrders = latest.filter(o => !['delivered','cancelled'].includes(o.status))
+        const activeCount  = activeOrders.length
+
+        // Detect genuinely new orders (by ID, not just count)
+        const newOnes = lastOrderIdsRef.current.size > 0
+          ? activeOrders.filter(o => !lastOrderIdsRef.current.has(o.id))
+          : []
+
+        if (newOnes.length > 0) {
           playLoudAlert()
-          setNotifCount(n => n + (activeCount - lastOrderCount.current))
+          setNotifCount(n => n + newOnes.length)
+          setNewOrderPopup(newOnes) // ← show popup
           if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification('🍽️ Naya Order!', { body: 'FoodFi Cloud Kitchen pe naya order aa gaya!', icon: '/favicon.ico' })
+            new Notification('🍽️ Naya Order!', { body: `${newOnes.length} naya order aa gaya!`, icon: '/favicon.ico' })
           }
-          // Toast 10 sec tak dikhao (alarm ke saath)
-          setToast('🔔 Naya order aa gaya! — Abhi dekho!')
-          setTimeout(() => setToast(''), 10000)
         }
-        lastOrderCount.current = activeCount
+
+        // Update ID set for next poll
+        lastOrderIdsRef.current = new Set(activeOrders.map(o => o.id))
+        lastOrderCount.current  = activeCount
         setOrders(latest)
 
         // ── Escalation check — pending orders not accepted within timeout ──
@@ -304,7 +314,9 @@ export default function AdminPage() {
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
     setOrders(loadedOrders)
-    lastOrderCount.current = loadedOrders.filter(o => !['delivered','cancelled'].includes(o.status)).length
+    const activeLoaded = loadedOrders.filter(o => !['delivered','cancelled'].includes(o.status))
+    lastOrderCount.current  = activeLoaded.length
+    lastOrderIdsRef.current = new Set(activeLoaded.map(o => o.id)) // snapshot — don't alert on existing orders
     setMenuItems(menuRes.items || [])
     setOffers(offersRes.offers || [])
     setBoys(boysRes.boys || [])
@@ -614,6 +626,111 @@ export default function AdminPage() {
 
   return (
     <div className={styles.page}>
+
+      {/* ── New Order Popup ─────────────────────────────────────────── */}
+      {newOrderPopup.length > 0 && (() => {
+        const o = newOrderPopup[0] // show first (latest) new order
+        const extraCount = newOrderPopup.length - 1
+        return (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 99999,
+            background: 'rgba(0,0,0,0.72)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'popBgIn 0.25s ease',
+          }}>
+            <style>{`
+              @keyframes popBgIn    { from { opacity:0 } to { opacity:1 } }
+              @keyframes popCardIn  { from { opacity:0; transform:scale(0.82) translateY(-24px) } to { opacity:1; transform:scale(1) translateY(0) } }
+              @keyframes bellRing   { 0%,100%{transform:rotate(0)} 15%{transform:rotate(-22deg)} 30%{transform:rotate(22deg)} 45%{transform:rotate(-16deg)} 60%{transform:rotate(16deg)} 75%{transform:rotate(-8deg)} }
+              @keyframes ringPulse  { 0%,100%{box-shadow:0 0 0 0 #f59e0b88} 50%{box-shadow:0 0 0 18px #f59e0b00} }
+              @keyframes tickerDot  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.6)} }
+            `}</style>
+
+            <div style={{
+              background: '#fff', borderRadius: 28, overflow: 'hidden',
+              width: '100%', maxWidth: 480, boxShadow: '0 32px 80px #0007',
+              animation: 'popCardIn 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+            }}>
+              {/* ── Amber header ── */}
+              <div style={{
+                background: 'linear-gradient(135deg, #d97706, #f59e0b)',
+                padding: '22px 24px 18px', textAlign: 'center', position: 'relative',
+                animation: 'ringPulse 1.4s ease-in-out infinite',
+              }}>
+                <div style={{ fontSize: 52, animation: 'bellRing 0.7s ease-in-out infinite', display: 'inline-block', marginBottom: 6 }}>🔔</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: '#fff', letterSpacing: 1, textShadow: '0 2px 8px #0003' }}>
+                  NAYA ORDER AAYA!
+                </div>
+                {extraCount > 0 && (
+                  <div style={{ fontSize: 13, color: '#fef3c7', marginTop: 4, fontWeight: 700 }}>
+                    + {extraCount} aur order{extraCount > 1 ? 's' : ''}
+                  </div>
+                )}
+                {/* Pulsing dots row */}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 10 }}>
+                  {[0,1,2].map(i => (
+                    <div key={i} style={{
+                      width: 8, height: 8, borderRadius: '50%', background: '#fff',
+                      animation: `tickerDot 1s ease-in-out infinite`,
+                      animationDelay: `${i * 0.22}s`,
+                    }} />
+                  ))}
+                </div>
+              </div>
+
+              {/* ── Order details ── */}
+              <div style={{ padding: '18px 22px 22px' }}>
+                {/* Order number + amount */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#64748b', letterSpacing: 0.5 }}>
+                    ORDER #{o.order_number}
+                  </div>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: '#d97706' }}>
+                    ₹{Math.round(o.total)}
+                  </div>
+                </div>
+
+                {/* Customer */}
+                <div style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 14px', marginBottom: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <span style={{ fontSize: 22 }}>👤</span>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{o.customer_name || '—'}</div>
+                    {o.customer_phone && <div style={{ fontSize: 12, color: '#64748b' }}>{o.customer_phone}</div>}
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div style={{ background: '#f8fafc', borderRadius: 12, padding: '10px 14px', marginBottom: 10, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: 20, marginTop: 1 }}>📍</span>
+                  <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{o.delivery_address || '—'}</div>
+                </div>
+
+                {/* Delivery boy */}
+                <div style={{ background: o.delivery_boy_name ? '#f0fdf4' : '#fffbeb', border: `1px solid ${o.delivery_boy_name ? '#86efac' : '#fcd34d'}`, borderRadius: 12, padding: '9px 14px', marginBottom: 16, fontSize: 13 }}>
+                  {o.delivery_boy_name
+                    ? <span>🛵 <strong>{o.delivery_boy_name}</strong> ko assign kiya gaya</span>
+                    : <span>⚠️ <strong>Koi delivery boy assign nahi</strong> — manually karo</span>}
+                </div>
+
+                {/* Buttons */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    onClick={() => { setNewOrderPopup([]); setSection('orders'); setNotifCount(0) }}
+                    style={{ flex: 2, padding: '14px', background: 'linear-gradient(135deg,#d97706,#f59e0b)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 15, fontWeight: 900, cursor: 'pointer', boxShadow: '0 6px 20px #f59e0b55' }}>
+                    📋 Orders Dekho
+                  </button>
+                  <button
+                    onClick={() => setNewOrderPopup([])}
+                    style={{ flex: 1, padding: '14px', background: '#f1f5f9', border: '1.5px solid #e2e8f0', color: '#64748b', borderRadius: 14, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Sidebar */}
       <aside className={styles.sidebar}>
         <div className={styles.sidebarLogo}>⚙️ Admin Panel</div>

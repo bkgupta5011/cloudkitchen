@@ -153,6 +153,7 @@ export async function GET(request) {
   } else if (user.role === 'delivery') {
     // Ensure schema
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_accepted_at TIMESTAMPTZ`.catch(() => {})
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_assigned_at  TIMESTAMPTZ`.catch(() => {})
     await sql`
       CREATE TABLE IF NOT EXISTS order_rejections (
         id SERIAL PRIMARY KEY,
@@ -163,36 +164,32 @@ export async function GET(request) {
       )
     `.catch(() => {})
 
-    // ── 5-min timeout: auto-reassign orders this boy hasn't accepted ──
+    // ── Global 5-min timeout (atomic UPDATE — whichever boy polls first wins) ──
+    // Uses boy_assigned_at so each re-assignment gives a fresh 5-min window.
+    // NOT filtered by delivery_boy_id — any delivery boy's poll can trigger this,
+    // so it works even if the originally assigned boy's page is closed.
     const timedOut = await sql`
-      SELECT id, order_number, total, distance_km, delivery_address
-      FROM orders
-      WHERE delivery_boy_id = ${user.id}
-        AND boy_accepted_at IS NULL
+      UPDATE orders
+      SET delivery_boy_id = NULL, boy_payout = NULL, boy_assigned_at = NULL
+      WHERE boy_accepted_at IS NULL
+        AND delivery_boy_id IS NOT NULL
         AND status = 'pending'
-        AND created_at < NOW() - INTERVAL '5 minutes'
+        AND COALESCE(boy_assigned_at, created_at) < NOW() - INTERVAL '5 minutes'
+      RETURNING id, order_number, total, distance_km, delivery_address,
+                delivery_boy_id AS prev_boy_id
     `.catch(() => [])
 
     for (const order of timedOut) {
-      // Record auto-timeout as rejection
-      await sql`
-        INSERT INTO order_rejections (order_id, delivery_boy_id)
-        VALUES (${order.id}, ${user.id})
-        ON CONFLICT DO NOTHING
-      `.catch(() => {})
+      // Record auto-timeout as rejection for the prev assigned boy
+      if (order.prev_boy_id) {
+        await sql`
+          INSERT INTO order_rejections (order_id, delivery_boy_id)
+          VALUES (${order.id}, ${order.prev_boy_id})
+          ON CONFLICT DO NOTHING
+        `.catch(() => {})
+      }
 
-      // Atomically clear
-      const cleared = await sql`
-        UPDATE orders SET delivery_boy_id = NULL, boy_payout = NULL
-        WHERE id = ${order.id}
-          AND delivery_boy_id = ${user.id}
-          AND boy_accepted_at IS NULL
-        RETURNING id
-      `.catch(() => [])
-
-      if (!cleared.length) continue
-
-      // Find next eligible boy
+      // Find next eligible boy (excluding all who already rejected)
       const eligible = await sql`
         SELECT db.id, db.name, db.per_km_earning,
           COUNT(o2.id) FILTER (WHERE o2.status IN ('confirmed','preparing')) AS active_orders
@@ -216,13 +213,15 @@ export async function GET(request) {
       const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
 
       await sql`
-        UPDATE orders SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout}, boy_accepted_at = NULL
+        UPDATE orders
+        SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout},
+            boy_accepted_at = NULL, boy_assigned_at = NOW()
         WHERE id = ${order.id} AND delivery_boy_id IS NULL
       `.catch(() => {})
 
       sendPushToUser(String(nextBoy.id), {
         title: '📦 Naya Order Assign Hua!',
-        body:  `#${order.order_number} — ₹${Math.round(order.total)} · Jaldi accept ya reject karo`,
+        body:  `#${order.order_number} — ₹${Math.round(order.total)} · 5 min mein accept karo`,
         url:   '/delivery',
         tag:   `delivery-${order.id}`,
         requireInteraction: true,
@@ -422,7 +421,7 @@ export async function POST(request) {
       const perKm  = parseFloat(boyRate?.per_km_earning || 0)
       const distKm = distanceKm ? parseFloat(distanceKm) : null
       const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
-      await sql`UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout} WHERE id = ${order.id}`
+      await sql`UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout}, boy_assigned_at = NOW() WHERE id = ${order.id}`
       // Notify assigned boy — order waiting for kitchen confirmation
       sendPushToUser(String(assignedBoy.id), {
         title: '📦 Naya Order Assign Hua!',

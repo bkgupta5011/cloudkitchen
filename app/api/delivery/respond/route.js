@@ -36,7 +36,8 @@ async function reassignOrder(sql, orderId, orderInfo) {
 
   const assigned = await sql`
     UPDATE orders
-    SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout}, boy_accepted_at = NULL
+    SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout},
+        boy_accepted_at = NULL, boy_assigned_at = NOW()
     WHERE id = ${orderId} AND delivery_boy_id IS NULL
     RETURNING id
   `.catch(() => [])

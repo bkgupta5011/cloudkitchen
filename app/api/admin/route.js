@@ -19,6 +19,7 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS close_time VARCHAR DEFAULT '22:00'`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS estimated_time INT DEFAULT 45`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS auto_schedule BOOLEAN DEFAULT false`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS force_closed BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS order_timeout_minutes INT DEFAULT 2`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS escalation_interval_sec INT DEFAULT 30`
   } catch (e) {}
@@ -246,9 +247,17 @@ export async function PATCH(request) {
     const toVal      = data.order_timeout_minutes != null ? parseInt(data.order_timeout_minutes)  : null
     const escVal     = data.escalation_interval_sec != null ? parseInt(data.escalation_interval_sec) : null
 
+    // When admin manually toggles is_open:
+    // CLOSE (false) → force_closed = true  (schedule cannot re-open)
+    // OPEN  (true)  → force_closed = false (schedule handles timing)
+    const forceClosedVal = data.is_open === false ? true
+                         : data.is_open === true  ? false
+                         : null  // not changed — keep existing
+
     const [settings] = await sql`
       UPDATE kitchen_settings SET
         is_open                 = COALESCE(${data.is_open        ?? null}, is_open),
+        force_closed            = COALESCE(${forceClosedVal},    force_closed),
         kitchen_name            = COALESCE(${data.kitchen_name   ?? null}, kitchen_name),
         address                 = COALESCE(${data.address        ?? null}, address),
         phone                   = COALESCE(${data.phone          ?? null}, phone),

@@ -43,17 +43,33 @@ export async function GET(request) {
   // CSV Export (admin only)
   const format = searchParams.get('format')
   if (format === 'csv' && user.role === 'admin') {
-    const allOrders = await sql`
-      SELECT o.order_number, o.status, o.total, o.subtotal, o.discount_amount,
-        o.delivery_charge, o.delivery_address, o.distance_km, o.notes,
-        o.created_at, o.delivered_at,
-        u.name as customer_name, u.phone as customer_phone,
-        d.name as delivery_boy_name
-      FROM orders o
-      LEFT JOIN users u ON o.user_id = u.id
-      LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
-      ORDER BY o.created_at DESC LIMIT 1000
-    `
+    const csvDateFrom = searchParams.get('date_from')
+    const csvDateTo   = searchParams.get('date_to')
+    const allOrders = csvDateFrom && csvDateTo
+      ? await sql`
+          SELECT o.order_number, o.status, o.total, o.subtotal, o.discount_amount,
+            o.delivery_charge, o.delivery_address, o.distance_km, o.notes,
+            o.created_at, o.delivered_at,
+            u.name as customer_name, u.phone as customer_phone,
+            d.name as delivery_boy_name
+          FROM orders o
+          LEFT JOIN users u ON o.user_id = u.id
+          LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+          WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                BETWEEN ${csvDateFrom}::date AND ${csvDateTo}::date
+          ORDER BY o.created_at DESC
+        `
+      : await sql`
+          SELECT o.order_number, o.status, o.total, o.subtotal, o.discount_amount,
+            o.delivery_charge, o.delivery_address, o.distance_km, o.notes,
+            o.created_at, o.delivered_at,
+            u.name as customer_name, u.phone as customer_phone,
+            d.name as delivery_boy_name
+          FROM orders o
+          LEFT JOIN users u ON o.user_id = u.id
+          LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+          ORDER BY o.created_at DESC LIMIT 1000
+        `
     const header = ['Order#','Status','Customer','Phone','Delivery Boy','Subtotal','Discount','Delivery','Total','Address','Distance(km)','Notes','Placed At','Delivered At']
     const rows = allOrders.map(o => [
       o.order_number, o.status,
@@ -79,6 +95,10 @@ export async function GET(request) {
 
   let orders = []
 
+  // IST date range (admin history filter)
+  const dateFrom = searchParams.get('date_from') // YYYY-MM-DD
+  const dateTo   = searchParams.get('date_to')   // YYYY-MM-DD
+
   if (user.role === 'customer') {
     orders = await sql`
       SELECT o.*, d.name as delivery_boy_name, d.phone as delivery_boy_phone
@@ -89,7 +109,21 @@ export async function GET(request) {
       LIMIT 20
     `
   } else if (user.role === 'admin') {
-    if (status && status !== 'all') {
+    // Date range filter — convert IST date to UTC range
+    if (dateFrom && dateTo) {
+      orders = await sql`
+        SELECT o.*,
+          u.name as customer_name, u.phone as customer_phone,
+          d.name as delivery_boy_name
+        FROM orders o
+        LEFT JOIN users u ON o.user_id = u.id
+        LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+        WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
+              BETWEEN ${dateFrom}::date AND ${dateTo}::date
+        ORDER BY o.created_at DESC
+        LIMIT 500
+      `
+    } else if (status && status !== 'all') {
       orders = await sql`
         SELECT o.*,
           u.name as customer_name, u.phone as customer_phone,
@@ -352,6 +386,7 @@ export async function PATCH(request) {
     // Fetch current status BEFORE update — to prevent double earnings
     const [before] = await sql`SELECT status, delivery_boy_id FROM orders WHERE id = ${orderId}`
     const wasAlreadyDelivered = before?.status === 'delivered'
+    const wasAlreadyCancelled = before?.status === 'cancelled'
 
     const [order] = await sql`
       UPDATE orders
@@ -362,6 +397,24 @@ export async function PATCH(request) {
       WHERE id = ${orderId}
       RETURNING *
     `
+
+    // ── Stock Restore on Cancel ───────────────────────────────────────
+    // If status just became 'cancelled' (and wasn't already), restore stock
+    if (status === 'cancelled' && !wasAlreadyCancelled) {
+      try {
+        const cancelItems = await sql`SELECT menu_item_id, quantity FROM order_items WHERE order_id = ${orderId}`
+        for (const ci of cancelItems) {
+          await sql`
+            UPDATE menu_items
+            SET stock_count = stock_count + ${ci.quantity}
+            WHERE id = ${ci.menu_item_id} AND stock_count IS NOT NULL
+          `
+        }
+        console.log(`✅ Stock restored for cancelled order ${orderId}`)
+      } catch (e) {
+        console.error('Stock restore error on admin cancel:', e.message)
+      }
+    }
 
     // Notify delivery boy when assigned
     if (deliveryBoyId && order.id) {
@@ -503,6 +556,20 @@ export async function PATCH(request) {
     }
 
     await sql`UPDATE orders SET status = 'cancelled' WHERE id = ${orderId} AND user_id = ${user.id}`
+
+    // ── Stock Restore on Customer Cancel ─────────────────────────────
+    try {
+      const cancelItems = await sql`SELECT menu_item_id, quantity FROM order_items WHERE order_id = ${orderId}`
+      for (const ci of cancelItems) {
+        await sql`
+          UPDATE menu_items
+          SET stock_count = stock_count + ${ci.quantity}
+          WHERE id = ${ci.menu_item_id} AND stock_count IS NOT NULL
+        `
+      }
+    } catch (e) {
+      console.error('Stock restore error on customer cancel:', e.message)
+    }
 
     // Notify admin
     sendPushToRole('admin', {

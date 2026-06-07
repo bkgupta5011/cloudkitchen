@@ -72,6 +72,15 @@ export default function AdminPage() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+
+  // Date range for order history — default: today (IST)
+  const todayIST = () => {
+    const now = new Date()
+    const ist = new Date(now.getTime() + 5.5 * 60 * 60 * 1000)
+    return ist.toISOString().slice(0, 10)
+  }
+  const [dateFrom, setDateFrom] = useState(todayIST())
+  const [dateTo,   setDateTo]   = useState(todayIST())
   const [notifCount, setNotifCount] = useState(0)
   const [toast, setToast] = useState('')
   const [darkMode, setDarkMode] = useState(false)
@@ -275,9 +284,10 @@ export default function AdminPage() {
 
   const loadAll = async () => {
     setLoading(true)
+    const t = todayIST()
     const [settingsRes, ordersRes, menuRes, offersRes, boysRes, pendingRes, pricingRes, analyticsRes, customersRes, noticesRes] = await Promise.all([
       fetch('/api/admin').then(r => r.json()),
-      fetch('/api/orders').then(r => r.json()),
+      fetch(`/api/orders?date_from=${t}&date_to=${t}`).then(r => r.json()),
       fetch('/api/menu?admin=true').then(r => r.json()),
       fetch('/api/admin?type=offers').then(r => r.json()),
       fetch('/api/admin?type=delivery_boys').then(r => r.json()),
@@ -339,6 +349,13 @@ export default function AdminPage() {
       showToast('❌ Network error: ' + e.message)
       console.error('Kitchen save exception:', e)
     }
+  }
+
+  const fetchOrdersByDate = async (from, to) => {
+    try {
+      const res = await fetch(`/api/orders?date_from=${from}&date_to=${to}`).then(r => r.json())
+      setOrders(res.orders || [])
+    } catch {}
   }
 
   const updateOrderStatus = async (orderId, status) => {
@@ -585,6 +602,8 @@ export default function AdminPage() {
   }
 
   const filteredOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
+  // Also add cancelled row styling
+
   const pendingCount = orders.filter(o => !['delivered','cancelled'].includes(o.status)).length
   const unreadSupport = supportThreads.reduce((a, t) => a + parseInt(t.unread_count || 0), 0)
 
@@ -634,20 +653,101 @@ export default function AdminPage() {
         </div>
 
         {/* ── ORDERS ── */}
-        {section === 'orders' && (
+        {section === 'orders' && (() => {
+          const deliveredRevenue = orders.filter(o => o.status === 'delivered').reduce((s, o) => s + parseFloat(o.total || 0), 0)
+          const deliveredCount   = orders.filter(o => o.status === 'delivered').length
+          const pendingCount2    = orders.filter(o => !['delivered','cancelled'].includes(o.status)).length
+          const cancelledCount   = orders.filter(o => o.status === 'cancelled').length
+          const isToday = dateFrom === todayIST() && dateTo === todayIST()
+
+          const printOrders = () => {
+            const rows = filteredOrders.map(o =>
+              `<tr>
+                <td>#${o.order_number}</td>
+                <td>${o.customer_name || ''}<br/><small>${o.customer_phone || ''}</small></td>
+                <td>₹${Math.round(o.total)}</td>
+                <td>${new Date(o.created_at).toLocaleString('en-IN',{hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'})}</td>
+                <td><b>${o.status.replace('_',' ')}</b></td>
+                <td>${o.delivery_boy_name || '—'}</td>
+              </tr>`
+            ).join('')
+            const win = window.open('', '_blank')
+            win.document.write(`
+              <html><head><title>FoodFi Orders — ${dateFrom} to ${dateTo}</title>
+              <style>
+                body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+                h2{margin-bottom:4px}p{color:#666;margin:0 0 12px}
+                table{width:100%;border-collapse:collapse}
+                th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}
+                th{background:#f3f4f6;font-weight:700}
+                .summary{display:flex;gap:20px;margin-bottom:16px;padding:10px;background:#f9fafb;border-radius:6px}
+                .sum-item{text-align:center}.sum-label{font-size:10px;color:#666}.sum-val{font-size:16px;font-weight:700}
+              </style></head><body>
+              <h2>🍽️ FoodFi Cloud Kitchen — Order Report</h2>
+              <p>${dateFrom === dateTo ? dateFrom : dateFrom + ' to ' + dateTo}</p>
+              <div class="summary">
+                <div class="sum-item"><div class="sum-label">Total Orders</div><div class="sum-val">${orders.length}</div></div>
+                <div class="sum-item"><div class="sum-label">Delivered</div><div class="sum-val" style="color:#16a34a">${deliveredCount}</div></div>
+                <div class="sum-item"><div class="sum-label">Revenue (Delivered)</div><div class="sum-val" style="color:#e85d04">₹${Math.round(deliveredRevenue)}</div></div>
+                <div class="sum-item"><div class="sum-label">Cancelled</div><div class="sum-val" style="color:#dc2626">${cancelledCount}</div></div>
+              </div>
+              <table><thead><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Time</th><th>Status</th><th>Delivery Boy</th></tr></thead>
+              <tbody>${rows}</tbody></table>
+              <p style="margin-top:12px;color:#aaa;font-size:10px">Printed on ${new Date().toLocaleString('en-IN')} · FoodFi Cloud Kitchen</p>
+              </body></html>
+            `)
+            win.document.close()
+            win.print()
+          }
+
+          return (
           <>
+            {/* Stats */}
             <div className={styles.statsRow}>
-              {[['Today Orders', analytics?.todayStats?.today_orders ?? '-',''],['Revenue',`₹${Math.round(analytics?.todayStats?.today_revenue??0)}`,''],['Pending',analytics?.todayStats?.pending_orders??'-','var(--am)'],['Delivered',(analytics?.todayStats?.today_orders-analytics?.todayStats?.pending_orders)||0,'var(--gr-d)']].map(([label,val,col])=>(
+              {[
+                ['Orders', orders.length, ''],
+                ['Revenue (Delivered)', `₹${Math.round(deliveredRevenue)}`, 'var(--or)'],
+                ['Pending', pendingCount2, 'var(--am)'],
+                ['Delivered', deliveredCount, 'var(--gr-d)'],
+              ].map(([label,val,col])=>(
                 <div key={label} className={styles.statCard}><div className={styles.statLabel}>{label}</div><div className={styles.statVal} style={{color:col||'var(--t1)'}}>{val}</div></div>
               ))}
             </div>
-            <div className={styles.sectionHead}>
-              <h2>Live Orders</h2>
+
+            {/* Date range + action bar */}
+            <div className={styles.sectionHead} style={{ flexWrap:'wrap', gap:10 }}>
+              <h2>{isToday ? 'Live Orders' : `Orders: ${dateFrom === dateTo ? dateFrom : dateFrom + ' → ' + dateTo}`}</h2>
               <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+                {/* Date range */}
+                <input type="date" value={dateFrom} max={todayIST()}
+                  onChange={e => setDateFrom(e.target.value)}
+                  style={{ border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 8px', fontSize:12, color:'var(--t1)', background:'var(--card)' }} />
+                <span style={{ fontSize:12, color:'var(--t2)' }}>to</span>
+                <input type="date" value={dateTo} max={todayIST()}
+                  onChange={e => setDateTo(e.target.value)}
+                  style={{ border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 8px', fontSize:12, color:'var(--t1)', background:'var(--card)' }} />
+                <button className="btn btn-primary" style={{ fontSize:12 }}
+                  onClick={() => fetchOrdersByDate(dateFrom, dateTo)}>🔍 Apply</button>
+                <button className="btn btn-secondary" style={{ fontSize:12 }}
+                  onClick={() => { const t = todayIST(); setDateFrom(t); setDateTo(t); fetchOrdersByDate(t, t) }}>📅 Today</button>
+                <button className="btn btn-secondary" style={{ fontSize:12 }}
+                  onClick={() => {
+                    const now = new Date(); const ist = new Date(now.getTime() + 5.5*60*60*1000)
+                    const y = ist.getDay()
+                    const monday = new Date(ist); monday.setDate(ist.getDate() - (y===0?6:y-1))
+                    const from = monday.toISOString().slice(0,10); const to = todayIST()
+                    setDateFrom(from); setDateTo(to); fetchOrdersByDate(from, to)
+                  }}>📆 This Week</button>
+
+                {/* Action buttons */}
                 <button className="btn btn-primary" style={{ fontSize:12 }} onClick={() => setShowManualOrder(true)}>📞 Phone Order</button>
-                <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={() => window.open('/api/orders?format=csv')}>⬇️ CSV</button>
+                <button className="btn btn-secondary" style={{ fontSize:12 }}
+                  onClick={() => window.open(`/api/orders?format=csv&date_from=${dateFrom}&date_to=${dateTo}`)}>⬇️ Excel/CSV</button>
+                <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={printOrders}>🖨️ Print</button>
+
+                {/* Status filter */}
                 <div className={styles.filters}>
-                  {['all','pending','preparing','out_for_delivery','delivered'].map(f => (
+                  {['all','pending','preparing','out_for_delivery','delivered','cancelled'].map(f => (
                     <button key={f} className={`${styles.fChip} ${statusFilter===f?styles.active:''}`} onClick={() => setStatusFilter(f)}>
                       {f==='all'?'All':f==='out_for_delivery'?'Out':f.charAt(0).toUpperCase()+f.slice(1)}
                     </button>
@@ -664,6 +764,7 @@ export default function AdminPage() {
                   confirmed:        '#eff6ff',
                   preparing:        '#f5f3ff',
                   out_for_delivery: '#fff7ed',
+                  cancelled:        '#fef2f2',
                 }[o.status] || 'transparent'
                 return (
                 <div key={o.id} className={`${styles.tRow} ${styles.ordCols}`} style={{ background: rowBg }}>
@@ -674,7 +775,12 @@ export default function AdminPage() {
                     <div style={{ fontSize:10, color:'var(--t3)' }}>📍 {o.delivery_address?.slice(0,30)}...</div>
                   </div>
                   <span style={{ fontWeight:500 }}>₹{Math.round(o.total)}</span>
-                  <span style={{ fontSize:11, color:'var(--t2)' }}>{new Date(o.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</span>
+                  <span style={{ fontSize:11, color:'var(--t2)' }}>
+                    {isToday
+                      ? new Date(o.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})
+                      : new Date(o.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}) + ' ' + new Date(o.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})
+                    }
+                  </span>
                   <select className={styles.statSel} value={o.status} onChange={e => updateOrderStatus(o.id, e.target.value)}>
                     {['pending','confirmed','preparing','out_for_delivery','delivered','cancelled'].map(s => (
                       <option key={s} value={s}>{s.replace('_',' ')}</option>
@@ -697,7 +803,8 @@ export default function AdminPage() {
             </div>
             </div>
           </>
-        )}
+          )
+        })()}
 
         {/* ── MENU ── */}
         {section === 'menu' && (

@@ -25,8 +25,10 @@
 .error { background: var(--rd-l); border: 0.5px solid var(--rd); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #991b1b; }
 .empty { text-align: center; padding: 60px 20px; color: var(--t2); }
 .successWrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
-.successCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 16px; padding: 28px 24px; max-width: 380px; width: 100%; text-align: center; }
-.checkCircle { width: 60px; height: 60px; background: var(--gr-l); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 24px; color: var(--gr-d); border: 0.5px solid var(--gr); }
+.successCard { background: var(--card); border: 0.5px solid var(--bd); border-radius: 20px; padding: 32px 24px; max-width: 400px; width: 100%; text-align: center; animation: popIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both; }
+@keyframes popIn { from { opacity:0; transform: scale(0.7) translateY(30px); } to { opacity:1; transform: scale(1) translateY(0); } }
+.checkCircle { width: 72px; height: 72px; background: var(--gr-l); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; font-size: 32px; color: var(--gr-d); border: 2px solid var(--gr); animation: checkPop 0.5s 0.3s cubic-bezier(0.34,1.8,0.64,1) both; }
+@keyframes checkPop { from { transform: scale(0); } to { transform: scale(1); } }
 .successCard h2 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
 .successCard p { font-size: 13px; color: var(--t2); }
 .eta { margin-top: 4px; }

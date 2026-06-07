@@ -27,7 +27,16 @@
 .offerStrip::-webkit-scrollbar { display: none; }
 .offerPill { display: flex; align-items: center; gap: 6px; background: var(--am-l); border: 0.5px solid var(--am); border-radius: 20px; padding: 6px 14px; white-space: nowrap; font-size: 12px; color: #92400e; flex-shrink: 0; }
 
-.catBar { display: flex; gap: 8px; padding: 12px 20px; overflow-x: auto; scrollbar-width: none; }
+/* ── Search bar ─────────────────────────────────────────── */
+.searchBar { display: flex; align-items: center; gap: 8px; margin: 12px 20px 4px; padding: 8px 14px; background: var(--card); border: 1.5px solid var(--bd2); border-radius: 14px; transition: border-color 0.2s; }
+.searchBar:focus-within { border-color: var(--or); }
+.searchIcon { font-size: 16px; flex-shrink: 0; }
+.searchInput { flex: 1; border: none; outline: none; background: transparent; font-size: 14px; color: var(--t1); font-family: inherit; }
+.searchInput::placeholder { color: var(--t3); }
+.searchClear { background: none; border: none; color: var(--t3); font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0; }
+.searchClear:hover { color: var(--t1); }
+
+.catBar { display: flex; gap: 8px; padding: 8px 20px 12px; overflow-x: auto; scrollbar-width: none; }
 .catBar::-webkit-scrollbar { display: none; }
 .catChip { padding: 6px 16px; border: 0.5px solid var(--bd2); border-radius: 20px; cursor: pointer; font-size: 12px; color: var(--t2); white-space: nowrap; background: transparent; transition: all 0.2s; flex-shrink: 0; font-family: inherit; }
 .catChip.active { background: var(--or); border-color: var(--or); color: #fff; }

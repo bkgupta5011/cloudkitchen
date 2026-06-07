@@ -121,6 +121,7 @@ export default function MenuPage() {
   const [kitchenOpen, setKitchenOpen] = useState(true)
   const [cart, setCart] = useState({})
   const [activeCategory, setActiveCategory] = useState('All')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [showInstallBanner, setShowInstallBanner] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
@@ -201,7 +202,10 @@ export default function MenuPage() {
 
   const cartCount = Object.values(cart).reduce((a, b) => a + b, 0)
   const categories = ['All', ...new Set(menuItems.map(m => m.category))]
-  const filtered = activeCategory === 'All' ? menuItems : menuItems.filter(m => m.category === activeCategory)
+  const searchQ = search.trim().toLowerCase()
+  const filtered = menuItems
+    .filter(m => activeCategory === 'All' || m.category === activeCategory)
+    .filter(m => !searchQ || m.name.toLowerCase().includes(searchQ) || m.description?.toLowerCase().includes(searchQ) || m.category?.toLowerCase().includes(searchQ))
 
   const discPrice = (item) => item.discount_percent > 0
     ? Math.round(item.price * (1 - item.discount_percent / 100))
@@ -395,6 +399,21 @@ export default function MenuPage() {
         </div>
       )}
 
+      {/* Search bar */}
+      <div className={styles.searchBar}>
+        <span className={styles.searchIcon}>🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search dishes, categories..."
+          className={styles.searchInput}
+        />
+        {search && (
+          <button className={styles.searchClear} onClick={() => setSearch('')}>✕</button>
+        )}
+      </div>
+
       {/* Category tabs */}
       <div className={styles.catBar}>
         {categories.map(cat => (
@@ -408,6 +427,17 @@ export default function MenuPage() {
 
       {/* Menu grid */}
       <div className={styles.menuGrid}>
+        {filtered.length === 0 && (
+          <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'48px 20px', color:'var(--t2)' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>🍽️</div>
+            <div style={{ fontSize:16, fontWeight:600, marginBottom:6 }}>No dishes found</div>
+            <div style={{ fontSize:13 }}>Try a different search or category</div>
+            <button onClick={() => { setSearch(''); setActiveCategory('All') }}
+              style={{ marginTop:16, background:'var(--or)', color:'#fff', border:'none', borderRadius:8, padding:'8px 20px', cursor:'pointer', fontWeight:600, fontSize:13 }}>
+              Show All
+            </button>
+          </div>
+        )}
         {filtered.map(item => {
           const qty = cart[item.id] || 0
           const dp = discPrice(item)

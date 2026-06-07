@@ -257,6 +257,52 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
   )
 }
 
+// ── Confetti burst ────────────────────────────────────────────────
+function launchConfetti() {
+  const canvas = document.createElement('canvas')
+  canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:99999'
+  document.body.appendChild(canvas)
+  const ctx = canvas.getContext('2d')
+  canvas.width  = window.innerWidth
+  canvas.height = window.innerHeight
+
+  const colors = ['#e85d04','#f59e0b','#16a34a','#3b82f6','#ec4899','#8b5cf6','#facc15','#fff']
+  const pieces = Array.from({ length: 140 }, () => ({
+    x:   Math.random() * canvas.width,
+    y:   -20 - Math.random() * 80,
+    w:   Math.random() * 10 + 5,
+    h:   Math.random() * 6  + 3,
+    color: colors[Math.floor(Math.random() * colors.length)],
+    rot: Math.random() * 360,
+    vx:  (Math.random() - 0.5) * 5,
+    vy:  Math.random() * 3.5 + 1.5,
+    vrot:(Math.random() - 0.5) * 9,
+    opacity: 1,
+  }))
+
+  let frame = 0
+  const animate = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    pieces.forEach(p => {
+      p.x  += p.vx
+      p.y  += p.vy
+      p.rot += p.vrot
+      if (frame > 110) p.opacity = Math.max(0, p.opacity - 0.018)
+      ctx.save()
+      ctx.globalAlpha = p.opacity
+      ctx.translate(p.x, p.y)
+      ctx.rotate(p.rot * Math.PI / 180)
+      ctx.fillStyle = p.color
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h)
+      ctx.restore()
+    })
+    frame++
+    if (frame < 190) requestAnimationFrame(animate)
+    else canvas.remove()
+  }
+  requestAnimationFrame(animate)
+}
+
 // ── Main Cart Page ────────────────────────────────────────────────
 export default function CartPage() {
   const router = useRouter()
@@ -286,6 +332,16 @@ export default function CartPage() {
   const [showMapPicker, setShowMapPicker] = useState(false)
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
   const pricingRef = useRef([])
+
+  // 🎉 Confetti when order is placed
+  useEffect(() => {
+    if (placed) {
+      launchConfetti()
+      // Second burst after 800ms for extra celebration
+      const t = setTimeout(launchConfetti, 800)
+      return () => clearTimeout(t)
+    }
+  }, [placed])
 
   useEffect(() => {
     const saved = localStorage.getItem('ck_cart')

@@ -54,6 +54,45 @@
 .addBtn:hover { background: var(--or); color: #fff; }
 .addBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ── Sold Out / Unavailable card state ─────────────────────────── */
+.menuCardSoldOut { opacity: 0.72; }
+.menuCardSoldOut .cardTitle h4 { color: var(--t3); }
+.menuCardSoldOut .priceNew { color: var(--t3); }
+
+/* Image wrapper — needed for the overlay badge */
+.imgWrap { position: relative; display: inline-block; }
+
+/* Grayscale tint on the image when sold out */
+.imgSoldOut { filter: grayscale(60%); }
+
+/* "SOLD OUT" badge over the image */
+.soldOutBadge {
+  position: absolute; inset: 0; border-radius: 10px;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.soldOutBadge span {
+  background: #dc2626; color: #fff;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.5px;
+  padding: 3px 8px; border-radius: 5px; text-transform: uppercase;
+}
+
+/* "Sold Out" bottom button */
+.soldOutBtn {
+  padding: 6px 10px; background: #f3f4f6; color: #9ca3af;
+  border: 0.5px solid #d1d5db; border-radius: 6px;
+  font-size: 11px; font-weight: 600; cursor: not-allowed;
+  font-family: inherit; white-space: nowrap;
+}
+
+/* Kitchen Closed button */
+.closedBtn {
+  padding: 6px 10px; background: #fef3c7; color: #92400e;
+  border: 0.5px solid #fcd34d; border-radius: 6px;
+  font-size: 11px; font-weight: 600; cursor: not-allowed;
+  font-family: inherit; white-space: nowrap;
+}
+
 .qtyCtl { display: flex; align-items: center; gap: 6px; }
 .qtyCtl button { width: 26px; height: 26px; border: 0.5px solid var(--bd2); background: var(--bg); border-radius: 6px; cursor: pointer; font-size: 16px; color: var(--t1); display: flex; align-items: center; justify-content: center; font-family: inherit; }
 .qtyCtl span { font-size: 14px; font-weight: 500; min-width: 16px; text-align: center; }

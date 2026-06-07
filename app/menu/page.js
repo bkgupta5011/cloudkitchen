@@ -411,13 +411,22 @@ export default function MenuPage() {
         {filtered.map(item => {
           const qty = cart[item.id] || 0
           const dp = discPrice(item)
+          const isSoldOut = item.stock_count !== null && item.stock_count !== undefined && item.stock_count === 0
+          const cardClass = `${styles.menuCard} ${isSoldOut ? styles.menuCardSoldOut : ''}`
+
           return (
-            <div key={item.id} className={styles.menuCard}>
+            <div key={item.id} className={cardClass}>
               <div className={styles.cardLeft}>
                 <div className={styles.cardTitle}>
                   <span className={`veg-dot ${item.is_veg ? 'veg' : 'nonveg'}`} />
                   <h4>{item.name}</h4>
-                  {itemRatings[item.id]?.avg >= 4.5 && itemRatings[item.id]?.count >= 3 && (
+                  {isSoldOut && (
+                    <span style={{ fontSize:10, background:'#fee2e2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>● Sold Out</span>
+                  )}
+                  {!isSoldOut && !kitchenOpen && (
+                    <span style={{ fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>🔒 Closed</span>
+                  )}
+                  {!isSoldOut && kitchenOpen && itemRatings[item.id]?.avg >= 4.5 && itemRatings[item.id]?.count >= 3 && (
                     <span style={{ fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>🏆 Most Loved</span>
                   )}
                 </div>
@@ -436,16 +445,24 @@ export default function MenuPage() {
                 )}
               </div>
               <div className={styles.cardRight}>
-                {item.image_url
-                  ? <img src={item.image_url} alt={item.name} className={styles.foodImg} />
-                  : <div className={styles.foodEmoji}>🍛</div>
-                }
-                {qty === 0 ? (
-                  <button
-                    className={styles.addBtn}
-                    onClick={() => addItem(item.id)}
-                    disabled={!kitchenOpen}
-                  >+ Add</button>
+                {/* Image with sold-out overlay */}
+                <div className={styles.imgWrap}>
+                  {item.image_url
+                    ? <img src={item.image_url} alt={item.name} className={`${styles.foodImg} ${isSoldOut ? styles.imgSoldOut : ''}`} />
+                    : <div className={`${styles.foodEmoji} ${isSoldOut ? styles.imgSoldOut : ''}`}>🍛</div>
+                  }
+                  {isSoldOut && (
+                    <div className={styles.soldOutBadge}><span>Sold Out</span></div>
+                  )}
+                </div>
+
+                {/* Action button area */}
+                {isSoldOut ? (
+                  <button className={styles.soldOutBtn} disabled>❌ Sold Out</button>
+                ) : !kitchenOpen ? (
+                  <button className={styles.closedBtn} disabled>🔒 Closed</button>
+                ) : qty === 0 ? (
+                  <button className={styles.addBtn} onClick={() => addItem(item.id)}>+ Add</button>
                 ) : (
                   <div className={styles.qtyCtl}>
                     <button onClick={() => removeItem(item.id)}>−</button>

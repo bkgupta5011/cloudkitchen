@@ -89,6 +89,49 @@ function InstallBanner({ onInstall, isIOS, onDismiss }) {
   )
 }
 
+// ── Android Notification Guide Modal ─────────────────────────────────
+function NotifGuideModal({ onClose }) {
+  return (
+    <div style={{ position:'fixed', inset:0, background:'#00000088', zIndex:9998, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+      onClick={onClose}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background:'#fff', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:480, padding:'24px 20px 40px', maxHeight:'85vh', overflowY:'auto' }}>
+        <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
+        <div style={{ textAlign:'center', marginBottom:18 }}>
+          <div style={{ fontSize:36 }}>📳</div>
+          <h3 style={{ fontSize:17, fontWeight:800, color:'#1a1a1a', margin:'8px 0 4px' }}>Phone pe Popup + Ring Enable Karo</h3>
+          <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>Sirf ek baar ye settings karo — hamesha ke liye popup aayega</p>
+        </div>
+
+        {[
+          { num:'1', icon:'⚙️', title:'Android Settings kholo', desc:'Phone ke Settings app mein jao' },
+          { num:'2', icon:'📱', title:'Apps → Chrome', desc:'"Apps" ya "Application Manager" mein Chrome dhundho → tap karo' },
+          { num:'3', icon:'🔔', title:'Notifications tap karo', desc:'Chrome ke andar "Notifications" option tap karo' },
+          { num:'4', icon:'🌐', title:'FoodFi site dhundho', desc:`"${typeof window !== 'undefined' ? window.location.hostname : 'aapki site'}" wali entry dhundho` },
+          { num:'5', icon:'🔊', title:'Importance → Urgent set karo', desc:'"Importance" ya "Priority" ko "Urgent" ya "High" pe set karo' },
+        ].map(s => (
+          <div key={s.num} style={{ display:'flex', gap:14, marginBottom:14, alignItems:'flex-start' }}>
+            <div style={{ width:34, height:34, borderRadius:'50%', background:'#1d4ed8', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:13, flexShrink:0 }}>{s.num}</div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:'#1a1a1a' }}>{s.icon} {s.title}</div>
+              <div style={{ fontSize:12, color:'#6b7280', marginTop:2, lineHeight:1.5 }}>{s.desc}</div>
+            </div>
+          </div>
+        ))}
+
+        <div style={{ background:'#fef3c7', border:'1px solid #fbbf24', borderRadius:12, padding:'10px 14px', marginBottom:16, fontSize:12, color:'#92400e', lineHeight:1.6 }}>
+          💡 <strong>Shortcut:</strong> Kisi bhi notification ko <strong>thoda der dabao (long-press)</strong> → "More settings" tap karo → Importance change karo
+        </div>
+
+        <button onClick={onClose}
+          style={{ width:'100%', background:'#1d4ed8', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+          Samajh Gaya ✓
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Order Alarm Modal (new order broadcast) ───────────────────────────
 function OrderAlarmModal({ order, onAccept, onReject, responding }) {
   const totalItems = order.items?.reduce((s, i) => s + i.quantity, 0) || 0
@@ -342,6 +385,8 @@ export default function DeliveryPage() {
   const [toast, setToast]             = useState('')
   const [showInstall, setShowInstall] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
+  const [showNotifGuide, setShowNotifGuide] = useState(false)
+  const [showNotifModal, setShowNotifModal] = useState(false)
   const [deliveryNotifs, setDeliveryNotifs] = useState([])
   const [notifUnread, setNotifUnread] = useState(0)
   const [pendingOrders, setPendingOrders]   = useState([])  // unassigned orders awaiting accept/reject
@@ -603,6 +648,15 @@ export default function DeliveryPage() {
     }
   }, [installPrompt, isIOS, isInstalled])
 
+  // Show Android notification guide (once — until dismissed)
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('notif_guide_dismissed')) {
+        setTimeout(() => setShowNotifGuide(true), 5000)
+      }
+    } catch {}
+  }, [])
+
   // ── Live Location Sender ──────────────────────────────────────────
   // Jab koi order out_for_delivery ho — GPS start, har 15s mein location bhejo
   useEffect(() => {
@@ -834,6 +888,26 @@ export default function DeliveryPage() {
           onAccept={(id) => respondOrder(id, 'accept')}
           onReject={(id) => respondOrder(id, 'reject')}
         />
+      )}
+
+      {/* Android notification settings guide */}
+      {showNotifModal && <NotifGuideModal onClose={() => setShowNotifModal(false)} />}
+      {showNotifGuide && !showNotifModal && (
+        <div style={{ background:'#1e40af', color:'#fff', padding:'9px 14px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+          <div style={{ fontSize:12, lineHeight:1.4 }}>
+            <span style={{ fontWeight:700 }}>📳 Popup + Ring band hai?</span>
+            <span style={{ color:'#93c5fd' }}> Settings guide dekho</span>
+          </div>
+          <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+            <button onClick={() => setShowNotifModal(true)}
+              style={{ background:'#3b82f6', border:'none', color:'#fff', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+              Guide ▶
+            </button>
+            <button
+              onClick={() => { setShowNotifGuide(false); try { localStorage.setItem('notif_guide_dismissed','1') } catch {} }}
+              style={{ background:'none', border:'none', color:'#93c5fd', fontSize:20, cursor:'pointer', lineHeight:1 }}>✕</button>
+          </div>
+        </div>
       )}
 
       {/* Install banner */}

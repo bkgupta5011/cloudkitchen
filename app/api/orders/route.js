@@ -342,6 +342,10 @@ export async function POST(request) {
     console.error('Broadcast error:', e)
   }
 
+  // Mark initial broadcast time so repeat-push cron knows we just sent
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS last_broadcast_at TIMESTAMPTZ`.catch(() => {})
+  await sql`UPDATE orders SET last_broadcast_at = NOW() WHERE id = ${order.id}`.catch(() => {})
+
   // Notify all admins — new order arrived
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,

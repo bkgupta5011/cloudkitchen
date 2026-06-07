@@ -51,10 +51,10 @@ export async function POST(request) {
   const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
 
   // Atomic claim: only succeeds if nobody else has taken it yet
+  // Status stays 'pending' — admin will manually confirm the order
   const updated = await sql`
     UPDATE orders
     SET delivery_boy_id = ${user.id},
-        status          = 'confirmed',
         boy_payout      = COALESCE(boy_payout, ${boyPayout})
     WHERE id                = ${orderId}
       AND delivery_boy_id IS NULL
@@ -69,12 +69,13 @@ export async function POST(request) {
 
   const order = updated[0]
 
-  // Notify admins
+  // Notify admins — boy has accepted, waiting for kitchen to confirm
   sendPushToRole('admin', {
-    title: `✅ Order #${order.order_number} Accept Hua!`,
-    body:  `${boyRate?.name || 'Delivery boy'} ne accept kar liya — ab kitchen prepare karega`,
+    title: `🛵 Order #${order.order_number} — Delivery Boy Ready!`,
+    body:  `${boyRate?.name || 'Delivery boy'} ne accept kar liya — ab aap order confirm karo`,
     url:   '/admin',
     tag:   `order-accepted-${orderId}`,
+    requireInteraction: true,
   }).catch(() => {})
 
   return NextResponse.json({

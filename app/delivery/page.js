@@ -8,9 +8,10 @@ import { usePWAInstall } from '@/lib/usePWAInstall'
 const pf = (v, fb = 0) => { const n = parseFloat(v); return isNaN(n) ? fb : n }
 
 const STATUS_CONFIG = {
-  confirmed:        { label: '🍳 Kitchen me hai', color: '#3b82f6', bg: '#eff6ff', next: 'pickup' },
-  preparing:        { label: '👨‍🍳 Ban raha hai', color: '#8b5cf6', bg: '#f5f3ff', next: 'pickup' },
-  out_for_delivery: { label: '🛵 Raste me hai', color: '#e85d04', bg: '#fff7ed', next: 'deliver' },
+  pending:          { label: '⏳ Kitchen confirmation ka wait kar raho...', color: '#d97706', bg: '#fffbeb', next: null },
+  confirmed:        { label: '🍳 Kitchen me hai — pickup karo', color: '#3b82f6', bg: '#eff6ff', next: 'pickup' },
+  preparing:        { label: '👨‍🍳 Ban raha hai — thoda wait karo', color: '#8b5cf6', bg: '#f5f3ff', next: 'pickup' },
+  out_for_delivery: { label: '🛵 Raste me hai — deliver karo', color: '#e85d04', bg: '#fff7ed', next: 'deliver' },
 }
 
 // ── iOS Install Guide Modal ───────────────────────────────────────────
@@ -284,6 +285,14 @@ function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
         </div>
 
         {/* Action Buttons */}
+        {order.status === 'pending' && (
+          <div style={{ background:'#fffbeb', border:'2px dashed #f59e0b', borderRadius:14, padding:'14px 16px', textAlign:'center' }}>
+            <div style={{ fontSize:20, marginBottom:4 }}>⏳</div>
+            <div style={{ fontSize:14, fontWeight:800, color:'#92400e' }}>Kitchen Confirmation Ka Wait Kar Raho</div>
+            <div style={{ fontSize:12, color:'#b45309', marginTop:4 }}>Admin approve karega tab pickup kar paoge</div>
+          </div>
+        )}
+
         {needsPickup && (
           <button
             onClick={() => onPickup(order.id)}
@@ -346,6 +355,8 @@ export default function DeliveryPage() {
   const alertCtxRef    = useRef(null)
   const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
+  // Orders currently being accepted/rejected — prevent poll from re-adding them
+  const respondingOrderIdsRef = useRef(new Set())
   // Live location tracking refs
   const locationWatchRef    = useRef(null)
   const locationIntervalRef = useRef(null)
@@ -405,7 +416,9 @@ export default function DeliveryPage() {
     const fetchPending = async () => {
       try {
         const d = await fetch('/api/delivery/pending').then(r => r.json())
-        setPendingOrders(d.orders || [])
+        // Filter out orders currently being accepted/rejected — prevents re-trigger during API call
+        const filtered = (d.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
+        setPendingOrders(filtered)
       } catch {}
     }
     fetchPending()
@@ -624,7 +637,12 @@ export default function DeliveryPage() {
   }
 
   const respondOrder = async (orderId, action) => {
+    // ── Immediately remove from UI + stop alarm ──────────────────────
+    // This runs BEFORE the API call so alarm stops instantly on tap
+    respondingOrderIdsRef.current.add(orderId)
+    setPendingOrders(p => p.filter(o => o.id !== orderId))
     setRespondingOrder(orderId + action)
+
     try {
       const res = await fetch('/api/delivery/respond', {
         method: 'POST',
@@ -634,29 +652,33 @@ export default function DeliveryPage() {
       const data = await res.json()
 
       if (action === 'reject') {
-        setPendingOrders(p => p.filter(o => o.id !== orderId))
+        // DB has stored rejection — poll won't return this order again for this boy
         showToast('❌ Order reject kar diya — next order ka wait karo')
       } else {
         // Accept
         if (data.success) {
-          setPendingOrders(p => p.filter(o => o.id !== orderId))
-          showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen se pickup karo 🛵`)
-          // Refresh assigned orders list
+          showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
+          // Refresh assigned orders list (pending order with delivery_boy_id now shows)
           const d = await fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] }))
           const newOrders = d.orders || []
           setOrders(newOrders)
           lastOrderIds.current = new Set(newOrders.map(o => o.id))
         } else if (data.reason === 'already_taken') {
-          setPendingOrders(p => p.filter(o => o.id !== orderId))
+          // Another boy was faster — it's already gone, nothing to restore
           showToast('⚠️ Ye order kisi aur ne le liya — agli order ka intezaar karo')
         } else {
+          // Unknown error — allow retry by removing from tracking set
+          respondingOrderIdsRef.current.delete(orderId)
           showToast('❌ Accept nahi hua — dobara try karo')
         }
       }
     } catch {
+      // Network error — remove from set so poll can re-show it for retry
+      respondingOrderIdsRef.current.delete(orderId)
       showToast('❌ Network error — dobara try karo')
+    } finally {
+      setRespondingOrder(null)
     }
-    setRespondingOrder(null)
   }
 
   const markPickup = async (orderId) => {

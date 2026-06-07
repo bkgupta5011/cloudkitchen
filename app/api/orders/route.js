@@ -168,7 +168,7 @@ export async function GET(request) {
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       WHERE o.delivery_boy_id = ${user.id}
-        AND o.status IN ('out_for_delivery', 'confirmed', 'preparing')
+        AND o.status IN ('pending', 'confirmed', 'preparing', 'out_for_delivery')
       ORDER BY o.created_at DESC
     `
   }
@@ -406,13 +406,24 @@ export async function PATCH(request) {
       }
     }
 
-    // Notify delivery boy when assigned
+    // Notify delivery boy when assigned manually
     if (deliveryBoyId && order.id) {
       sendPushToUser(String(deliveryBoyId), {
         title: '📦 Naya Delivery Assignment!',
         body: `Order #${order.order_number} — ₹${Math.round(order.total)} · Address: ${(order.delivery_address||'').slice(0,50)}`,
         url: '/delivery',
         tag: `delivery-${order.id}`,
+        requireInteraction: true,
+      }, 'delivery').catch(() => {})
+    }
+
+    // Notify delivery boy when admin confirms their accepted order
+    if (status === 'confirmed' && order.delivery_boy_id && before?.status === 'pending') {
+      sendPushToUser(String(order.delivery_boy_id), {
+        title: '✅ Kitchen ne Order Confirm Kar Diya!',
+        body: `Order #${order.order_number} — Kitchen ja ke pickup karo 🛵`,
+        url: '/delivery',
+        tag: `order-confirmed-${order.id}`,
         requireInteraction: true,
       }, 'delivery').catch(() => {})
     }

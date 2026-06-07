@@ -72,6 +72,17 @@ export async function GET(request) {
     return NextResponse.json({ offers })
   }
 
+  if (type === 'stock') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_default INT DEFAULT NULL` } catch {}
+    const items = await sql`
+      SELECT id, name, category, stock_count, stock_default, is_available
+      FROM menu_items ORDER BY category, name
+    `
+    return NextResponse.json({ items })
+  }
+
   if (type === 'pricing') {
     const rows = await sql`SELECT * FROM km_pricing ORDER BY min_km`
     return NextResponse.json({ pricing: rows })
@@ -274,6 +285,40 @@ export async function PATCH(request) {
       WHERE id = 1 RETURNING *
     `
     return NextResponse.json({ settings })
+  }
+
+  if (type === 'stock') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_default INT DEFAULT NULL` } catch {}
+
+    // Reset all to defaults
+    if (data.reset_all) {
+      const { getDefaultStock } = await import('@/lib/stock')
+      const items = await sql`SELECT id, category, stock_default FROM menu_items`
+      for (const item of items) {
+        const qty = item.stock_default ?? getDefaultStock(item.category)
+        await sql`UPDATE menu_items SET stock_count = ${qty}, stock_default = COALESCE(stock_default, ${qty}) WHERE id = ${item.id}`
+      }
+      return NextResponse.json({ ok: true, message: 'All stock reset to defaults' })
+    }
+
+    // Update single item stock
+    if (data.id) {
+      const updateFields = []
+      if (data.stock_count !== undefined) {
+        const val = data.stock_count === null ? null : Math.max(0, parseInt(data.stock_count) || 0)
+        await sql`UPDATE menu_items SET stock_count = ${val} WHERE id = ${data.id}`
+      }
+      if (data.stock_default !== undefined) {
+        const val = data.stock_default === null ? null : Math.max(0, parseInt(data.stock_default) || 0)
+        await sql`UPDATE menu_items SET stock_default = ${val} WHERE id = ${data.id}`
+      }
+      const [item] = await sql`SELECT id, name, category, stock_count, stock_default FROM menu_items WHERE id = ${data.id}`
+      return NextResponse.json({ item })
+    }
+
+    return NextResponse.json({ error: 'id required' }, { status: 400 })
   }
 
   if (type === 'offer') {

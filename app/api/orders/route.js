@@ -7,6 +7,7 @@ import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail } from '@/lib/email'
 import { sendOrderConfirmedSms, sendOrderDeliveredSms } from '@/lib/sms'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
+import { checkAndResetDailyStock, notifyLowStock } from '@/lib/stock'
 
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
 export async function GET(request) {
@@ -142,6 +143,9 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Kitchen is currently closed' }, { status: 400 })
   }
 
+  // Daily stock reset check
+  await checkAndResetDailyStock()
+
   const body = await request.json()
   const { items, deliveryAddress, deliveryLat, deliveryLng, distanceKm, offerCode, notes } = body
 
@@ -160,6 +164,16 @@ export async function POST(request) {
     const menuItem = menuItems.find(m => m.id === cartItem.id)
     if (!menuItem) return NextResponse.json({ error: `Item not available: ${cartItem.name}` }, { status: 400 })
 
+    // ── Stock check ──────────────────────────────────────────────────
+    if (menuItem.stock_count !== null && menuItem.stock_count !== undefined) {
+      if (menuItem.stock_count <= 0) {
+        return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai (stock khatam)` }, { status: 400 })
+      }
+      if (menuItem.stock_count < cartItem.qty) {
+        return NextResponse.json({ error: `⚠️ ${menuItem.name} ka sirf ${menuItem.stock_count} available hai` }, { status: 400 })
+      }
+    }
+
     const discountedPrice = menuItem.discount_percent > 0
       ? menuItem.price * (1 - menuItem.discount_percent / 100)
       : parseFloat(menuItem.price)
@@ -171,7 +185,8 @@ export async function POST(request) {
       name: menuItem.name,
       price: discountedPrice,
       quantity: cartItem.qty,
-      subtotal: lineTotal
+      subtotal: lineTotal,
+      has_stock: menuItem.stock_count !== null && menuItem.stock_count !== undefined,
     })
   }
 
@@ -217,12 +232,25 @@ export async function POST(request) {
     RETURNING *
   `
 
-  // Insert order items
+  // Insert order items + deduct stock atomically
   for (const oi of orderItems) {
     await sql`
       INSERT INTO order_items (order_id, menu_item_id, name, price, quantity, subtotal)
       VALUES (${order.id}, ${oi.menu_item_id}, ${oi.name}, ${oi.price}, ${oi.quantity}, ${oi.subtotal})
     `
+    // Deduct stock if item has stock tracking
+    if (oi.has_stock) {
+      const [updated] = await sql`
+        UPDATE menu_items
+        SET stock_count = GREATEST(0, stock_count - ${oi.quantity})
+        WHERE id = ${oi.menu_item_id} AND stock_count IS NOT NULL
+        RETURNING stock_count
+      `
+      if (updated) {
+        // Fire-and-forget low stock notification
+        notifyLowStock(oi.name, updated.stock_count).catch(() => {})
+      }
+    }
   }
 
   // ── SEND CONFIRMATION EMAIL (fire-and-forget) ─────────────────────

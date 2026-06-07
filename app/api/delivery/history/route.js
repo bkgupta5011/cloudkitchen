@@ -120,21 +120,24 @@ export async function GET(request) {
     WHERE delivery_boy_id = ${user.id} AND status = 'delivered'
   `
 
-  // Auto-correct delivery_boys.total_earnings if it drifted from live orders sum
-  const liveEarned  = parseFloat(liveCalc?.live_total_earned || 0)
+  // Always keep total_earnings and payment_due in sync with live orders calculation
+  // Fixes drift from: different formulas, missed increments, overpayment, etc.
+  const liveEarned   = parseFloat(liveCalc?.live_total_earned || 0)
   const storedEarned = parseFloat(boyInfo?.total_earnings || 0)
-  if (liveEarned > 0 && Math.abs(liveEarned - storedEarned) > 0.5) {
-    const totalPaid    = parseFloat(boyInfo?.total_paid || 0)
-    const correctedDue = Math.max(0, liveEarned - totalPaid)
+  const totalPaid    = parseFloat(boyInfo?.total_paid || 0)
+  const correctDue   = Math.max(0, liveEarned - totalPaid)
+  const storedDue    = parseFloat(boyInfo?.payment_due || 0)
+
+  if (Math.abs(liveEarned - storedEarned) > 0.5 || Math.abs(correctDue - storedDue) > 0.5) {
     await sql`
       UPDATE delivery_boys
       SET total_earnings = ${liveEarned},
-          payment_due    = ${correctedDue}
+          payment_due    = ${correctDue}
       WHERE id = ${user.id}
     `.catch(() => {})
     if (boyInfo) {
       boyInfo.total_earnings = liveEarned
-      boyInfo.payment_due    = correctedDue
+      boyInfo.payment_due    = correctDue
     }
   }
 

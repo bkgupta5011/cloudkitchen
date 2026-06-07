@@ -519,14 +519,17 @@ export default function AdminPage() {
     if (data.success) {
       showToast(`✅ ₹${payAmount} payment recorded for ${payBoy.name}`)
       setShowPayModal(false)
-      // Update local state
-      setBoys(prev => prev.map(b => b.id === payBoy.id ? { ...b, payment_due: data.boy.payment_due, total_paid: data.boy.total_paid } : b))
+      // Update local state with recalculated values from API
+      const { payment_due, total_paid, total_earnings, over_paid } = data.boy
+      setBoys(prev => prev.map(b => b.id === payBoy.id
+        ? { ...b, payment_due, total_paid, total_earnings, live_earnings: total_earnings }
+        : b))
       if (showBoyDetail && boyDetail?.id === payBoy.id) {
-        setBoyDetail(prev => ({ ...prev, payment_due: data.boy.payment_due, total_paid: data.boy.total_paid }))
-        // Refresh payment history
+        setBoyDetail(prev => ({ ...prev, payment_due, total_paid, total_earnings }))
         const d = await fetch(`/api/admin?type=payment_history&boyId=${payBoy.id}`).then(r => r.json())
         setPayHistory(d.records || [])
       }
+      if (over_paid > 0) showToast(`⚠️ ${payBoy.name} ko ₹${Math.round(over_paid)} over-paid hua hai`)
     } else showToast('❌ Payment record failed')
   }
 
@@ -987,7 +990,7 @@ export default function AdminPage() {
                     </div>
                     <span style={{ fontSize:12, color:'var(--t2)' }}>{b.phone}</span>
                     <span style={{ fontSize:12 }}>{b.vehicle_number}<br/><span style={{ color:'var(--t3)', fontSize:10 }}>{b.vehicle_type}</span></span>
-                    <span style={{ fontWeight:600, color:'var(--gr-d)', fontSize:13 }}>₹{Math.round(parseFloat(b.total_earnings||0))}</span>
+                    <span style={{ fontWeight:600, color:'var(--gr-d)', fontSize:13 }}>₹{Math.round(parseFloat(b.live_earnings ?? b.total_earnings ?? 0))}</span>
                     <span style={{ fontWeight:600, color:'var(--bl)', fontSize:13 }}>₹{Math.round(parseFloat(b.total_paid||0))}</span>
                     <span style={{ fontWeight:700, color: due > 0 ? 'var(--rd)' : 'var(--t3)', fontSize:13 }}>
                       {due > 0 ? `₹${Math.round(due)}` : '—'}
@@ -2282,12 +2285,14 @@ export default function AdminPage() {
             {!payoutLoading && payoutData && (
               <>
                 {/* Summary cards */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, marginBottom:16 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:8, marginBottom:10 }}>
                   {[
                     { label:'Customer Paid', val:`₹${Math.round(parseFloat(payoutData.summary?.total_collected||0))}`, color:'#2563eb', bg:'#dbeafe' },
                     { label:'Boy Payout', val:`₹${Math.round(parseFloat(payoutData.summary?.total_to_pay||0))}`, color:'#16a34a', bg:'#dcfce7' },
                     { label:'Already Paid', val:`₹${Math.round(parseFloat(payoutData.summary?.total_paid||0))}`, color:'#7c3aed', bg:'#f5f3ff' },
-                    { label:'Balance Due', val:`₹${Math.round(parseFloat(payoutData.summary?.balance_due||0))}`, color:'#dc2626', bg:'#fef2f2' },
+                    parseFloat(payoutData.summary?.over_paid||0) > 0
+                      ? { label:'Over-Paid ⚠️', val:`₹${Math.round(parseFloat(payoutData.summary.over_paid))}`, color:'#b45309', bg:'#fef3c7' }
+                      : { label:'Balance Due', val:`₹${Math.round(parseFloat(payoutData.summary?.balance_due||0))}`, color:'#dc2626', bg:'#fef2f2' },
                   ].map(({ label, val, color, bg }) => (
                     <div key={label} style={{ background:bg, borderRadius:10, padding:'10px 8px', textAlign:'center' }}>
                       <div style={{ fontSize:10, color:'#64748b', marginBottom:3, fontWeight:600 }}>{label}</div>
@@ -2295,6 +2300,13 @@ export default function AdminPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Over-paid warning */}
+                {parseFloat(payoutData.summary?.over_paid||0) > 0 && (
+                  <div style={{ background:'#fef3c7', border:'1.5px solid #fbbf24', borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:13, color:'#92400e', fontWeight:600 }}>
+                    ⚠️ Over-paid: ₹{Math.round(parseFloat(payoutData.summary.over_paid))} zyada de diya — agle payment se adjust karo
+                  </div>
+                )}
 
                 {/* Record payment button */}
                 {parseFloat(payoutData.summary?.balance_due||0) > 0 && (

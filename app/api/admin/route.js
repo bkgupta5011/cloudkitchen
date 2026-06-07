@@ -94,15 +94,21 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     await ensureDeliveryColumns(sql)
     await ensurePaymentTable(sql)
+    // live_earnings: calculated fresh from orders using consistent formula
     const boys = await sql`
-      SELECT id, name, email, phone, vehicle_number, vehicle_type, is_online,
-             per_km_earning, total_earnings, rating, status, created_at,
-             license_number, aadhar_number, date_of_birth, emergency_contact, home_address,
-             COALESCE(payment_due, 0) as payment_due,
-             COALESCE(total_paid, 0) as total_paid
-      FROM delivery_boys
-      WHERE status = 'approved' OR status IS NULL
-      ORDER BY name
+      SELECT db.id, db.name, db.email, db.phone, db.vehicle_number, db.vehicle_type, db.is_online,
+             db.per_km_earning, db.total_earnings, db.rating, db.status, db.created_at,
+             db.license_number, db.aadhar_number, db.date_of_birth, db.emergency_contact, db.home_address,
+             COALESCE(db.payment_due, 0) as payment_due,
+             COALESCE(db.total_paid, 0) as total_paid,
+             COALESCE((
+               SELECT SUM(COALESCE(o.boy_payout, GREATEST(0, o.delivery_charge * 0.7)))
+               FROM orders o
+               WHERE o.delivery_boy_id = db.id AND o.status = 'delivered'
+             ), 0) as live_earnings
+      FROM delivery_boys db
+      WHERE db.status = 'approved' OR db.status IS NULL
+      ORDER BY db.name
     `
     return NextResponse.json({ boys })
   }
@@ -126,30 +132,51 @@ export async function GET(request) {
     const boyId = searchParams.get('boyId')
     if (!boyId) return NextResponse.json({ error: 'boyId required' }, { status: 400 })
     await ensurePaymentTable(sql)
-    // Ensure boy_payout column exists
     try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
 
+    // Consistent formula: COALESCE(boy_payout, delivery_charge * 0.7)
+    // Same formula used in delivery/history API — so admin and delivery boy see same numbers
     const orders = await sql`
       SELECT o.id, o.order_number, o.created_at, o.delivered_at,
         o.delivery_charge, o.distance_km, o.status,
-        COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2)) as boy_payout_calc
+        o.boy_payout,
+        COALESCE(o.boy_payout, GREATEST(0, o.delivery_charge * 0.7)) as boy_payout_calc
       FROM orders o
-      JOIN delivery_boys db ON db.id = o.delivery_boy_id
       WHERE o.delivery_boy_id = ${boyId}::uuid AND o.status = 'delivered'
       ORDER BY o.delivered_at DESC NULLS LAST
     `
 
-    const [summary] = await sql`
-      SELECT
-        COALESCE(SUM(o.delivery_charge), 0) as total_collected,
-        COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) as total_to_pay,
-        COALESCE(db.total_paid, 0) as total_paid,
-        GREATEST(0, COALESCE(SUM(COALESCE(o.boy_payout, ROUND(db.per_km_earning * COALESCE(o.distance_km, 3), 2))), 0) - COALESCE(db.total_paid, 0)) as balance_due
-      FROM orders o
-      JOIN delivery_boys db ON db.id = o.delivery_boy_id
-      WHERE o.delivery_boy_id = ${boyId}::uuid AND o.status = 'delivered'
-      GROUP BY db.total_paid
+    // Calculate total_to_pay from orders (source of truth)
+    const [earningRow] = await sql`
+      SELECT COALESCE(SUM(COALESCE(boy_payout, GREATEST(0, delivery_charge * 0.7))), 0) as total_to_pay,
+             COALESCE(SUM(delivery_charge), 0) as total_collected
+      FROM orders
+      WHERE delivery_boy_id = ${boyId}::uuid AND status = 'delivered'
     `
+    const [boyRow] = await sql`
+      SELECT COALESCE(total_paid, 0) as total_paid FROM delivery_boys WHERE id = ${boyId}::uuid
+    `
+
+    const totalToPay = parseFloat(earningRow?.total_to_pay || 0)
+    const totalPaid  = parseFloat(boyRow?.total_paid || 0)
+    const balanceDue = Math.max(0, totalToPay - totalPaid)
+    const overPaid   = Math.max(0, totalPaid - totalToPay)
+
+    // Keep delivery_boys.total_earnings and payment_due in sync
+    await sql`
+      UPDATE delivery_boys
+      SET total_earnings = ${totalToPay},
+          payment_due    = ${balanceDue}
+      WHERE id = ${boyId}::uuid
+    `.catch(() => {})
+
+    const summary = {
+      total_collected: parseFloat(earningRow?.total_collected || 0),
+      total_to_pay:    totalToPay,
+      total_paid:      totalPaid,
+      balance_due:     balanceDue,
+      over_paid:       overPaid,
+    }
 
     const paymentHistory = await sql`
       SELECT amount, notes, created_at FROM payment_records
@@ -157,7 +184,7 @@ export async function GET(request) {
       ORDER BY created_at DESC LIMIT 50
     `
 
-    return NextResponse.json({ orders, summary: summary || { total_collected: 0, total_to_pay: 0, total_paid: 0, balance_due: 0 }, paymentHistory })
+    return NextResponse.json({ orders, summary, paymentHistory })
   }
 
   if (type === 'pending_boys') {
@@ -394,24 +421,52 @@ export async function PATCH(request) {
     const amount = parseFloat(data.amount)
     if (!amount || amount <= 0) return NextResponse.json({ error: 'Valid amount required' }, { status: 400 })
 
+    // Record the payment
     await sql`
       INSERT INTO payment_records (delivery_boy_id, amount, notes)
       VALUES (${data.id}::uuid, ${amount}, ${data.notes || null})
     `
     await sql`
       UPDATE delivery_boys
-      SET payment_due = GREATEST(0, COALESCE(payment_due, 0) - ${amount}),
-          total_paid  = COALESCE(total_paid, 0) + ${amount}
+      SET total_paid = COALESCE(total_paid, 0) + ${amount}
       WHERE id = ${data.id}::uuid
     `
+
+    // Recalculate total_earnings and payment_due from source of truth (orders)
+    const [earningRow] = await sql`
+      SELECT COALESCE(SUM(COALESCE(boy_payout, GREATEST(0, delivery_charge * 0.7))), 0) as live_earned
+      FROM orders WHERE delivery_boy_id = ${data.id}::uuid AND status = 'delivered'
+    `
+    const liveEarned = parseFloat(earningRow?.live_earned || 0)
+    const [paidRow] = await sql`SELECT COALESCE(total_paid, 0) as total_paid FROM delivery_boys WHERE id = ${data.id}::uuid`
+    const totalPaidNow = parseFloat(paidRow?.total_paid || 0)
+    const newDue = Math.max(0, liveEarned - totalPaidNow)
+    const overPaid = Math.max(0, totalPaidNow - liveEarned)
+
+    await sql`
+      UPDATE delivery_boys
+      SET total_earnings = ${liveEarned},
+          payment_due    = ${newDue}
+      WHERE id = ${data.id}::uuid
+    `
+
     const [boy] = await sql`
-      SELECT id, name, COALESCE(payment_due, 0) as payment_due, COALESCE(total_paid, 0) as total_paid, total_earnings
+      SELECT id, name,
+        ${liveEarned}::numeric as total_earnings,
+        ${newDue}::numeric as payment_due,
+        ${totalPaidNow}::numeric as total_paid,
+        ${overPaid}::numeric as over_paid
       FROM delivery_boys WHERE id = ${data.id}::uuid
     `
+
     // Notify delivery boy about payment
     sendPushToUser(String(data.id), {
       title: `💰 Payment Mila! ₹${Math.round(amount)}`,
-      body: data.notes ? data.notes : `Admin ne ₹${Math.round(amount)} payment kar di. Baaki: ₹${Math.round(parseFloat(boy?.payment_due || 0))}`,
+      body: data.notes
+        ? data.notes
+        : newDue > 0
+          ? `Admin ne ₹${Math.round(amount)} payment kar di. Baaki: ₹${Math.round(newDue)}`
+          : `Admin ne ₹${Math.round(amount)} payment kar di. Sab barabar! ✅`,
       url: '/delivery',
       tag: `payment-${Date.now()}`,
     }, 'delivery').catch(() => {})

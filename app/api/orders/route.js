@@ -153,7 +153,18 @@ export async function GET(request) {
   } else if (user.role === 'delivery') {
     orders = await sql`
       SELECT o.*,
-        u.name as customer_name, u.phone as customer_phone, u.address as customer_address
+        u.name as customer_name, u.phone as customer_phone, u.address as customer_address,
+        (
+          SELECT COALESCE(
+            JSON_AGG(
+              JSON_BUILD_OBJECT('name', oi.name, 'quantity', oi.quantity, 'price', oi.price)
+              ORDER BY oi.id
+            ),
+            '[]'::json
+          )
+          FROM order_items oi
+          WHERE oi.order_id = o.id
+        ) as items
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       WHERE o.delivery_boy_id = ${user.id}

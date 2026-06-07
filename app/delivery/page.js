@@ -150,6 +150,19 @@ function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
           </button>
         </div>
 
+        {/* Order Items */}
+        {order.items && order.items.length > 0 && (
+          <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'10px 14px', marginBottom:12 }}>
+            <div style={{ fontSize:11, fontWeight:800, color:'#166534', marginBottom:8, letterSpacing:0.4 }}>📋 ORDER ITEMS</div>
+            {order.items.map((item, i) => (
+              <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:13, color:'#1a1a1a', paddingBottom: i < order.items.length - 1 ? 6 : 0, marginBottom: i < order.items.length - 1 ? 6 : 0, borderBottom: i < order.items.length - 1 ? '1px solid #d1fae5' : 'none' }}>
+                <span style={{ fontWeight:600 }}>{item.quantity}× <span style={{ fontWeight:400 }}>{item.name}</span></span>
+                <span style={{ fontWeight:700, color:'#16a34a' }}>₹{Math.round(parseFloat(item.price) * item.quantity)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Notes */}
         {order.notes && (
           <div style={{ background:'#fefce8', border:'1px solid #fde047', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#713f12', marginBottom:12 }}>
@@ -202,6 +215,7 @@ export default function DeliveryPage() {
   const [tab, setTab]                 = useState('orders')
   const [period, setPeriod]           = useState('today')
   const [loading, setLoading]         = useState(true)
+  const [isOnline, setIsOnline]        = useState(false)
   const [toggling, setToggling]       = useState(false)
   const [pickingUp, setPickingUp]     = useState(null) // orderId being picked up
   const [delivering, setDelivering]   = useState(null) // orderId being delivered
@@ -222,7 +236,6 @@ export default function DeliveryPage() {
   const alertCtxRef    = useRef(null)
   const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
-  const isOnlineRef    = useRef(null)
   // Live location tracking refs
   const locationWatchRef    = useRef(null)
   const locationIntervalRef = useRef(null)
@@ -368,10 +381,11 @@ export default function DeliveryPage() {
 
   const loadData = async () => {
     try {
-      const [ordersRes, historyRes, profileRes] = await Promise.all([
+      const [ordersRes, historyRes, profileRes, statusRes] = await Promise.all([
         fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] })),
         fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
         fetch('/api/profile').then(r => r.json()).catch(() => ({})),
+        fetch('/api/delivery/status').then(r => r.json()).catch(() => ({})),
       ])
       const initial = ordersRes.orders || []
       setOrders(initial)
@@ -383,9 +397,15 @@ export default function DeliveryPage() {
       setPaymentHistory(historyRes.paymentHistory || [])
       const info = historyRes.boyInfo || profileRes.profile
       if (info) {
-        isOnlineRef.current = info?.is_online ?? false
         setBoyInfo(info)
         setProfileForm({ name: info?.name||'', phone: info?.phone||'', home_address: info?.home_address||'', emergency_contact: info?.emergency_contact||'' })
+      }
+      // Use dedicated status endpoint as source of truth for is_online
+      // Falls back to boyInfo if status endpoint fails
+      if (typeof statusRes.isOnline === 'boolean') {
+        setIsOnline(statusRes.isOnline)
+      } else if (info) {
+        setIsOnline(info?.is_online ?? false)
       }
     } catch(e) {
       console.error('loadData error:', e)
@@ -400,17 +420,25 @@ export default function DeliveryPage() {
     setHistory(res.orders || [])
     if (res.stats) setStats(res.stats)
     if (res.allTime) setAllTime(res.allTime)
-    if (res.boyInfo) setBoyInfo(prev => ({ ...res.boyInfo, is_online: isOnlineRef.current ?? res.boyInfo.is_online }))
+    if (res.boyInfo) setBoyInfo(res.boyInfo)
   }
 
   const toggleOnline = async () => {
     setToggling(true)
-    const next = !boyInfo?.is_online
-    await fetch('/api/delivery/status', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isOnline: next }) })
-    isOnlineRef.current = next
-    setBoyInfo(p => ({ ...p, is_online: next }))
+    const next = !isOnline
+    try {
+      const res = await fetch('/api/delivery/status', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ isOnline: next }) })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setIsOnline(next)
+        showToast(next ? '🟢 Aap online ho gaye — orders milenge!' : '⚫ Aap offline ho gaye')
+      } else {
+        showToast('❌ Status update nahi hua — dobara try karo')
+      }
+    } catch {
+      showToast('❌ Network error — dobara try karo')
+    }
     setToggling(false)
-    showToast(next ? '🟢 Aap online ho gaye — orders milenge!' : '⚫ Aap offline ho gaye')
   }
 
   const markPickup = async (orderId) => {
@@ -427,16 +455,19 @@ export default function DeliveryPage() {
     setDelivering(orderId)
     try {
       const res = await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ orderId, status:'delivered' }) })
-      if (!res.ok) { showToast('❌ Try again'); return }
-      setOrders(p => p.filter(o => o.id !== orderId))
-      showToast('🎉 Delivered! Cash collect karna mat bhoolo 💵')
-      // Wait 800ms for DB to commit before re-fetching earnings
-      await new Promise(r => setTimeout(r, 800))
-      const pr = await fetch(`/api/delivery/history?period=${period}`).then(r => r.json())
-      setStats(pr.stats)
-      setHistory(pr.orders || [])
-      if (pr.allTime) setAllTime(pr.allTime)
-      if (pr.boyInfo) setBoyInfo(prev => ({ ...pr.boyInfo, is_online: isOnlineRef.current ?? pr.boyInfo.is_online }))
+      if (res.ok) {
+        setOrders(p => p.filter(o => o.id !== orderId))
+        showToast('🎉 Delivered! Cash collect karna mat bhoolo 💵')
+        // Wait 800ms for DB to commit before re-fetching earnings
+        await new Promise(r => setTimeout(r, 800))
+        const pr = await fetch(`/api/delivery/history?period=${period}`).then(r => r.json())
+        setStats(pr.stats)
+        setHistory(pr.orders || [])
+        if (pr.allTime) setAllTime(pr.allTime)
+        if (pr.boyInfo) setBoyInfo(pr.boyInfo)
+      } else {
+        showToast('❌ Try again')
+      }
     } catch { showToast('❌ Try again') }
     setDelivering(null)
   }
@@ -502,18 +533,18 @@ export default function DeliveryPage() {
       )}
 
       {/* ── TOP STATUS BAR ── */}
-      <div style={{ background: boyInfo?.is_online ? 'linear-gradient(135deg,#16a34a,#22c55e)' : 'linear-gradient(135deg,#374151,#6b7280)', padding:'14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:100 }}>
+      <div style={{ background: isOnline ? 'linear-gradient(135deg,#16a34a,#22c55e)' : 'linear-gradient(135deg,#374151,#6b7280)', padding:'14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:100 }}>
         <div>
           <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', marginBottom:2 }}>
             {boyInfo?.name}
           </div>
           <div style={{ fontSize:16, fontWeight:800, color:'#fff' }}>
-            {boyInfo?.is_online ? '🟢 Online — Ready' : '⚫ Offline'}
+            {isOnline ? '🟢 Online — Ready' : '⚫ Offline'}
           </div>
         </div>
         <button onClick={toggleOnline} disabled={toggling}
           style={{ background:'rgba(255,255,255,0.2)', border:'2px solid rgba(255,255,255,0.5)', color:'#fff', borderRadius:20, padding:'8px 18px', fontWeight:800, fontSize:13, cursor:'pointer', minWidth:100 }}>
-          {toggling ? '...' : boyInfo?.is_online ? 'Go Offline' : 'Go Online'}
+          {toggling ? '...' : isOnline ? 'Go Offline' : 'Go Online'}
         </button>
       </div>
 
@@ -541,7 +572,7 @@ export default function DeliveryPage() {
         {/* ── ORDERS TAB ── */}
         {tab === 'orders' && (
           <div style={{ padding:'0 14px' }}>
-            {!boyInfo?.is_online && (
+            {!isOnline && (
               <div style={{ background:'#fffbeb', border:'1.5px solid #fcd34d', borderRadius:16, padding:'16px', textAlign:'center', marginBottom:14 }}>
                 <div style={{ fontSize:32, marginBottom:6 }}>⚫</div>
                 <div style={{ fontWeight:700, fontSize:14, color:'#92400e' }}>Abhi Offline Hain</div>

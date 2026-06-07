@@ -1575,6 +1575,7 @@ export default function AdminPage() {
             {stockLoading ? (
               <div style={{ textAlign:'center', padding:40 }}><div className="spinner" /></div>
             ) : (() => {
+              // scrollable wrapper applied around the whole rendered block (see return below)
               // Sort into 3 priority groups
               const sortByName = (a, b) => a.name.localeCompare(b.name)
               const outOfStock = stockItems.filter(i => i.stock_count !== null && i.stock_count !== undefined && i.stock_count === 0).sort(sortByName)
@@ -1587,7 +1588,7 @@ export default function AdminPage() {
                 const color = isNull ? '#6b7280' : sc === 0 ? '#ef4444' : sc <= 2 ? '#f59e0b' : '#16a34a'
                 const bg    = isNull ? '#f9fafb' : sc === 0 ? '#fef2f2' : sc <= 2 ? '#fffbeb' : '#f0fdf4'
                 return (
-                  <div key={item.id} style={{ background: bg, border:`1.5px solid ${color}33`, borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                  <div key={item.id} style={{ background: bg, border:`1.5px solid ${color}33`, borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10, flexWrap:'nowrap', minWidth:620 }}>
                     {/* Status dot */}
                     <span style={{ fontSize:16 }}>{isNull ? '⚪' : sc === 0 ? '🔴' : sc <= 2 ? '🟡' : '🟢'}</span>
 
@@ -1648,7 +1649,8 @@ export default function AdminPage() {
               }
 
               return (
-                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'65vh', paddingBottom:8 }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:16, minWidth:640 }}>
                   {/* ── OUT OF STOCK ── */}
                   {outOfStock.length > 0 && (
                     <div>
@@ -1692,6 +1694,7 @@ export default function AdminPage() {
                       </div>
                     </div>
                   )}
+                </div>
                 </div>
               )
             })()}

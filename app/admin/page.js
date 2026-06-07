@@ -1467,78 +1467,127 @@ export default function AdminPage() {
 
             {stockLoading ? (
               <div style={{ textAlign:'center', padding:40 }}><div className="spinner" /></div>
-            ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {/* Group by category */}
-                {[...new Set(stockItems.map(i => i.category))].map(cat => (
-                  <div key={cat} style={{ marginBottom:8 }}>
-                    <p style={{ fontWeight:700, fontSize:13, color:'var(--t2)', marginBottom:6, paddingLeft:4 }}>{cat}</p>
-                    {stockItems.filter(i => i.category === cat).map(item => {
-                      const sc = item.stock_count
-                      const isNull = sc === null || sc === undefined
-                      const color = isNull ? '#6b7280' : sc === 0 ? '#ef4444' : sc <= 2 ? '#f59e0b' : '#16a34a'
-                      const bg = isNull ? '#f9fafb' : sc === 0 ? '#fef2f2' : sc <= 2 ? '#fffbeb' : '#f0fdf4'
-                      return (
-                        <div key={item.id} style={{ background: bg, border:`1.5px solid ${color}22`, borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-                          {/* Status dot */}
-                          <span style={{ fontSize:16 }}>{isNull ? '⚪' : sc === 0 ? '🔴' : sc <= 2 ? '🟡' : '🟢'}</span>
+            ) : (() => {
+              // Sort into 3 priority groups
+              const sortByName = (a, b) => a.name.localeCompare(b.name)
+              const outOfStock = stockItems.filter(i => i.stock_count !== null && i.stock_count !== undefined && i.stock_count === 0).sort(sortByName)
+              const lowStock   = stockItems.filter(i => i.stock_count !== null && i.stock_count !== undefined && i.stock_count > 0 && i.stock_count <= 2).sort(sortByName)
+              const available  = stockItems.filter(i => i.stock_count === null || i.stock_count === undefined || i.stock_count > 2).sort(sortByName)
 
-                          {/* Name */}
-                          <span style={{ flex:1, fontSize:13, fontWeight:600, color:'var(--t1)', minWidth:120 }}>{item.name}</span>
+              const renderItem = (item) => {
+                const sc = item.stock_count
+                const isNull = sc === null || sc === undefined
+                const color = isNull ? '#6b7280' : sc === 0 ? '#ef4444' : sc <= 2 ? '#f59e0b' : '#16a34a'
+                const bg    = isNull ? '#f9fafb' : sc === 0 ? '#fef2f2' : sc <= 2 ? '#fffbeb' : '#f0fdf4'
+                return (
+                  <div key={item.id} style={{ background: bg, border:`1.5px solid ${color}33`, borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+                    {/* Status dot */}
+                    <span style={{ fontSize:16 }}>{isNull ? '⚪' : sc === 0 ? '🔴' : sc <= 2 ? '🟡' : '🟢'}</span>
 
-                          {/* Stock count control */}
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <span style={{ fontSize:11, color:'var(--t3)' }}>Stock:</span>
-                            <button style={{ width:28, height:28, borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}
-                              onClick={async () => {
-                                if (isNull) return
-                                const newVal = Math.max(0, sc - 1)
-                                await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: newVal }) })
-                                setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: newVal } : i))
-                              }}>−</button>
-                            <input type="number" min="0" value={isNull ? '' : sc}
-                              placeholder="∞"
-                              style={{ width:52, textAlign:'center', border:'1.5px solid #e5e7eb', borderRadius:6, padding:'4px 2px', fontSize:13, fontWeight:700, color: color }}
-                              onChange={async (e) => {
-                                const val = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0)
-                                await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: val }) })
-                                setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: val } : i))
-                              }} />
-                            <button style={{ width:28, height:28, borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}
-                              onClick={async () => {
-                                const newVal = (isNull ? 0 : sc) + 1
-                                await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: newVal }) })
-                                setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: newVal } : i))
-                              }}>+</button>
-                          </div>
+                    {/* Name + category tag */}
+                    <div style={{ flex:1, minWidth:120 }}>
+                      <span style={{ fontSize:13, fontWeight:600, color:'var(--t1)' }}>{item.name}</span>
+                      <span style={{ fontSize:10, color:'#9ca3af', marginLeft:6 }}>{item.category}</span>
+                    </div>
 
-                          {/* Default stock */}
-                          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                            <span style={{ fontSize:11, color:'var(--t3)' }}>Default:</span>
-                            <input type="number" min="0"
-                              value={item.stock_default ?? (item.category?.toLowerCase().includes('rice') ? 10 : 5)}
-                              style={{ width:52, textAlign:'center', border:'1.5px solid #e5e7eb', borderRadius:6, padding:'4px 2px', fontSize:12, color:'var(--t2)' }}
-                              onChange={async (e) => {
-                                const val = Math.max(0, parseInt(e.target.value) || 0)
-                                await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_default: val }) })
-                                setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_default: val } : i))
-                              }} />
-                          </div>
+                    {/* Stock count control */}
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontSize:11, color:'var(--t3)' }}>Stock:</span>
+                      <button style={{ width:28, height:28, borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}
+                        onClick={async () => {
+                          if (isNull) return
+                          const newVal = Math.max(0, sc - 1)
+                          await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: newVal }) })
+                          setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: newVal } : i))
+                        }}>−</button>
+                      <input type="number" min="0" value={isNull ? '' : sc}
+                        placeholder="∞"
+                        style={{ width:52, textAlign:'center', border:'1.5px solid #e5e7eb', borderRadius:6, padding:'4px 2px', fontSize:13, fontWeight:700, color: color }}
+                        onChange={async (e) => {
+                          const val = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value) || 0)
+                          await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: val }) })
+                          setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: val } : i))
+                        }} />
+                      <button style={{ width:28, height:28, borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', fontWeight:700, fontSize:14 }}
+                        onClick={async () => {
+                          const newVal = (isNull ? 0 : sc) + 1
+                          await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: newVal }) })
+                          setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: newVal } : i))
+                        }}>+</button>
+                    </div>
 
-                          {/* Reset to default button */}
-                          <button style={{ fontSize:11, padding:'4px 10px', borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', color:'var(--t2)', whiteSpace:'nowrap' }}
-                            onClick={async () => {
-                              const defVal = item.stock_default ?? (item.category?.toLowerCase().includes('rice') ? 10 : 5)
-                              await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: defVal }) })
-                              setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: defVal } : i))
-                            }}>↺ Reset</button>
-                        </div>
-                      )
-                    })}
+                    {/* Default stock */}
+                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontSize:11, color:'var(--t3)' }}>Default:</span>
+                      <input type="number" min="0"
+                        value={item.stock_default ?? (item.category?.toLowerCase().includes('rice') ? 10 : 5)}
+                        style={{ width:52, textAlign:'center', border:'1.5px solid #e5e7eb', borderRadius:6, padding:'4px 2px', fontSize:12, color:'var(--t2)' }}
+                        onChange={async (e) => {
+                          const val = Math.max(0, parseInt(e.target.value) || 0)
+                          await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_default: val }) })
+                          setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_default: val } : i))
+                        }} />
+                    </div>
+
+                    {/* Reset to default */}
+                    <button style={{ fontSize:11, padding:'4px 10px', borderRadius:6, border:'1px solid #e5e7eb', background:'#fff', cursor:'pointer', color:'var(--t2)', whiteSpace:'nowrap' }}
+                      onClick={async () => {
+                        const defVal = item.stock_default ?? (item.category?.toLowerCase().includes('rice') ? 10 : 5)
+                        await fetch('/api/admin?type=stock', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: item.id, stock_count: defVal }) })
+                        setStockItems(prev => prev.map(i => i.id === item.id ? { ...i, stock_count: defVal } : i))
+                      }}>↺ Reset</button>
                   </div>
-                ))}
-              </div>
-            )}
+                )
+              }
+
+              return (
+                <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                  {/* ── OUT OF STOCK ── */}
+                  {outOfStock.length > 0 && (
+                    <div>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, padding:'6px 12px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:8 }}>
+                        <span style={{ fontSize:15 }}>🔴</span>
+                        <span style={{ fontWeight:700, fontSize:13, color:'#dc2626' }}>Out of Stock</span>
+                        <span style={{ fontSize:11, background:'#dc2626', color:'#fff', borderRadius:20, padding:'1px 8px', fontWeight:700 }}>{outOfStock.length}</span>
+                        <span style={{ fontSize:11, color:'#ef4444', marginLeft:'auto' }}>⚠️ Order block ho raha hai — jaldi refill karo!</span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        {outOfStock.map(renderItem)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── LOW STOCK ── */}
+                  {lowStock.length > 0 && (
+                    <div>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, padding:'6px 12px', background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8 }}>
+                        <span style={{ fontSize:15 }}>🟡</span>
+                        <span style={{ fontWeight:700, fontSize:13, color:'#d97706' }}>Low Stock</span>
+                        <span style={{ fontSize:11, background:'#f59e0b', color:'#fff', borderRadius:20, padding:'1px 8px', fontWeight:700 }}>{lowStock.length}</span>
+                        <span style={{ fontSize:11, color:'#92400e', marginLeft:'auto' }}>Khatam hone wala hai — refill consider karo</span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        {lowStock.map(renderItem)}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── AVAILABLE ── */}
+                  {available.length > 0 && (
+                    <div>
+                      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8, padding:'6px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8 }}>
+                        <span style={{ fontSize:15 }}>🟢</span>
+                        <span style={{ fontWeight:700, fontSize:13, color:'#16a34a' }}>Available</span>
+                        <span style={{ fontSize:11, background:'#16a34a', color:'#fff', borderRadius:20, padding:'1px 8px', fontWeight:700 }}>{available.length}</span>
+                      </div>
+                      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                        {available.map(renderItem)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             <div style={{ marginTop:20, background:'#fffbeb', border:'1px solid #fde68a', borderRadius:10, padding:'12px 16px', fontSize:12, color:'#92400e', lineHeight:1.7 }}>
               <strong>📋 Stock Rules:</strong><br />

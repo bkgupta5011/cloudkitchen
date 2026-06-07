@@ -10,13 +10,16 @@ export function middleware(request) {
     if (url.pathname.startsWith('/api/public/')) {
       return NextResponse.next()
     }
-    // Allow Next.js internals and static files
+    // Allow Next.js internals, static files and SEO files
     if (
       url.pathname.startsWith('/_next/') ||
       url.pathname.startsWith('/icons/') ||
       url.pathname === '/sw.js' ||
       url.pathname === '/manifest.json' ||
-      url.pathname === '/favicon.ico'
+      url.pathname === '/favicon.ico' ||
+      url.pathname === '/sitemap.xml' ||
+      url.pathname === '/robots.txt' ||
+      url.pathname.startsWith('/google')
     ) {
       return NextResponse.next()
     }

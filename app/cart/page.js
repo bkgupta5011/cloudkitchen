@@ -307,7 +307,13 @@ function launchConfetti() {
 export default function CartPage() {
   const router = useRouter()
   const [menuItems, setMenuItems] = useState([])
-  const [cart, setCart] = useState({})
+  const [menuLoading, setMenuLoading] = useState(true)
+  // Lazy initializer — reads localStorage synchronously on first render.
+  // Avoids the flash of "empty cart" caused by useEffect being async.
+  const [cart, setCart] = useState(() => {
+    if (typeof window === 'undefined') return {}
+    try { return JSON.parse(localStorage.getItem('ck_cart') || '{}') } catch { return {} }
+  })
   const [address, setAddress] = useState('')
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
@@ -349,9 +355,11 @@ export default function CartPage() {
   }, [placed])
 
   useEffect(() => {
-    const saved = localStorage.getItem('ck_cart')
-    if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
-    fetch('/api/menu').then(r => r.json()).then(d => setMenuItems(d.items || []))
+    // cart already loaded from localStorage via lazy initializer — no read needed here
+    fetch('/api/menu').then(r => r.json()).then(d => {
+      setMenuItems(d.items || [])
+      setMenuLoading(false)
+    })
     // Fetch customer name for thank-you message
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
       .then(r => r.json()).then(d => { if (d.user?.name) setUserName(d.user.name.split(' ')[0]) }).catch(() => {})
@@ -569,7 +577,29 @@ export default function CartPage() {
       </nav>
 
       <div className={styles.body}>
-        {cartEntries.length === 0 ? (
+        {/* Skeleton — show while menu API loads and cart has items */}
+        {menuLoading && Object.keys(cart).length > 0 ? (
+          <div className={styles.section}>
+            <h3>Items</h3>
+            <style>{`
+              @keyframes shimmer {
+                0%   { background-position: -400px 0 }
+                100% { background-position:  400px 0 }
+              }
+              .skeleton-row {
+                height: 64px; border-radius: 12px; margin-bottom: 10px;
+                background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+                background-size: 800px 100%;
+                animation: shimmer 1.2s ease-in-out infinite;
+              }
+            `}</style>
+            {Object.keys(cart).map(id => (
+              <div key={id} className="skeleton-row" />
+            ))}
+          </div>
+
+        ) : !menuLoading && cartEntries.length === 0 ? (
+          /* Only show "empty cart" once menu is loaded AND cart is truly empty */
           <div className={styles.empty}>
             <div style={{ fontSize:48, marginBottom:12 }}>🛒</div>
             <p>Your cart is empty</p>

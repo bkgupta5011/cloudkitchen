@@ -319,49 +319,61 @@ export async function POST(request) {
     }
   } catch {}
 
-  // ── BROADCAST TO ALL ONLINE DELIVERY BOYS ────────────────────────
-  // No auto-assign — all online boys get notified; first to accept gets the order
-  let onlineBoyCount = 0
+  // ── AUTO-ASSIGN TO NEAREST AVAILABLE ONLINE DELIVERY BOY ────────
+  let assignedBoy = null
   try {
-    const onlineBoys = await sql`
-      SELECT id, name FROM delivery_boys
-      WHERE is_online = true AND status = 'approved'
+    const availableBoys = await sql`
+      SELECT db.id, db.name, db.phone,
+        COUNT(o.id) FILTER (WHERE o.status IN ('confirmed','preparing')) AS active_orders
+      FROM delivery_boys db
+      LEFT JOIN orders o ON o.delivery_boy_id = db.id
+        AND o.status IN ('confirmed', 'preparing', 'out_for_delivery')
+      WHERE db.is_online = true
+        AND db.status = 'approved'
+        AND NOT EXISTS (
+          SELECT 1 FROM orders
+          WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
+        )
+      GROUP BY db.id, db.name, db.phone
+      ORDER BY active_orders ASC, RANDOM()
+      LIMIT 1
     `
-    onlineBoyCount = onlineBoys.length
-    for (const boy of onlineBoys) {
-      sendPushToUser(String(boy.id), {
-        title:   '🔔 Naya Order! Jaldi Accept Karo',
-        body:    `#${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 45)}`,
-        url:     '/delivery',
-        tag:     `new-order-${order.id}`,
-        orderId: order.id,          // ← so SW can call accept/reject API directly
+    if (availableBoys.length > 0) {
+      assignedBoy = availableBoys[0]
+      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${assignedBoy.id}`
+      const perKm  = parseFloat(boyRate?.per_km_earning || 0)
+      const distKm = distanceKm ? parseFloat(distanceKm) : null
+      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+      await sql`UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout} WHERE id = ${order.id}`
+      // Notify assigned boy — order waiting for kitchen confirmation
+      sendPushToUser(String(assignedBoy.id), {
+        title: '📦 Naya Order Assign Hua!',
+        body:  `#${order.order_number} — ₹${Math.round(order.total)} · Kitchen confirm karega tab pickup karna`,
+        url:   '/delivery',
+        tag:   `delivery-${order.id}`,
         requireInteraction: true,
       }, 'delivery').catch(() => {})
     }
   } catch (e) {
-    console.error('Broadcast error:', e)
+    console.error('Auto-assign error:', e)
   }
-
-  // Mark initial broadcast time so repeat-push cron knows we just sent
-  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS last_broadcast_at TIMESTAMPTZ`.catch(() => {})
-  await sql`UPDATE orders SET last_broadcast_at = NOW() WHERE id = ${order.id}`.catch(() => {})
 
   // Notify all admins — new order arrived
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,
-    body: onlineBoyCount > 0
-      ? `${onlineBoyCount} delivery boy${onlineBoyCount > 1 ? 's' : ''} ko notify kiya — ₹${Math.round(order.total)}`
-      : `⚠️ Koi delivery boy online nahi — manually assign karo · ₹${Math.round(order.total)}`,
+    body: assignedBoy
+      ? `🛵 ${assignedBoy.name} ko assign kiya — ₹${Math.round(order.total)}`
+      : `⚠️ Koi delivery boy available nahi — manually assign karo · ₹${Math.round(order.total)}`,
     url: '/admin',
     tag: 'new-order',
     requireInteraction: true,
   }).catch(() => {})
 
   return NextResponse.json({
-    order: { ...order, delivery_boy_id: null },
+    order: { ...order, delivery_boy_id: assignedBoy?.id || null },
     orderNumber: order.order_number,
-    autoAssigned: false,
-    deliveryBoyName: null,
+    autoAssigned: !!assignedBoy,
+    deliveryBoyName: assignedBoy?.name || null,
   }, { status: 201 })
 }
 

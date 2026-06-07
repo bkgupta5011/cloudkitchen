@@ -1,7 +1,7 @@
 // FoodFi Service Worker — Push Notifications + PWA Cache
-// v3 — broadcast dispatch: ring all boys, accept/reject from notification
+// v5 — auto-assign: single boy, simple notification, tap → /delivery
 
-const CACHE = 'foodfi-v4'
+const CACHE = 'foodfi-v5'
 const OFFLINE_URL = '/'
 
 // Install — cache essential pages
@@ -40,50 +40,27 @@ self.addEventListener('push', (e) => {
   let payload
   try { payload = e.data.json() } catch { payload = { title: 'FoodFi', body: e.data.text(), url: '/' } }
 
-  const isNewOrder = !!(payload.tag?.startsWith('new-order-') && !payload.isDismiss)
+  const isNewOrder = !!(payload.tag?.startsWith('delivery-') || payload.tag?.startsWith('new-order-'))
 
-  // ── DISMISS: another boy accepted — close existing notification silently ──
-  if (payload.isDismiss) {
-    e.waitUntil(
-      self.registration.getNotifications({ tag: payload.tag }).then(notifs => {
-        notifs.forEach(n => n.close())
-      }).then(() =>
-        // Tell open delivery pages to stop alarm for this order
-        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list =>
-          list.forEach(c => c.postMessage({ type: 'ORDER_TAKEN', orderId: payload.orderId }))
-        )
-      )
-    )
-    return
-  }
-
-  // ── NEW ORDER notification — big vibration + action buttons ──────────
   const options = {
-    body:             payload.body || '',
-    icon:             '/icons/icon-192.png',
-    badge:            '/icons/icon-192.png',
-    tag:              payload.tag || 'foodfi-notif',
-    renotify:         true,   // Always re-alert even if same tag is already showing
-    requireInteraction: isNewOrder ? true : (payload.requireInteraction || false),
-    data:             { url: payload.url || '/', orderId: payload.orderId },
+    body:               payload.body || '',
+    icon:               '/icons/icon-192.png',
+    badge:              '/icons/icon-192.png',
+    tag:                payload.tag || 'foodfi-notif',
+    renotify:           true,
+    requireInteraction: payload.requireInteraction || false,
+    data:               { url: payload.url || '/', orderId: payload.orderId },
 
-    // Long ringing vibration pattern for new orders (short beep for others)
     vibrate: isNewOrder
       ? [700, 200, 700, 200, 700, 200, 700, 200, 700, 200, 700, 200, 700]
       : [200, 100, 200, 100, 200],
-
-    // Accept / Reject directly from notification (Android Chrome supports this)
-    actions: isNewOrder ? [
-      { action: 'accept', title: '✅ Accept Karo' },
-      { action: 'reject', title: '❌ Reject' },
-    ] : [],
   }
 
   e.waitUntil(
     Promise.all([
       self.registration.showNotification(payload.title || 'FoodFi', options),
 
-      // Tell ALL open delivery pages to start alarm immediately (don't wait for poll)
+      // Tell ALL open delivery pages to start alarm immediately
       self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list =>
         list.forEach(c =>
           c.postMessage({
@@ -96,73 +73,18 @@ self.addEventListener('push', (e) => {
   )
 })
 
-// ── Notification click / action button handler ────────────────────────
+// ── Notification click — open/focus /delivery page ────────────────────
 self.addEventListener('notificationclick', (e) => {
   e.notification.close()
-  const { url, orderId } = e.notification.data || {}
-
-  // ── Accept from notification bar ──
-  if (e.action === 'accept' && orderId) {
-    e.waitUntil(
-      fetch('/api/delivery/respond', {
-        method:      'POST',
-        headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ orderId, action: 'accept' }),
-        credentials: 'include',  // Sends auth cookie
-      })
-        .then(res => res.json())
-        .then(data => {
-          // Tell open pages the result
-          return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-            list.forEach(c => c.postMessage({
-              type:    'ORDER_RESPOND_RESULT',
-              action:  'accept',
-              success: data.success,
-              reason:  data.reason,
-              orderId,
-              orderNumber: data.orderNumber,
-            }))
-            // Focus / open delivery page
-            if (list.length > 0) {
-              list[0].focus()
-              return
-            }
-            return clients.openWindow('/delivery')
-          })
-        })
-        .catch(() => clients.openWindow('/delivery'))
-    )
-    return
-  }
-
-  // ── Reject from notification bar ──
-  if (e.action === 'reject' && orderId) {
-    e.waitUntil(
-      fetch('/api/delivery/respond', {
-        method:      'POST',
-        headers:     { 'Content-Type': 'application/json' },
-        body:        JSON.stringify({ orderId, action: 'reject' }),
-        credentials: 'include',
-      })
-        .then(() =>
-          self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list =>
-            list.forEach(c => c.postMessage({ type: 'ORDER_TAKEN', orderId }))
-          )
-        )
-        .catch(() => {})
-    )
-    return
-  }
-
-  // ── Default tap — open/focus /delivery page specifically ──
+  const { url } = e.notification.data || {}
   const targetUrl = (url && url.includes('/delivery')) ? url : '/delivery'
+
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
       // First choice: an already-open delivery page
       const deliveryClient = list.find(c => c.url.includes('/delivery'))
       if (deliveryClient) {
         deliveryClient.focus()
-        // Also post alarm signal in case the page missed the push message
         deliveryClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: e.notification.data || {} })
         return
       }

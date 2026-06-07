@@ -132,112 +132,6 @@ function NotifGuideModal({ onClose }) {
   )
 }
 
-// ── Order Alarm Modal (new order broadcast) ───────────────────────────
-function OrderAlarmModal({ order, onAccept, onReject, responding }) {
-  const totalItems = order.items?.reduce((s, i) => s + i.quantity, 0) || 0
-  const distText   = order.distance_km ? `${parseFloat(order.distance_km).toFixed(1)} km` : null
-
-  return (
-    <div style={{ position:'fixed', inset:0, zIndex:10000, background:'rgba(0,0,0,0.88)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'16px' }}>
-      {/* Pulsing rings */}
-      <div style={{ position:'absolute', width:200, height:200, borderRadius:'50%', border:'3px solid #22c55e50', animation:'alarmRing 1.4s ease-in-out infinite' }} />
-      <div style={{ position:'absolute', width:150, height:150, borderRadius:'50%', border:'3px solid #22c55e70', animation:'alarmRing 1.4s ease-in-out infinite 0.35s' }} />
-
-      <div style={{ background:'#fff', borderRadius:24, width:'100%', maxWidth:400, overflow:'hidden', boxShadow:'0 24px 80px #000c', position:'relative', zIndex:1 }}>
-        {/* Green header */}
-        <div style={{ background:'linear-gradient(135deg,#15803d,#22c55e)', padding:'18px 20px 14px', textAlign:'center' }}>
-          <div style={{ fontSize:44, marginBottom:4, animation:'bellShake 0.6s ease-in-out infinite' }}>🔔</div>
-          <div style={{ fontSize:22, fontWeight:900, color:'#fff', letterSpacing:1 }}>NAYA ORDER AAYA!</div>
-          <div style={{ fontSize:12, color:'#bbf7d0', marginTop:4, fontWeight:600, letterSpacing:0.5 }}>ORDER #{order.order_number}</div>
-        </div>
-
-        <div style={{ padding:'16px 18px 20px' }}>
-          {/* Amount + Distance chips */}
-          <div style={{ display:'flex', gap:10, marginBottom:14 }}>
-            <div style={{ flex:1, background:'#f0fdf4', border:'2px solid #86efac', borderRadius:16, padding:'12px 10px', textAlign:'center' }}>
-              <div style={{ fontSize:26, fontWeight:900, color:'#15803d' }}>₹{Math.round(order.total)}</div>
-              <div style={{ fontSize:10, color:'#166534', fontWeight:700, marginTop:2 }}>💵 CASH COLLECT</div>
-            </div>
-            {distText && (
-              <div style={{ flex:1, background:'#eff6ff', border:'2px solid #93c5fd', borderRadius:16, padding:'12px 10px', textAlign:'center' }}>
-                <div style={{ fontSize:24, fontWeight:900, color:'#1d4ed8' }}>{distText}</div>
-                <div style={{ fontSize:10, color:'#1e40af', fontWeight:700, marginTop:2 }}>🛵 DISTANCE</div>
-              </div>
-            )}
-          </div>
-
-          {/* Customer */}
-          <div style={{ background:'#f8fafc', borderRadius:12, padding:'10px 14px', marginBottom:10, display:'flex', gap:10, alignItems:'center' }}>
-            <span style={{ fontSize:22 }}>👤</span>
-            <div>
-              <div style={{ fontSize:15, fontWeight:700, color:'#1a1a1a' }}>{order.customer_name}</div>
-              <div style={{ fontSize:12, color:'#64748b' }}>{order.customer_phone}</div>
-            </div>
-          </div>
-
-          {/* Address */}
-          <div style={{ background:'#f8fafc', borderRadius:12, padding:'10px 14px', marginBottom:10, display:'flex', gap:10, alignItems:'flex-start' }}>
-            <span style={{ fontSize:20, marginTop:1 }}>📍</span>
-            <div style={{ fontSize:13, color:'#374151', lineHeight:1.5, flex:1 }}>{order.delivery_address}</div>
-          </div>
-
-          {/* Items */}
-          {order.items?.length > 0 && (
-            <div style={{ background:'#f0fdf4', border:'1px solid #d1fae5', borderRadius:12, padding:'10px 14px', marginBottom:14 }}>
-              <div style={{ fontSize:11, fontWeight:800, color:'#166534', marginBottom:6, letterSpacing:0.5 }}>
-                📋 ITEMS ({totalItems} total)
-              </div>
-              {order.items.map((item, i) => (
-                <div key={i} style={{ fontSize:13, color:'#374151', paddingBottom: i < order.items.length-1 ? 5 : 0 }}>
-                  <span style={{ fontWeight:700 }}>{item.quantity}×</span> {item.name}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Notes */}
-          {order.notes && (
-            <div style={{ background:'#fefce8', border:'1px solid #fde047', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#713f12', marginBottom:14 }}>
-              📝 {order.notes}
-            </div>
-          )}
-
-          {/* Accept / Reject buttons */}
-          <div style={{ display:'flex', gap:10 }}>
-            <button
-              onClick={() => onReject(order.id)}
-              disabled={!!responding}
-              style={{ flex:1, padding:'14px 10px', background:'#f1f5f9', border:'2px solid #cbd5e1', color:'#475569', borderRadius:14, fontSize:14, fontWeight:800, cursor:'pointer', opacity: responding ? 0.6 : 1, transition:'opacity 0.2s' }}>
-              {responding === order.id + 'reject' ? '⏳...' : '❌ Reject'}
-            </button>
-            <button
-              onClick={() => onAccept(order.id)}
-              disabled={!!responding}
-              style={{ flex:2, padding:'14px 10px', background:'linear-gradient(135deg,#15803d,#22c55e)', color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:900, cursor:'pointer', opacity: responding ? 0.6 : 1, boxShadow:'0 6px 24px #22c55e55', transition:'opacity 0.2s' }}>
-              {responding === order.id + 'accept' ? '⏳ Accept ho raha...' : '✅ ACCEPT KARO'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <style>{`
-        @keyframes alarmRing {
-          0%   { transform:scale(1);    opacity:0.9; }
-          50%  { transform:scale(1.25); opacity:0.2; }
-          100% { transform:scale(1);    opacity:0.9; }
-        }
-        @keyframes bellShake {
-          0%,100% { transform:rotate(0deg); }
-          20%     { transform:rotate(-18deg); }
-          40%     { transform:rotate(18deg); }
-          60%     { transform:rotate(-12deg); }
-          80%     { transform:rotate(12deg); }
-        }
-      `}</style>
-    </div>
-  )
-}
-
 // ── Order Card ────────────────────────────────────────────────────────
 function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
   const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.confirmed
@@ -389,20 +283,13 @@ export default function DeliveryPage() {
   const [showNotifModal, setShowNotifModal] = useState(false)
   const [deliveryNotifs, setDeliveryNotifs] = useState([])
   const [notifUnread, setNotifUnread] = useState(0)
-  const [pendingOrders, setPendingOrders]   = useState([])  // unassigned orders awaiting accept/reject
-  const [respondingOrder, setRespondingOrder] = useState(null) // orderId+action being processed
   const notifPollRef = useRef(null)
   const lastNotifCount = useRef(-1)
 
   const pollRef        = useRef(null)
-  const pendingPollRef = useRef(null)
-  const alarmIntervalRef = useRef(null)
   const alertCtxRef    = useRef(null)
   const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
-  // Orders currently being accepted/rejected — prevent poll from re-adding them
-  const respondingOrderIdsRef = useRef(new Set())
-  const wakeLockRef = useRef(null)
   const sharedAudioCtx = useRef(null) // Pre-warmed AudioContext — avoids mobile autoplay block
   // Live location tracking refs
   const locationWatchRef    = useRef(null)
@@ -413,19 +300,22 @@ export default function DeliveryPage() {
 
   const playAlert = () => {
     try {
-      if (alertCtxRef.current) { try { alertCtxRef.current.close() } catch {} }
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const ctx = sharedAudioCtx.current || new (window.AudioContext || window.webkitAudioContext)()
+      if (!sharedAudioCtx.current) sharedAudioCtx.current = ctx
       alertCtxRef.current = ctx
-      for (let i = 0; i < 18; i++) {
-        const base = ctx.currentTime + i * 0.55
-        const o1 = ctx.createOscillator(), g1 = ctx.createGain()
-        o1.type = 'square'; o1.frequency.value = 880
-        o1.connect(g1); g1.connect(ctx.destination)
-        g1.gain.setValueAtTime(0.9, base)
-        g1.gain.exponentialRampToValueAtTime(0.001, base + 0.22)
-        o1.start(base); o1.stop(base + 0.23)
+      const doPlay = () => {
+        for (let i = 0; i < 18; i++) {
+          const base = ctx.currentTime + i * 0.55
+          const o1 = ctx.createOscillator(), g1 = ctx.createGain()
+          o1.type = 'square'; o1.frequency.value = 880
+          o1.connect(g1); g1.connect(ctx.destination)
+          g1.gain.setValueAtTime(0.9, base)
+          g1.gain.exponentialRampToValueAtTime(0.001, base + 0.22)
+          o1.start(base); o1.stop(base + 0.23)
+        }
       }
-      setTimeout(() => { try { ctx.close() } catch {}; alertCtxRef.current = null }, 11000)
+      if (ctx.state === 'suspended') ctx.resume().then(doPlay).catch(() => {})
+      else doPlay()
     } catch {}
   }
 
@@ -458,82 +348,6 @@ export default function DeliveryPage() {
     return () => clearInterval(pollRef.current)
   }, [])
 
-  // ── Service Worker message listener ──────────────────────────────
-  // Handles: NEW_ORDER_ALARM (immediate alarm without waiting for poll)
-  //          ORDER_TAKEN     (another boy accepted — dismiss alarm)
-  //          ORDER_RESPOND_RESULT (action button pressed from notification bar)
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return
-
-    const fetchPendingImmediate = async () => {
-      try {
-        const d = await fetch('/api/delivery/pending').then(r => r.json())
-        const filtered = (d.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
-        setPendingOrders(filtered)
-      } catch {}
-    }
-
-    const handler = (e) => {
-      const msg = e.data
-      if (!msg) return
-
-      if (msg.type === 'NEW_ORDER_ALARM') {
-        // New order arrived — fetch immediately instead of waiting 5s poll
-        fetchPendingImmediate()
-      }
-
-      if (msg.type === 'ORDER_TAKEN') {
-        // Another boy accepted (or this boy rejected from notification bar) — remove from alarm list
-        const { orderId } = msg
-        if (orderId) {
-          respondingOrderIdsRef.current.add(orderId)
-          setPendingOrders(p => p.filter(o => o.id !== orderId))
-        }
-      }
-
-      if (msg.type === 'ORDER_RESPOND_RESULT') {
-        // Boy responded via notification action button (Accept/Reject from notification bar)
-        const { action, success, reason, orderId, orderNumber } = msg
-        if (action === 'accept') {
-          if (success) {
-            showToast(`✅ Order #${orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
-            // Refresh assigned orders
-            fetch('/api/orders').then(r => r.json()).then(d => {
-              const newOrders = d.orders || []
-              setOrders(newOrders)
-              lastOrderIds.current = new Set(newOrders.map(o => o.id))
-            }).catch(() => {})
-          } else if (reason === 'already_taken') {
-            showToast('⚠️ Ye order kisi aur ne le liya')
-          }
-        }
-        if (action === 'reject') {
-          showToast('❌ Order reject kar diya')
-        }
-        // Either way, fetch fresh pending list
-        fetchPendingImmediate()
-      }
-    }
-
-    navigator.serviceWorker.addEventListener('message', handler)
-    return () => navigator.serviceWorker.removeEventListener('message', handler)
-  }, [])
-
-  // ── Pending unassigned orders — poll every 5s ─────────────────────
-  useEffect(() => {
-    const fetchPending = async () => {
-      try {
-        const d = await fetch('/api/delivery/pending').then(r => r.json())
-        // Filter out orders currently being accepted/rejected — prevents re-trigger during API call
-        const filtered = (d.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
-        setPendingOrders(filtered)
-      } catch {}
-    }
-    fetchPending()
-    pendingPollRef.current = setInterval(fetchPending, 5000)
-    return () => clearInterval(pendingPollRef.current)
-  }, [])
-
   // ── Unlock AudioContext on first user touch (mobile autoplay policy) ──
   useEffect(() => {
     const unlock = () => {
@@ -546,7 +360,6 @@ export default function DeliveryPage() {
         }
       } catch {}
     }
-    // First touch/click unlocks the audio context for all future plays
     document.addEventListener('touchstart', unlock, { once: true, passive: true })
     document.addEventListener('click',      unlock, { once: true })
     return () => {
@@ -555,76 +368,23 @@ export default function DeliveryPage() {
     }
   }, [])
 
-  // ── Alarm: rings while there are pending orders AND boy is online ──
+  // ── SW message: play alert sound immediately when push arrives ────
   useEffect(() => {
-    const playRing = () => {
-      try {
-        // Use shared (pre-warmed) context if available, else create new
-        const ctx = sharedAudioCtx.current || new (window.AudioContext || window.webkitAudioContext)()
-        if (!sharedAudioCtx.current) sharedAudioCtx.current = ctx
-
-        const doPlay = () => {
-          // Two-tone "ding ding" ringtone pattern
-          const pattern = [
-            { freq:1046, start:0,    dur:0.15 },
-            { freq:1318, start:0.18, dur:0.15 },
-            { freq:1046, start:0.55, dur:0.15 },
-            { freq:1318, start:0.73, dur:0.15 },
-          ]
-          pattern.forEach(({ freq, start, dur }) => {
-            const o = ctx.createOscillator(), g = ctx.createGain()
-            o.type = 'sine'; o.frequency.value = freq
-            o.connect(g); g.connect(ctx.destination)
-            g.gain.setValueAtTime(0, ctx.currentTime + start)
-            g.gain.linearRampToValueAtTime(0.5, ctx.currentTime + start + 0.04)
-            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur)
-            o.start(ctx.currentTime + start)
-            o.stop(ctx.currentTime + start + dur + 0.01)
-          })
-        }
-
-        // Resume if suspended (required on mobile after page load without gesture)
-        if (ctx.state === 'suspended') {
-          ctx.resume().then(doPlay).catch(() => {})
-        } else {
-          doPlay()
-        }
-      } catch {}
-    }
-
-    if (pendingOrders.length > 0 && isOnline) {
-      if (!alarmIntervalRef.current) {
-        playRing() // immediate first ring
-        alarmIntervalRef.current = setInterval(playRing, 2500)
-      }
-      // Keep screen on while ringing
-      if ('wakeLock' in navigator && !wakeLockRef.current) {
-        navigator.wakeLock.request('screen').then(lock => {
-          wakeLockRef.current = lock
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return
+    const handler = (e) => {
+      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND' || e.data?.type === 'NEW_ORDER_ALARM') {
+        playAlert()
+        // Refresh orders list so new assignment shows immediately
+        fetch('/api/orders').then(r => r.json()).then(d => {
+          const newOrders = d.orders || []
+          setOrders(newOrders)
+          lastOrderIds.current = new Set(newOrders.map(o => o.id))
         }).catch(() => {})
       }
-    } else {
-      if (alarmIntervalRef.current) {
-        clearInterval(alarmIntervalRef.current)
-        alarmIntervalRef.current = null
-      }
-      // Release wake lock
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {})
-        wakeLockRef.current = null
-      }
     }
-    return () => {
-      if (alarmIntervalRef.current) {
-        clearInterval(alarmIntervalRef.current)
-        alarmIntervalRef.current = null
-      }
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {})
-        wakeLockRef.current = null
-      }
-    }
-  }, [pendingOrders.length, isOnline])
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
 
   // Notification polling for delivery boy
   useEffect(() => {
@@ -740,12 +500,11 @@ export default function DeliveryPage() {
 
   const loadData = async () => {
     try {
-      const [ordersRes, historyRes, profileRes, statusRes, pendingRes] = await Promise.all([
+      const [ordersRes, historyRes, profileRes, statusRes] = await Promise.all([
         fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] })),
         fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).catch(() => ({})),
         fetch('/api/profile').then(r => r.json()).catch(() => ({})),
         fetch('/api/delivery/status').then(r => r.json()).catch(() => ({})),
-        fetch('/api/delivery/pending').then(r => r.json()).catch(() => ({ orders: [] })),
       ])
       const initial = ordersRes.orders || []
       setOrders(initial)
@@ -767,9 +526,6 @@ export default function DeliveryPage() {
       } else if (info) {
         setIsOnline(info?.is_online ?? false)
       }
-      // Load pending orders immediately — alarm starts right away when page opens from notification tap
-      const pending = (pendingRes.orders || []).filter(o => !respondingOrderIdsRef.current.has(o.id))
-      if (pending.length > 0) setPendingOrders(pending)
     } catch(e) {
       console.error('loadData error:', e)
     } finally {
@@ -802,51 +558,6 @@ export default function DeliveryPage() {
       showToast('❌ Network error — dobara try karo')
     }
     setToggling(false)
-  }
-
-  const respondOrder = async (orderId, action) => {
-    // ── Immediately remove from UI + stop alarm ──────────────────────
-    // This runs BEFORE the API call so alarm stops instantly on tap
-    respondingOrderIdsRef.current.add(orderId)
-    setPendingOrders(p => p.filter(o => o.id !== orderId))
-    setRespondingOrder(orderId + action)
-
-    try {
-      const res = await fetch('/api/delivery/respond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, action }),
-      })
-      const data = await res.json()
-
-      if (action === 'reject') {
-        // DB has stored rejection — poll won't return this order again for this boy
-        showToast('❌ Order reject kar diya — next order ka wait karo')
-      } else {
-        // Accept
-        if (data.success) {
-          showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
-          // Refresh assigned orders list (pending order with delivery_boy_id now shows)
-          const d = await fetch('/api/orders').then(r => r.json()).catch(() => ({ orders: [] }))
-          const newOrders = d.orders || []
-          setOrders(newOrders)
-          lastOrderIds.current = new Set(newOrders.map(o => o.id))
-        } else if (data.reason === 'already_taken') {
-          // Another boy was faster — it's already gone, nothing to restore
-          showToast('⚠️ Ye order kisi aur ne le liya — agli order ka intezaar karo')
-        } else {
-          // Unknown error — allow retry by removing from tracking set
-          respondingOrderIdsRef.current.delete(orderId)
-          showToast('❌ Accept nahi hua — dobara try karo')
-        }
-      }
-    } catch {
-      // Network error — remove from set so poll can re-show it for retry
-      respondingOrderIdsRef.current.delete(orderId)
-      showToast('❌ Network error — dobara try karo')
-    } finally {
-      setRespondingOrder(null)
-    }
   }
 
   const markPickup = async (orderId) => {
@@ -916,16 +627,6 @@ export default function DeliveryPage() {
 
   return (
     <div style={{ minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column', maxWidth:480, margin:'0 auto', position:'relative' }}>
-
-      {/* ── Order Alarm Modal — show when unassigned orders waiting & boy is online ── */}
-      {pendingOrders.length > 0 && isOnline && (
-        <OrderAlarmModal
-          order={pendingOrders[0]}
-          responding={respondingOrder}
-          onAccept={(id) => respondOrder(id, 'accept')}
-          onReject={(id) => respondOrder(id, 'reject')}
-        />
-      )}
 
       {/* Android notification settings guide */}
       {showNotifModal && <NotifGuideModal onClose={() => setShowNotifModal(false)} />}

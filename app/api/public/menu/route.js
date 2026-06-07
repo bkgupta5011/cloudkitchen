@@ -71,7 +71,7 @@ export async function GET() {
       LIMIT 6
     `
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       items,
       categories,
       kitchen: kitchen || null,
@@ -79,8 +79,12 @@ export async function GET() {
       offers,
       reviews,
     })
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return res
   } catch (e) {
     console.error('Public menu API error:', e)
-    return NextResponse.json({ items: [], categories: [], kitchen: null, offers: [], reviews: [] })
+    const res = NextResponse.json({ items: [], categories: [], kitchen: null, offers: [], reviews: [] })
+    res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+    return res
   }
 }

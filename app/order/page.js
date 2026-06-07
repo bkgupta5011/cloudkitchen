@@ -102,8 +102,8 @@ export default function OrderPage() {
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState(null)
 
-  useEffect(() => {
-    fetch('/api/public/menu')
+  const loadMenu = () => {
+    fetch('/api/public/menu', { cache: 'no-store' })
       .then(r => r.json())
       .then(data => {
         setItems(data.items || [])
@@ -115,6 +115,14 @@ export default function OrderPage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    loadMenu()
+    // Refetch when user switches back to this tab (e.g. after changing settings)
+    const onFocus = () => loadMenu()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   /* Sort: Rice Combos first, Add-Ons last when "All" is selected */

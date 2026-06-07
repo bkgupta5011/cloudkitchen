@@ -164,32 +164,31 @@ export async function GET(request) {
       )
     `.catch(() => {})
 
-    // ── Global 5-min timeout (atomic UPDATE — whichever boy polls first wins) ──
-    // Uses boy_assigned_at so each re-assignment gives a fresh 5-min window.
-    // NOT filtered by delivery_boy_id — any delivery boy's poll can trigger this,
-    // so it works even if the originally assigned boy's page is closed.
+    // ── Global 5-min timeout ─────────────────────────────────────────
+    // SELECT first (captures old delivery_boy_id = prev_boy_id correctly).
+    // PostgreSQL RETURNING after SET col=NULL gives NULL, not the old value —
+    // that was the root bug. SELECT-then-atomic-UPDATE fixes it.
+    // Any delivery boy's poll triggers this (not filtered by user.id),
+    // so it works even if the assigned boy's page is closed.
     const timedOut = await sql`
-      UPDATE orders
-      SET delivery_boy_id = NULL, boy_payout = NULL, boy_assigned_at = NULL
+      SELECT id, delivery_boy_id AS prev_boy_id,
+             order_number, total, distance_km, delivery_address
+      FROM orders
       WHERE boy_accepted_at IS NULL
         AND delivery_boy_id IS NOT NULL
         AND status = 'pending'
         AND COALESCE(boy_assigned_at, created_at) < NOW() - INTERVAL '5 minutes'
-      RETURNING id, order_number, total, distance_km, delivery_address,
-                delivery_boy_id AS prev_boy_id
     `.catch(() => [])
 
     for (const order of timedOut) {
-      // Record auto-timeout as rejection for the prev assigned boy
-      if (order.prev_boy_id) {
-        await sql`
-          INSERT INTO order_rejections (order_id, delivery_boy_id)
-          VALUES (${order.id}, ${order.prev_boy_id})
-          ON CONFLICT DO NOTHING
-        `.catch(() => {})
-      }
+      // Find next eligible boy BEFORE clearing (so if none → keep current boy assigned)
+      // Record prev_boy as rejected so he's excluded from eligible list
+      await sql`
+        INSERT INTO order_rejections (order_id, delivery_boy_id)
+        VALUES (${order.id}, ${order.prev_boy_id})
+        ON CONFLICT DO NOTHING
+      `.catch(() => {})
 
-      // Find next eligible boy (excluding all who already rejected)
       const eligible = await sql`
         SELECT db.id, db.name, db.per_km_earning,
           COUNT(o2.id) FILTER (WHERE o2.status IN ('confirmed','preparing')) AS active_orders
@@ -205,19 +204,40 @@ export async function GET(request) {
         LIMIT 1
       `.catch(() => [])
 
-      if (!eligible.length) continue
+      if (!eligible.length) {
+        // No other boy available — undo rejection + reset 5-min window so prev boy
+        // stays assigned and can still accept (order never goes into limbo)
+        await sql`
+          DELETE FROM order_rejections
+          WHERE order_id = ${order.id} AND delivery_boy_id = ${order.prev_boy_id}
+        `.catch(() => {})
+        await sql`
+          UPDATE orders SET boy_assigned_at = NOW()
+          WHERE id = ${order.id}
+            AND delivery_boy_id = ${order.prev_boy_id}
+            AND boy_accepted_at IS NULL
+        `.catch(() => {})
+        continue
+      }
 
       const nextBoy   = eligible[0]
       const perKm     = parseFloat(nextBoy.per_km_earning || 0)
       const distKm    = order.distance_km ? parseFloat(order.distance_km) : null
       const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
 
-      await sql`
+      // Atomic reassign — WHERE delivery_boy_id = prev_boy_id ensures only one
+      // concurrent poller succeeds (race-safe). If already reassigned → skip.
+      const reassigned = await sql`
         UPDATE orders
         SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout},
             boy_accepted_at = NULL, boy_assigned_at = NOW()
-        WHERE id = ${order.id} AND delivery_boy_id IS NULL
-      `.catch(() => {})
+        WHERE id              = ${order.id}
+          AND delivery_boy_id = ${order.prev_boy_id}
+          AND boy_accepted_at IS NULL
+        RETURNING id
+      `.catch(() => [])
+
+      if (!reassigned.length) continue   // another poller already handled it
 
       sendPushToUser(String(nextBoy.id), {
         title: '📦 Naya Order Assign Hua!',

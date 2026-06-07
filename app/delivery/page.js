@@ -619,7 +619,12 @@ export default function DeliveryPage() {
         setOrders(p => p.map(o => o.id === orderId ? { ...o, boy_accepted_at: new Date().toISOString() } : o))
         showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
       } else {
-        showToast('⚠️ Accept nahi hua — dobara try karo')
+        // Order was auto-reassigned away — refresh so stale order disappears
+        fetch('/api/orders').then(r => r.json()).then(d => {
+          setOrders(d.orders || [])
+          lastOrderIds.current = new Set((d.orders || []).map(o => o.id))
+        }).catch(() => {})
+        showToast('⚠️ Order kisi aur ko assign ho gaya — list refresh ho rahi hai')
       }
     } catch {
       showToast('❌ Network error — dobara try karo')

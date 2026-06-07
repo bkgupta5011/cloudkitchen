@@ -17,16 +17,16 @@ function getCatIndex(cat) {
 }
 
 const FAQ = [
-  { q: 'Which areas do you deliver to?', a: 'We currently deliver within 4 km of our kitchen in East Laxmi Nagar, Patna. This covers most of Patna city including Boring Road, Kankarbagh, Rajendra Nagar, Bailey Road, and nearby areas.' },
-  { q: 'What are your delivery timings?', a: 'We are open daily from 9:00 AM to 11:50 PM. You can place orders anytime within these hours and your food will be delivered fresh.' },
-  { q: 'How long does delivery take?', a: 'Typical delivery time is 30–45 minutes from order placement. During peak hours it may take slightly longer. You will receive live updates on your order status.' },
-  { q: 'Is Cash on Delivery available?', a: 'Yes! We accept Cash on Delivery (COD) on all orders. No online payment required.' },
+  { q: 'Which areas do you deliver to in Patna?', a: 'FoodFi delivers across Patna within 4 km of our kitchen in East Laxmi Nagar. We serve Kankarbagh, Jaganpura, New Jaganpura, Ramkrishna Nagar, Rajendra Nagar, Lohia Nagar, Hanuman Nagar, Mithapur, Doctor Colony, Postal Park, Patrakar Nagar, Ashok Nagar, Bhupatipur, Chitragupta Nagar, Vijay Nagar, RMS Colony, Sipara, Bhootnath Road, Jai Prakash Nagar, Bankman Colony, Zero Mile, Bypass Road and all nearby areas.' },
+  { q: 'What are your delivery timings?', a: 'We are open daily from 9:00 AM to 11:50 PM — 7 days a week. Order anytime and get fresh food delivered in 30–45 minutes.' },
+  { q: 'What is the best dish at FoodFi?', a: 'Our most loved dishes are Rajma Rice Bowl (best rajma chawal in Patna), Classic Chole Rice, Matar Chole Rice, Paneer Chole Rice, Mix Protein Rice Bowl, Dal Tadka Rice, Jeera Rice, Roti Combos and Puri Combos. All cooked fresh, ghar jaisa swad — no preservatives.' },
+  { q: 'Do you deliver Protein / Gym meals in Patna?', a: 'Yes! Our Mix Protein Rice Bowl and White Chana Rice Bowl are perfect high-protein meals for fitness and gym enthusiasts in Patna. Healthy, filling and delivered fresh to Kankarbagh, Jaganpura and all areas.' },
+  { q: 'Is Cash on Delivery available?', a: 'Yes! We accept Cash on Delivery (COD) on all orders in Patna — Kankarbagh, Jaganpura, Ramkrishna Nagar, East Laxmi Nagar and all delivery areas. No online payment required.' },
+  { q: 'What Roti and Puri Combos do you offer?', a: 'We offer 2 Roti Combo and 5 Roti Combo with Rajma, Chole, Dal Tadka, Mix Chole or Paneer Chole. Also 6 Puri with Rajma and 6 Puri with Chole. Best roti combo home delivery in Patna.' },
+  { q: 'What are Tadka Specials?', a: 'FoodFi Tadka Specials include Chana Tadka, Rajma Tadka, Dal Tadka, Paneer Tadka and Mix Chole Tadka — freshly prepared and delivered hot in Patna.' },
   { q: 'How do I track my order?', a: 'After placing your order on foodfi.in, you will receive real-time status updates — Confirmed → Preparing → Out for Delivery → Delivered. Push notifications are also sent.' },
-  { q: 'Can I cancel my order?', a: 'Orders can be cancelled within a few minutes of placement, before the kitchen starts preparing. Once preparation begins, cancellation is not possible.' },
   { q: 'Do you offer any discounts?', a: 'Yes! Use code WELCOME50 for ₹50 off on your first order (minimum order ₹200). Check foodfi.in for latest offers.' },
-  { q: 'How fresh is the food?', a: 'Everything is cooked fresh to order in our cloud kitchen. We use no preservatives and cook in small batches to ensure quality and taste every time.' },
-  { q: 'Do you have a minimum order amount?', a: 'There is no minimum order amount. However, orders above ₹200 are eligible for special discount offers.' },
-  { q: 'How do I contact you for support?', a: 'You can reach us on WhatsApp or call us directly. Our support team is available during kitchen hours (9 AM – 11:50 PM).' },
+  { q: 'How fresh is the food?', a: 'Everything is cooked fresh to order in our cloud kitchen in East Laxmi Nagar, Patna. We use no preservatives and cook in small batches — ghar jaisa khana, restaurant quality taste, delivered in 30–45 minutes.' },
 ]
 
 function getCategoryEmoji(cat) {
@@ -326,7 +326,7 @@ export default function OrderPage() {
                     {item.image_url ? (
                       <img
                         src={item.image_url}
-                        alt={item.name}
+                        alt={`${item.name} – FoodFi Cloud Kitchen Patna | Best ${item.category || 'Food'} Delivery in Patna`}
                         style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHovered ? 'scale(1.07)' : 'scale(1)' }}
                         onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
                       />
@@ -506,15 +506,38 @@ export default function OrderPage() {
           </div>
         </div>
 
+        {/* ── Our Specialties (SEO keyword section) ──────── */}
+        <div style={{ marginTop: 36, background: 'linear-gradient(135deg, #fff7ed, #fff)', borderRadius: 14, padding: '20px 22px', border: '1px solid #fed7aa' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 800, color: '#92400e', marginBottom: 12 }}>
+            🍽️ Our Specialties – Best Food in Patna
+          </h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+            {[
+              { emoji: '🫘', title: 'Rajma Chawal', desc: 'Best Rajma Chawal in Kankarbagh, Jaganpura & East Laxmi Nagar' },
+              { emoji: '🌰', title: 'Chole Chawal', desc: 'Classic Chole Rice, Matar Chole Rice & Paneer Chole Rice' },
+              { emoji: '💪', title: 'Protein Rice Bowl', desc: 'Mix Protein Rice Bowl & White Chana Rice – Gym & Fitness Meals' },
+              { emoji: '🫓', title: 'Roti Combos', desc: '2 Roti & 5 Roti Combos with Rajma, Chole, Dal Tadka & more' },
+              { emoji: '🥣', title: 'Tadka Specials', desc: 'Chana Tadka, Rajma Tadka, Dal Tadka & Paneer Tadka' },
+              { emoji: '🫓', title: 'Puri Combos', desc: '6 Puri with Rajma or Chole – Best Puri Combo Patna' },
+            ].map(s => (
+              <div key={s.title} style={{ background: '#fff', borderRadius: 10, padding: '12px 14px', border: '1px solid #fed7aa' }}>
+                <p style={{ margin: '0 0 4px', fontSize: 20 }}>{s.emoji}</p>
+                <p style={{ margin: '0 0 3px', fontSize: 12, fontWeight: 800, color: '#c2410c' }}>{s.title}</p>
+                <p style={{ margin: 0, fontSize: 11, color: '#78350f', lineHeight: 1.5 }}>{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* ── Delivery Areas (SEO section) ──────────────── */}
-        <div style={{ marginTop: 36, background: '#fff', borderRadius: 14, padding: '20px 22px', border: '1px solid #f3f4f6' }}>
+        <div style={{ marginTop: 20, background: '#fff', borderRadius: 14, padding: '20px 22px', border: '1px solid #f3f4f6' }}>
           <h2 style={{ fontSize: 15, fontWeight: 800, color: '#1f2937', marginBottom: 8 }}>
             🚀 Food Delivery Areas in Patna
           </h2>
           <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.6 }}>
-            FoodFi delivers Rajma Chawal, Chole Chawal, Dal Chawal, Protein Rice Bowls and Roti Combos across Patna. We currently serve:
+            FoodFi delivers Rajma Chawal, Chole Chawal, Roti Combos, Protein Rice Bowls &amp; Tadka Specials across Patna within 4 km of East Laxmi Nagar:
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
             {[
               'Kankarbagh','Jaganpura','New Jaganpura','East Laxmi Nagar','Ramkrishna Nagar',
               'Rajendra Nagar','Lohia Nagar','Hanuman Nagar','Mithapur','Postal Park',
@@ -522,25 +545,42 @@ export default function OrderPage() {
               'RMS Colony','Sipara','Bhootnath Road','Doctor Colony','Jai Prakash Nagar',
               'Bankman Colony','Tempo Stand','Zero Mile','Transport Nagar','Chiraiyatand',
               'Bypass Road','Mahatma Gandhi Nagar','Khemnichak','Agamkuan','Kumhrar',
+              'Bailey Road','Boring Road','Rukunpura','Sheikhpura',
             ].map(area => (
               <span key={area} style={{
                 background: '#fff7ed', color: '#c2410c', fontSize: 11, fontWeight: 600,
                 padding: '4px 10px', borderRadius: 20, border: '1px solid #fed7aa',
               }}>
-                {area}
+                📍 {area}
               </span>
             ))}
           </div>
-          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 12 }}>
-            Best Rajma Chawal in Kankarbagh · Best Chole Chawal in Jaganpura · Food Delivery East Laxmi Nagar · Cloud Kitchen Patna
-          </p>
+          <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {[
+              'Best Rajma Chawal in Kankarbagh',
+              'Best Chole Chawal in Jaganpura',
+              'Best Rajma Chawal in East Laxmi Nagar',
+              'Best Chole Chawal in Ramkrishna Nagar',
+              'Food Delivery Rajendra Nagar',
+              'Ghar Jaisa Khana Patna',
+              'Cloud Kitchen Patna',
+              'Budget Meals Patna',
+              'Protein Meal Kankarbagh',
+            ].map(tag => (
+              <span key={tag} style={{ fontSize: 10, color: '#6b7280', background: '#f9fafb', padding: '3px 8px', borderRadius: 20, border: '1px solid #e5e7eb' }}>
+                {tag}
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* ── Footer ────────────────────────────────────── */}
         <div style={{ marginTop: 32, paddingTop: 20, borderTop: '1px solid #e5e7eb', textAlign: 'center' }}>
-          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>© 2025 FoodFi Cloud Kitchen · Patna, Bihar</p>
-          <p style={{ fontSize: 11, color: '#d1d5db' }}>
-            Best Food Delivery in Patna · Rajma Chawal · Chole Chawal · Rice Bowls · Roti Combos
+          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>© 2025 FoodFi Cloud Kitchen · Road No 8, East Laxmi Nagar, Patna, Bihar</p>
+          <p style={{ fontSize: 11, color: '#d1d5db', lineHeight: 1.8 }}>
+            Best Food Delivery in Patna · Rajma Chawal · Chole Chawal · Matar Chole Rice · Paneer Chole Rice<br />
+            Mix Protein Rice Bowl · Dal Tadka Rice · Jeera Rice · Roti Combos · Puri Combos · Tadka Specials<br />
+            Food Delivery Kankarbagh · Food Delivery Jaganpura · Food Delivery East Laxmi Nagar · Cloud Kitchen Patna
           </p>
         </div>
       </div>

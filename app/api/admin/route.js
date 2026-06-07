@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
+import { sendPushToUser } from '@/lib/push'
 
 function adminOnly(request) {
   const token = request.cookies.get('ck_token')?.value
@@ -407,6 +408,13 @@ export async function PATCH(request) {
       SELECT id, name, COALESCE(payment_due, 0) as payment_due, COALESCE(total_paid, 0) as total_paid, total_earnings
       FROM delivery_boys WHERE id = ${data.id}::uuid
     `
+    // Notify delivery boy about payment
+    sendPushToUser(String(data.id), {
+      title: `💰 Payment Mila! ₹${Math.round(amount)}`,
+      body: data.notes ? data.notes : `Admin ne ₹${Math.round(amount)} payment kar di. Baaki: ₹${Math.round(parseFloat(boy?.payment_due || 0))}`,
+      url: '/delivery',
+      tag: `payment-${Date.now()}`,
+    }, 'delivery').catch(() => {})
     return NextResponse.json({ success: true, boy })
   }
 

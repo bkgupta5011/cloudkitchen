@@ -323,6 +323,20 @@ export default function DeliveryPage() {
     return () => clearInterval(notifPollRef.current)
   }, [])
 
+  // Auto-refresh earnings + payment info every 30s (catches admin payments instantly)
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const d = await fetch(`/api/delivery/history?period=today&_t=${Date.now()}`, { cache: 'no-store' }).then(r => r.json())
+        if (d.stats)          setStats(d.stats)
+        if (d.boyInfo)        setBoyInfo(d.boyInfo)
+        if (d.allTime)        setAllTime(d.allTime)
+        if (d.paymentHistory) setPaymentHistory(d.paymentHistory)
+      } catch {}
+    }, 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   // Show install banner after 3s if applicable
   useEffect(() => {
     if (!isInstalled && (installPrompt || isIOS)) {

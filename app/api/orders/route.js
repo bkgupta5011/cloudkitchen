@@ -477,6 +477,10 @@ export async function PATCH(request) {
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)
         : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
+      // Always store boy_payout so history queries show correct earnings (fixes NULL boy_payout bug)
+      if (!order.boy_payout) {
+        await sql`UPDATE orders SET boy_payout = ${earned} WHERE id = ${orderId}`
+      }
       await sql`
         UPDATE delivery_boys
         SET total_earnings = total_earnings + ${earned},
@@ -517,6 +521,10 @@ export async function PATCH(request) {
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)
         : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
+      // Always store boy_payout so history queries show correct earnings (fixes NULL boy_payout bug)
+      if (!order.boy_payout) {
+        await sql`UPDATE orders SET boy_payout = ${earned} WHERE id = ${orderId}`
+      }
       await sql`
         UPDATE delivery_boys
         SET total_earnings = total_earnings + ${earned},

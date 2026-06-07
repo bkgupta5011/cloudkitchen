@@ -101,7 +101,10 @@ export async function GET(request) {
 
   if (user.role === 'customer') {
     orders = await sql`
-      SELECT o.*, d.name as delivery_boy_name, d.phone as delivery_boy_phone
+      SELECT o.*,
+        d.name as delivery_boy_name, d.phone as delivery_boy_phone,
+        d.current_lat as boy_lat, d.current_lng as boy_lng,
+        d.location_updated_at as boy_location_at
       FROM orders o
       LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
       WHERE o.user_id = ${user.id}

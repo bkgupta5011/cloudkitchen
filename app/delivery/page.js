@@ -223,6 +223,10 @@ export default function DeliveryPage() {
   const lastOrderIds   = useRef(new Set())
   const initialLoadDone = useRef(false)
   const isOnlineRef    = useRef(null)
+  // Live location tracking refs
+  const locationWatchRef    = useRef(null)
+  const locationIntervalRef = useRef(null)
+  const lastLocRef          = useRef(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
 
@@ -313,6 +317,54 @@ export default function DeliveryPage() {
       return () => clearTimeout(t)
     }
   }, [installPrompt, isIOS, isInstalled])
+
+  // ── Live Location Sender ──────────────────────────────────────────
+  // Jab koi order out_for_delivery ho — GPS start, har 15s mein location bhejo
+  useEffect(() => {
+    const isDelivering = orders.some(o => o.status === 'out_for_delivery')
+
+    if (isDelivering && !locationWatchRef.current && navigator.geolocation) {
+      // Start GPS watch
+      locationWatchRef.current = navigator.geolocation.watchPosition(
+        pos => {
+          lastLocRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        },
+        () => {}, // silent fail — no GPS permission etc.
+        { enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 }
+      )
+      // Send location every 15 seconds
+      locationIntervalRef.current = setInterval(() => {
+        if (lastLocRef.current) {
+          fetch('/api/delivery/location', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(lastLocRef.current)
+          }).catch(() => {})
+        }
+      }, 15000)
+    }
+
+    // Delivery khatam ya koi delivery order nahi — GPS band karo
+    if (!isDelivering) {
+      if (locationWatchRef.current != null) {
+        navigator.geolocation.clearWatch(locationWatchRef.current)
+        locationWatchRef.current = null
+      }
+      if (locationIntervalRef.current) {
+        clearInterval(locationIntervalRef.current)
+        locationIntervalRef.current = null
+      }
+      lastLocRef.current = null
+    }
+  }, [orders])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current)
+      if (locationIntervalRef.current) clearInterval(locationIntervalRef.current)
+    }
+  }, [])
 
   const loadData = async () => {
     try {

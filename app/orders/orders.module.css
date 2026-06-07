@@ -1,5 +1,10 @@
 .page { min-height: 100vh; background: #f9fafb; font-family: 'Segoe UI', sans-serif; }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(1.4); }
+}
+
 .nav {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 24px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.08);

@@ -164,6 +164,111 @@ function StarRating({ orderId, existing, onDone }) {
   )
 }
 
+// ── Leaflet loader (CDN — no API key needed) ─────────────────────
+function loadLeaflet() {
+  return new Promise((resolve) => {
+    if (window.L) { resolve(window.L); return }
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+    }
+    const script = document.createElement('script')
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => resolve(window.L)
+    document.head.appendChild(script)
+  })
+}
+
+// ── Live Tracking Map (Leaflet + OpenStreetMap — FREE) ───────────
+function LiveTrackingMap({ boyLat, boyLng, customerLat, customerLng }) {
+  const mapRef      = useRef(null)
+  const mapInstance = useRef(null)
+  const boyMarker   = useRef(null)
+
+  // Init map once
+  useEffect(() => {
+    if (!boyLat || !boyLng) return
+    loadLeaflet().then(L => {
+      if (mapInstance.current || !mapRef.current) return
+
+      const map = L.map(mapRef.current, { zoomControl: true, attributionControl: false })
+        .setView([boyLat, boyLng], 15)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+
+      // 🛵 Delivery boy marker
+      const boyIcon = L.divIcon({
+        html: '<div style="font-size:30px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))">🛵</div>',
+        className: '', iconSize: [36, 36], iconAnchor: [18, 36]
+      })
+      boyMarker.current = L.marker([boyLat, boyLng], { icon: boyIcon })
+        .addTo(map).bindPopup('Delivery Boy')
+
+      // 🏠 Customer / destination marker
+      if (customerLat && customerLng) {
+        const custIcon = L.divIcon({
+          html: '<div style="font-size:30px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))">🏠</div>',
+          className: '', iconSize: [36, 36], iconAnchor: [18, 36]
+        })
+        L.marker([customerLat, customerLng], { icon: custIcon })
+          .addTo(map).bindPopup('Your Location')
+        try {
+          map.fitBounds([[boyLat, boyLng], [customerLat, customerLng]], { padding: [50, 50] })
+        } catch {}
+      }
+
+      mapInstance.current = map
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // only init once
+
+  // Update boy position on every lat/lng change
+  useEffect(() => {
+    if (!boyMarker.current || !boyLat || !boyLng) return
+    boyMarker.current.setLatLng([boyLat, boyLng])
+    mapInstance.current?.panTo([boyLat, boyLng], { animate: true, duration: 1 })
+  }, [boyLat, boyLng])
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    mapInstance.current?.remove()
+    mapInstance.current = null
+    boyMarker.current = null
+  }, [])
+
+  return (
+    <div style={{ marginTop:12, borderRadius:14, overflow:'hidden', border:'2px solid #e85d0440', boxShadow:'0 4px 20px rgba(232,93,4,0.1)' }}>
+      {/* Header bar */}
+      <div style={{ background:'linear-gradient(90deg,#fff7ed,#fef3c7)', padding:'8px 14px', display:'flex', alignItems:'center', gap:8 }}>
+        <span style={{ fontSize:18 }}>🛵</span>
+        <div>
+          <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>Live Tracking</div>
+          <div style={{ fontSize:10, color:'#b45309' }}>Delivery boy raste mein hai — har 15s mein update hota hai</div>
+        </div>
+        <span style={{ marginLeft:'auto', fontSize:10, color:'#16a34a', fontWeight:700, display:'flex', alignItems:'center', gap:4 }}>
+          <span style={{ width:7, height:7, borderRadius:'50%', background:'#16a34a', display:'inline-block', animation:'pulse 1.5s infinite' }} />
+          LIVE
+        </span>
+      </div>
+      {/* Map */}
+      {boyLat && boyLng
+        ? <div ref={mapRef} style={{ height:220, width:'100%' }} />
+        : <div style={{ height:80, display:'flex', alignItems:'center', justifyContent:'center', color:'#9ca3af', fontSize:13, background:'#f9fafb' }}>
+            ⏳ Location fetch ho rahi hai...
+          </div>
+      }
+      {/* Legend */}
+      <div style={{ background:'#fffbeb', padding:'6px 14px', display:'flex', gap:16, fontSize:11, color:'#78350f' }}>
+        <span>🛵 Delivery Boy</span>
+        <span>🏠 Aapka Ghar</span>
+        <span style={{ marginLeft:'auto', color:'#9ca3af' }}>OpenStreetMap</span>
+      </div>
+    </div>
+  )
+}
+
 function viewBill(order, items) {
   const w = window.open('', '_blank', 'width=380,height=620')
   const rows = (items || []).map(i =>
@@ -252,6 +357,16 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
           🛵 <strong>{order.delivery_boy_name}</strong>
           {order.delivery_boy_phone && <> · <a href={`tel:${order.delivery_boy_phone}`} style={{color:'#e85d04',textDecoration:'none'}}>{order.delivery_boy_phone}</a></>}
         </div>
+      )}
+
+      {/* Live Tracking Map — only when out for delivery */}
+      {order.status === 'out_for_delivery' && (
+        <LiveTrackingMap
+          boyLat={order.boy_lat ? parseFloat(order.boy_lat) : null}
+          boyLng={order.boy_lng ? parseFloat(order.boy_lng) : null}
+          customerLat={order.delivery_lat ? parseFloat(order.delivery_lat) : null}
+          customerLng={order.delivery_lng ? parseFloat(order.delivery_lng) : null}
+        />
       )}
 
       <button onClick={onExpand}
@@ -396,7 +511,8 @@ export default function OrdersPage() {
       })
     })
 
-    pollRef.current = setInterval(loadOrders, 15000)
+    // Poll every 10s (faster when delivery is live — map stays fresh)
+    pollRef.current = setInterval(loadOrders, 10000)
     // Poll for new notifications every 20s
     lastUnreadRef.current = -1 // skip first sound
     fetchUnread().then(() => { lastUnreadRef.current = unreadCount })

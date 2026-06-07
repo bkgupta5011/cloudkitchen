@@ -312,9 +312,30 @@ export default function AdminPage() {
   }
 
   const saveKitchenSettings = async () => {
-    await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', ...kitchenSettings }) })
-    kitchenSettingsRef.current = kitchenSettings  // sync ref
-    showToast('✅ Kitchen settings save ho gayi!')
+    try {
+      const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', ...kitchenSettings }) })
+      if (!res.ok) {
+        const err = await res.text()
+        showToast(`❌ Save failed (${res.status}): ${err.slice(0,80)}`)
+        console.error('Kitchen save error:', res.status, err)
+        return
+      }
+      const json = await res.json()
+      console.log('Kitchen saved. DB returned:', json.settings)
+      kitchenSettingsRef.current = kitchenSettings
+      // Sync state with what DB actually saved
+      if (json.settings) {
+        setKitchenSettings(s => ({ ...s,
+          open_time: json.settings.open_time || s.open_time,
+          close_time: json.settings.close_time || s.close_time,
+          estimated_time: json.settings.estimated_time || s.estimated_time,
+        }))
+      }
+      showToast('✅ Kitchen settings save ho gayi!')
+    } catch(e) {
+      showToast('❌ Network error: ' + e.message)
+      console.error('Kitchen save exception:', e)
+    }
   }
 
   const updateOrderStatus = async (orderId, status) => {

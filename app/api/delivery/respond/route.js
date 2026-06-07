@@ -2,10 +2,60 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { sendPushToRole, sendPushToUser } from '@/lib/push'
+import { sendPushToUser } from '@/lib/push'
+
+// Helper: find next eligible boy and assign
+async function reassignOrder(sql, orderId, orderInfo) {
+  const eligibleBoys = await sql`
+    SELECT db.id, db.name, db.per_km_earning,
+      COUNT(o2.id) FILTER (WHERE o2.status IN ('confirmed','preparing')) AS active_orders
+    FROM delivery_boys db
+    LEFT JOIN orders o2 ON o2.delivery_boy_id = db.id
+      AND o2.status IN ('confirmed', 'preparing', 'out_for_delivery')
+    WHERE db.is_online = true
+      AND db.status = 'approved'
+      AND NOT EXISTS (
+        SELECT 1 FROM orders
+        WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM order_rejections r
+        WHERE r.order_id = ${orderId} AND r.delivery_boy_id = db.id
+      )
+    GROUP BY db.id, db.name, db.per_km_earning
+    ORDER BY active_orders ASC, RANDOM()
+    LIMIT 1
+  `.catch(() => [])
+
+  if (!eligibleBoys.length) return null
+
+  const nextBoy = eligibleBoys[0]
+  const perKm    = parseFloat(nextBoy.per_km_earning || 0)
+  const distKm   = orderInfo.distance_km ? parseFloat(orderInfo.distance_km) : null
+  const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+
+  const assigned = await sql`
+    UPDATE orders
+    SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout}, boy_accepted_at = NULL
+    WHERE id = ${orderId} AND delivery_boy_id IS NULL
+    RETURNING id
+  `.catch(() => [])
+
+  if (!assigned.length) return null  // race: another poller already assigned
+
+  sendPushToUser(String(nextBoy.id), {
+    title: '📦 Naya Order Assign Hua!',
+    body:  `#${orderInfo.order_number} — ₹${Math.round(orderInfo.total)} · Jaldi accept ya reject karo`,
+    url:   '/delivery',
+    tag:   `delivery-${orderId}`,
+    requireInteraction: true,
+  }, 'delivery').catch(() => {})
+
+  return nextBoy
+}
 
 export async function POST(request) {
-  const sql  = getDb()
+  const sql   = getDb()
   const token = request.cookies.get('ck_token')?.value
   const user  = verifyToken(token)
 
@@ -18,7 +68,8 @@ export async function POST(request) {
     return NextResponse.json({ error: 'orderId and action (accept|reject) required' }, { status: 400 })
   }
 
-  // Ensure rejections table exists
+  // Ensure schema
+  await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_accepted_at TIMESTAMPTZ`.catch(() => {})
   await sql`
     CREATE TABLE IF NOT EXISTS order_rejections (
       id               SERIAL PRIMARY KEY,
@@ -29,79 +80,65 @@ export async function POST(request) {
     )
   `.catch(() => {})
 
-  // ── REJECT ─────────────────────────────────────────────────────
-  if (action === 'reject') {
-    await sql`
-      INSERT INTO order_rejections (order_id, delivery_boy_id)
-      VALUES (${orderId}, ${user.id})
-      ON CONFLICT DO NOTHING
+  // ── ACCEPT ──────────────────────────────────────────────────────────
+  if (action === 'accept') {
+    const updated = await sql`
+      UPDATE orders
+      SET boy_accepted_at = NOW()
+      WHERE id              = ${orderId}
+        AND delivery_boy_id = ${user.id}
+        AND boy_accepted_at IS NULL
+        AND status          = 'pending'
+      RETURNING id, order_number
     `
-    return NextResponse.json({ success: true, action: 'rejected' })
+    if (!updated.length) {
+      return NextResponse.json({ success: false, reason: 'already_accepted_or_not_yours' })
+    }
+    return NextResponse.json({
+      success: true,
+      action: 'accepted',
+      orderNumber: updated[0].order_number,
+    })
   }
 
-  // ── ACCEPT (race-safe) ─────────────────────────────────────────
-  // Get payout info
-  const [boyRate]   = await sql`SELECT per_km_earning, name FROM delivery_boys WHERE id = ${user.id}`
-  const [orderInfo] = await sql`SELECT distance_km, delivery_charge, order_number FROM orders WHERE id = ${orderId}`
+  // ── REJECT ──────────────────────────────────────────────────────────
+  // Fetch current order — must be assigned to this boy, not yet accepted
+  const [current] = await sql`
+    SELECT id, order_number, boy_accepted_at, status,
+           distance_km, total, delivery_address
+    FROM orders
+    WHERE id = ${orderId} AND delivery_boy_id = ${user.id}
+  `
+  if (!current)               return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+  if (current.boy_accepted_at) return NextResponse.json({ success: false, reason: 'already_accepted' })
 
-  if (!orderInfo) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-
-  const perKm    = parseFloat(boyRate?.per_km_earning || 0)
-  const distKm   = orderInfo.distance_km ? parseFloat(orderInfo.distance_km) : null
-  const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
-
-  // Atomic claim: only succeeds if nobody else has taken it yet
-  // Status stays 'pending' — admin will manually confirm the order
-  const updated = await sql`
-    UPDATE orders
-    SET delivery_boy_id = ${user.id},
-        boy_payout      = COALESCE(boy_payout, ${boyPayout})
-    WHERE id                = ${orderId}
-      AND delivery_boy_id IS NULL
-      AND status            = 'pending'
-    RETURNING id, order_number
+  // Record rejection so this boy won't get it again
+  await sql`
+    INSERT INTO order_rejections (order_id, delivery_boy_id)
+    VALUES (${orderId}, ${user.id})
+    ON CONFLICT DO NOTHING
   `
 
-  if (!updated.length) {
-    // Another boy beat us to it — tell client to drop this order
-    return NextResponse.json({ success: false, reason: 'already_taken' })
+  // Atomically clear assignment (only if still ours & not accepted)
+  const cleared = await sql`
+    UPDATE orders
+    SET delivery_boy_id = NULL, boy_payout = NULL
+    WHERE id              = ${orderId}
+      AND delivery_boy_id = ${user.id}
+      AND boy_accepted_at IS NULL
+    RETURNING id
+  `
+  if (!cleared.length) {
+    return NextResponse.json({ success: true, action: 'rejected' }) // already gone
   }
 
-  const order = updated[0]
-
-  // ── Dismiss notification on ALL other online boys ─────────────────
-  // Same tag replaces the ringing notification → their phone stops buzzing
-  try {
-    const otherBoys = await sql`
-      SELECT id FROM delivery_boys
-      WHERE is_online = true AND status = 'approved' AND id != ${user.id}
-    `
-    for (const boy of otherBoys) {
-      sendPushToUser(String(boy.id), {
-        title:   'Order Kisi Aur Ne Liya',
-        body:    'Agli order ka wait karo 🛵',
-        url:     '/delivery',
-        tag:     `new-order-${orderId}`,   // Same tag → replaces ringing notification
-        orderId: orderId,
-        isDismiss: true,
-        requireInteraction: false,
-      }, 'delivery').catch(() => {})
-    }
-  } catch {}
-
-  // Notify admins — boy has accepted, waiting for kitchen to confirm
-  sendPushToRole('admin', {
-    title: `🛵 Order #${order.order_number} — Delivery Boy Ready!`,
-    body:  `${boyRate?.name || 'Delivery boy'} ne accept kar liya — ab aap order confirm karo`,
-    url:   '/admin',
-    tag:   `order-accepted-${orderId}`,
-    requireInteraction: true,
-  }).catch(() => {})
+  // Find & assign next eligible boy
+  const nextBoy = await reassignOrder(sql, orderId, current)
 
   return NextResponse.json({
-    success:     true,
-    action:      'accepted',
-    orderId,
-    orderNumber: order.order_number,
+    success:    true,
+    action:     'rejected',
+    reassigned: !!nextBoy,
+    nextBoy:    nextBoy?.name || null,
   })
 }

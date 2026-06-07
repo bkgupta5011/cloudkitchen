@@ -133,10 +133,13 @@ function NotifGuideModal({ onClose }) {
 }
 
 // ── Order Card ────────────────────────────────────────────────────────
-function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
-  const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG.confirmed
-  const needsPickup = order.status === 'confirmed' || order.status === 'preparing'
-  const needsDeliver = order.status === 'out_for_delivery'
+function OrderCard({ order, onPickup, onDeliver, onAccept, onReject, pickingUp, delivering, accepting, rejecting }) {
+  const isUnaccepted = !order.boy_accepted_at   // boy hasn't tapped Accept yet
+  const cfg = isUnaccepted
+    ? { label: '🔔 Naya Order! Accept ya reject karo', color: '#dc2626', bg: '#fef2f2', next: null }
+    : STATUS_CONFIG[order.status] || STATUS_CONFIG.confirmed
+  const needsPickup  = !isUnaccepted && (order.status === 'confirmed' || order.status === 'preparing')
+  const needsDeliver = !isUnaccepted && order.status === 'out_for_delivery'
 
   const openMap = () => {
     const q = order.delivery_lat && order.delivery_lng
@@ -222,7 +225,30 @@ function OrderCard({ order, onPickup, onDeliver, pickingUp, delivering }) {
         </div>
 
         {/* Action Buttons */}
-        {order.status === 'pending' && (
+        {isUnaccepted && (
+          <div>
+            <div style={{ background:'#fef2f2', border:'2px solid #f87171', borderRadius:14, padding:'10px 14px', textAlign:'center', marginBottom:12, animation:'pulseRed 1.5s ease-in-out infinite' }}>
+              <div style={{ fontSize:15, fontWeight:800, color:'#dc2626' }}>⚠️ Jaldi Action Lo!</div>
+              <div style={{ fontSize:11, color:'#b91c1c', marginTop:2 }}>5 min mein accept nahi kiya to order kisi aur ko jayega</div>
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button
+                onClick={() => onReject(order.id)}
+                disabled={!!rejecting || !!accepting}
+                style={{ flex:1, padding:'14px 10px', background:'#f1f5f9', border:'2px solid #cbd5e1', color:'#475569', borderRadius:14, fontSize:14, fontWeight:800, cursor:'pointer', opacity: (rejecting===order.id||accepting===order.id) ? 0.6 : 1, transition:'opacity 0.2s' }}>
+                {rejecting === order.id ? '⏳...' : '❌ Reject'}
+              </button>
+              <button
+                onClick={() => onAccept(order.id)}
+                disabled={!!accepting || !!rejecting}
+                style={{ flex:2, padding:'14px 10px', background:'linear-gradient(135deg,#15803d,#22c55e)', color:'#fff', border:'none', borderRadius:14, fontSize:16, fontWeight:900, cursor:'pointer', opacity: (accepting===order.id||rejecting===order.id) ? 0.6 : 1, boxShadow:'0 6px 24px #22c55e55', transition:'opacity 0.2s' }}>
+                {accepting === order.id ? '⏳ Accepting...' : '✅ Accept Karo'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isUnaccepted && order.status === 'pending' && (
           <div style={{ background:'#fffbeb', border:'2px dashed #f59e0b', borderRadius:14, padding:'14px 16px', textAlign:'center' }}>
             <div style={{ fontSize:20, marginBottom:4 }}>⏳</div>
             <div style={{ fontSize:14, fontWeight:800, color:'#92400e' }}>Kitchen Confirmation Ka Wait Kar Raho</div>
@@ -271,6 +297,8 @@ export default function DeliveryPage() {
   const [toggling, setToggling]       = useState(false)
   const [pickingUp, setPickingUp]     = useState(null) // orderId being picked up
   const [delivering, setDelivering]   = useState(null) // orderId being delivered
+  const [accepting, setAccepting]     = useState(null) // orderId being accepted
+  const [rejecting, setRejecting]     = useState(null) // orderId being rejected
   const [paymentHistory, setPaymentHistory] = useState([])
   const [profileEdit, setProfileEdit] = useState(false)
   const [profileForm, setProfileForm] = useState({})
@@ -298,13 +326,14 @@ export default function DeliveryPage() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
 
-  const playAlert = () => {
+  // beeps=18 (~10s) for soft alert, beeps=36 (~20s) for new order ring
+  const playAlert = (beeps = 18) => {
     try {
       const ctx = sharedAudioCtx.current || new (window.AudioContext || window.webkitAudioContext)()
       if (!sharedAudioCtx.current) sharedAudioCtx.current = ctx
       alertCtxRef.current = ctx
       const doPlay = () => {
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < beeps; i++) {
           const base = ctx.currentTime + i * 0.55
           const o1 = ctx.createOscillator(), g1 = ctx.createGain()
           o1.type = 'square'; o1.frequency.value = 880
@@ -336,7 +365,7 @@ export default function DeliveryPage() {
         if (initialLoadDone.current && lastOrderIds.current.size > 0) {
           const added = newOrders.filter(o => !lastOrderIds.current.has(o.id))
           if (added.length > 0) {
-            playAlert()
+            playAlert(36)
             showToast(`🛵 Naya order assign hua! #${added[0].order_number}`)
           }
         }
@@ -372,9 +401,15 @@ export default function DeliveryPage() {
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.serviceWorker) return
     const handler = (e) => {
-      if (e.data?.type === 'PLAY_NOTIFICATION_SOUND' || e.data?.type === 'NEW_ORDER_ALARM') {
-        playAlert()
-        // Refresh orders list so new assignment shows immediately
+      if (e.data?.type === 'NEW_ORDER_ALARM') {
+        playAlert(36) // 20s ring for new order
+        fetch('/api/orders').then(r => r.json()).then(d => {
+          const newOrders = d.orders || []
+          setOrders(newOrders)
+          lastOrderIds.current = new Set(newOrders.map(o => o.id))
+        }).catch(() => {})
+      } else if (e.data?.type === 'PLAY_NOTIFICATION_SOUND') {
+        playAlert(18)
         fetch('/api/orders').then(r => r.json()).then(d => {
           const newOrders = d.orders || []
           setOrders(newOrders)
@@ -385,6 +420,16 @@ export default function DeliveryPage() {
     navigator.serviceWorker.addEventListener('message', handler)
     return () => navigator.serviceWorker.removeEventListener('message', handler)
   }, [])
+
+  // ── Alarm loop: ring 20s every 60s while unaccepted orders exist ──
+  const unacceptedKey = orders.filter(o => !o.boy_accepted_at).map(o => o.id).join(',')
+  useEffect(() => {
+    if (!unacceptedKey) return   // no unaccepted orders — alarm off
+    playAlert(36)                // ring immediately on first render / new order
+    const interval = setInterval(() => playAlert(36), 60000) // repeat every 60s
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unacceptedKey])
 
   // Notification polling for delivery boy
   useEffect(() => {
@@ -560,6 +605,53 @@ export default function DeliveryPage() {
     setToggling(false)
   }
 
+  const acceptOrder = async (orderId) => {
+    setAccepting(orderId)
+    try {
+      const res  = await fetch('/api/delivery/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'accept' }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        // Mark accepted locally — no re-fetch needed
+        setOrders(p => p.map(o => o.id === orderId ? { ...o, boy_accepted_at: new Date().toISOString() } : o))
+        showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
+      } else {
+        showToast('⚠️ Accept nahi hua — dobara try karo')
+      }
+    } catch {
+      showToast('❌ Network error — dobara try karo')
+    }
+    setAccepting(null)
+  }
+
+  const rejectOrder = async (orderId) => {
+    setRejecting(orderId)
+    try {
+      const res  = await fetch('/api/delivery/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, action: 'reject' }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setOrders(p => p.filter(o => o.id !== orderId))
+        showToast('❌ Order reject kar diya — agli order ka wait karo')
+      } else if (data.reason === 'already_accepted') {
+        showToast('⚠️ Tune pehle hi accept kar liya tha')
+        // Refresh to get latest state
+        fetch('/api/orders').then(r => r.json()).then(d => setOrders(d.orders || [])).catch(() => {})
+      } else {
+        showToast('❌ Reject nahi hua — dobara try karo')
+      }
+    } catch {
+      showToast('❌ Network error — dobara try karo')
+    }
+    setRejecting(null)
+  }
+
   const markPickup = async (orderId) => {
     setPickingUp(orderId)
     try {
@@ -703,7 +795,10 @@ export default function DeliveryPage() {
           </div>
         ))}
       </div>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+        @keyframes pulseRed{0%,100%{background:#fef2f2;border-color:#f87171}50%{background:#fee2e2;border-color:#ef4444}}
+      `}</style>
 
       {/* ── SCROLLABLE CONTENT ── */}
       <div style={{ flex:1, overflowY:'auto', paddingBottom:80 }}>
@@ -732,8 +827,12 @@ export default function DeliveryPage() {
                   order={o}
                   onPickup={markPickup}
                   onDeliver={markDelivered}
+                  onAccept={acceptOrder}
+                  onReject={rejectOrder}
                   pickingUp={pickingUp}
                   delivering={delivering}
+                  accepting={accepting}
+                  rejecting={rejecting}
                 />
               ))
             )}

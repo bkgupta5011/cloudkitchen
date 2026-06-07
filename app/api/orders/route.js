@@ -151,6 +151,84 @@ export async function GET(request) {
       `
     }
   } else if (user.role === 'delivery') {
+    // Ensure schema
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_accepted_at TIMESTAMPTZ`.catch(() => {})
+    await sql`
+      CREATE TABLE IF NOT EXISTS order_rejections (
+        id SERIAL PRIMARY KEY,
+        order_id UUID NOT NULL,
+        delivery_boy_id UUID NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(order_id, delivery_boy_id)
+      )
+    `.catch(() => {})
+
+    // ── 5-min timeout: auto-reassign orders this boy hasn't accepted ──
+    const timedOut = await sql`
+      SELECT id, order_number, total, distance_km, delivery_address
+      FROM orders
+      WHERE delivery_boy_id = ${user.id}
+        AND boy_accepted_at IS NULL
+        AND status = 'pending'
+        AND created_at < NOW() - INTERVAL '5 minutes'
+    `.catch(() => [])
+
+    for (const order of timedOut) {
+      // Record auto-timeout as rejection
+      await sql`
+        INSERT INTO order_rejections (order_id, delivery_boy_id)
+        VALUES (${order.id}, ${user.id})
+        ON CONFLICT DO NOTHING
+      `.catch(() => {})
+
+      // Atomically clear
+      const cleared = await sql`
+        UPDATE orders SET delivery_boy_id = NULL, boy_payout = NULL
+        WHERE id = ${order.id}
+          AND delivery_boy_id = ${user.id}
+          AND boy_accepted_at IS NULL
+        RETURNING id
+      `.catch(() => [])
+
+      if (!cleared.length) continue
+
+      // Find next eligible boy
+      const eligible = await sql`
+        SELECT db.id, db.name, db.per_km_earning,
+          COUNT(o2.id) FILTER (WHERE o2.status IN ('confirmed','preparing')) AS active_orders
+        FROM delivery_boys db
+        LEFT JOIN orders o2 ON o2.delivery_boy_id = db.id
+          AND o2.status IN ('confirmed', 'preparing', 'out_for_delivery')
+        WHERE db.is_online = true
+          AND db.status = 'approved'
+          AND NOT EXISTS (SELECT 1 FROM orders WHERE delivery_boy_id = db.id AND status = 'out_for_delivery')
+          AND NOT EXISTS (SELECT 1 FROM order_rejections r WHERE r.order_id = ${order.id} AND r.delivery_boy_id = db.id)
+        GROUP BY db.id, db.name, db.per_km_earning
+        ORDER BY active_orders ASC, RANDOM()
+        LIMIT 1
+      `.catch(() => [])
+
+      if (!eligible.length) continue
+
+      const nextBoy   = eligible[0]
+      const perKm     = parseFloat(nextBoy.per_km_earning || 0)
+      const distKm    = order.distance_km ? parseFloat(order.distance_km) : null
+      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+
+      await sql`
+        UPDATE orders SET delivery_boy_id = ${nextBoy.id}, boy_payout = ${boyPayout}, boy_accepted_at = NULL
+        WHERE id = ${order.id} AND delivery_boy_id IS NULL
+      `.catch(() => {})
+
+      sendPushToUser(String(nextBoy.id), {
+        title: '📦 Naya Order Assign Hua!',
+        body:  `#${order.order_number} — ₹${Math.round(order.total)} · Jaldi accept ya reject karo`,
+        url:   '/delivery',
+        tag:   `delivery-${order.id}`,
+        requireInteraction: true,
+      }, 'delivery').catch(() => {})
+    }
+
     orders = await sql`
       SELECT o.*,
         u.name as customer_name, u.phone as customer_phone, u.address as customer_address,

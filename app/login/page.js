@@ -95,7 +95,7 @@ export default function LoginPage() {
 
   // ── GPS Location Fetch (Google Maps Geocoding API) ──────────────
   const fetchLocation = () => {
-    if (!navigator.geolocation) { setError('Aapka browser GPS support nahi karta'); return }
+    if (!navigator.geolocation) { setError('Your browser does not support GPS'); return }
     setLocationLoading(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -108,7 +108,7 @@ export default function LoginPage() {
           const data = await res.json()
 
           if (data.status !== 'OK' || !data.results?.length) {
-            setError('Address nahi mili. Manually bharo.')
+            setError('Address not found. Please fill manually.')
             setLocationLoading(false)
             return
           }
@@ -144,14 +144,14 @@ export default function LoginPage() {
           set('address', address)
         } catch (e) {
           console.error('Geocoding error:', e)
-          setError('Location address fetch nahi ho saka. Manually bharo.')
+          setError('Could not fetch location address. Please fill manually.')
         } finally { setLocationLoading(false) }
       },
       (err) => {
         setLocationLoading(false)
-        if (err.code === 1) setError('Location permission denied. Browser settings se allow karein.')
-        else if (err.code === 2) setError('GPS signal nahi mila. Dobara try karo.')
-        else setError('Location timeout. Manually address bharo.')
+        if (err.code === 1) setError('Location permission denied. Please allow from browser settings.')
+        else if (err.code === 2) setError('GPS signal not found. Please try again.')
+        else setError('Location timeout. Please fill address manually.')
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
@@ -200,7 +200,7 @@ export default function LoginPage() {
 
   // ── Send OTP (signup phone) ─────────────────────────────────────
   const sendOtp = async () => {
-    if (!signupPhoneReady) { setError('Valid 10-digit phone number do'); return }
+    if (!signupPhoneReady) { setError('Please enter a valid 10-digit phone number'); return }
     setError(''); setOtpStep('sending')
     setOtpInput(['','','','','',''])
     try {
@@ -220,8 +220,8 @@ export default function LoginPage() {
 
   // ── Verify OTP ─────────────────────────────────────────────────
   const verifyOtp = async () => {
-    if (otpString.length !== 6) { setError('6-digit OTP enter karo'); return }
-    if (!confirmationResultRef.current) { setError('Pehle OTP bhejo'); return }
+    if (otpString.length !== 6) { setError('Please enter the 6-digit OTP'); return }
+    if (!confirmationResultRef.current) { setError('Please send OTP first'); return }
     setError(''); setOtpStep('verifying')
     try {
       const result = await confirmationResultRef.current.confirm(otpString)
@@ -238,18 +238,18 @@ export default function LoginPage() {
             body: JSON.stringify({ action: 'login-otp', phone: '+91' + loginPhoneDigits, firebaseToken: idToken })
           })
           const data = await res.json()
-          if (!res.ok) { setError(data.error || 'Login nahi hua. Dobara try karo.'); setOtpStep('idle'); return }
+          if (!res.ok) { setError(data.error || 'Login failed. Please try again.'); setOtpStep('idle'); return }
           const { user } = data
           if (user.role === 'admin') router.push('/admin')
           else if (user.role === 'delivery') router.push('/delivery')
           else router.push('/menu')
-        } catch { setError('Kuch gadbad ho gayi. Dobara try karo.'); setOtpStep('idle') }
+        } catch { setError('Something went wrong. Please try again.'); setOtpStep('idle') }
         finally { setLoading(false) }
       }
     } catch (e) {
-      const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
-        : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Dobara bhejo.'
-        : 'OTP verify nahi hua. Dobara try karo.'
+      const msg = e.code === 'auth/invalid-verification-code' ? 'Incorrect OTP. Please check again.'
+        : e.code === 'auth/code-expired' ? 'OTP has expired. Please resend.'
+        : 'OTP verification failed. Please try again.'
       setError(msg); setOtpStep('sent')
     }
   }
@@ -260,18 +260,18 @@ export default function LoginPage() {
     setError('')
 
     if (mode === 'signup') {
-      if (!form.email) { setError('Email address required hai'); return }
-      if (!signupPhoneReady) { setError('Valid 10-digit phone number required hai'); return }
+      if (!form.email) { setError('Email address is required'); return }
+      if (!signupPhoneReady) { setError('Please enter a valid 10-digit phone number'); return }
       if (otpStep === 'idle') { await sendOtp(); return }
-      if (otpStep === 'sent') { setError('Pehle phone OTP verify karo 👇'); return }
+      if (otpStep === 'sent') { setError('Please verify your phone OTP first 👇'); return }
     }
 
     // OTP Login validation
     if (mode === 'login' && loginType === 'phone' && loginMethod === 'otp') {
-      if (loginPhoneDigits.length !== 10) { setError('Valid 10-digit phone number do'); return }
+      if (loginPhoneDigits.length !== 10) { setError('Please enter a valid 10-digit phone number'); return }
       if (otpStep === 'idle' || otpStep === 'failed') { await sendLoginOtp(); return }
       if (otpStep === 'sending') return
-      if (otpStep === 'sent') { setError('Pehle OTP verify karo 👇'); return }
+      if (otpStep === 'sent') { setError('Please verify your OTP first 👇'); return }
       if (otpStep !== 'verified') return
       // verified — proceed to submit
     }
@@ -318,7 +318,7 @@ export default function LoginPage() {
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
-    } catch { setError('Kuch gadbad ho gayi. Dobara try karo.') }
+    } catch { setError('Something went wrong. Please try again.') }
     finally { setLoading(false) }
   }
 
@@ -327,17 +327,17 @@ export default function LoginPage() {
     if (loading) return <span className="spinner" />
     if (mode === 'login') {
       if (loginType === 'phone' && loginMethod === 'otp') {
-        if (otpStep === 'idle' || otpStep === 'failed') return '📲 OTP Bhejo'
+        if (otpStep === 'idle' || otpStep === 'failed') return '📲 Send OTP'
         if (otpStep === 'sending') return <span className="spinner" />
-        if (otpStep === 'sent' || otpStep === 'verifying') return '✓ OTP Verify Karo'
-        if (otpStep === 'verified') return <><span className="spinner" /> Login ho raha hai...</>
+        if (otpStep === 'sent' || otpStep === 'verifying') return '✓ Verify OTP'
+        if (otpStep === 'verified') return <><span className="spinner" /> Logging in...</>
       }
       return '🔑 Login'
     }
-    if (otpStep === 'idle') return '📱 Phone Verify Karo'
+    if (otpStep === 'idle') return '📱 Verify Phone'
     if (otpStep === 'sending') return <span className="spinner" />
-    if (otpStep === 'failed') return '✅ Account Banao (bina OTP)'
-    return '✅ Account Banao'
+    if (otpStep === 'failed') return '✅ Create Account (without OTP)'
+    return '✅ Create Account'
   }
 
   // Reset login OTP when identifier changes
@@ -353,7 +353,7 @@ export default function LoginPage() {
 
   // ── Send OTP for LOGIN (phone) ─────────────────────────────────
   const sendLoginOtp = async () => {
-    if (loginPhoneDigits.length !== 10) { setError('Valid 10-digit phone number do'); return }
+    if (loginPhoneDigits.length !== 10) { setError('Please enter a valid 10-digit phone number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['','','','','',''])
 
     // Always clean up previous verifier before creating a new one
@@ -393,14 +393,14 @@ export default function LoginPage() {
       }
       setOtpStep('failed')
       const msg = e.code === 'auth/too-many-requests'
-        ? 'Bahut zyada OTP requests ho gayi. 10-15 minute baad try karein.'
+        ? 'Too many OTP requests. Please try again in 10-15 minutes.'
         : e.code === 'auth/invalid-phone-number'
-        ? 'Phone number galat hai. 10-digit Indian number daalo.'
+        ? 'Invalid phone number. Please enter a 10-digit Indian number.'
         : e.code === 'auth/captcha-check-failed'
-        ? 'reCAPTCHA fail hua. Page refresh (F5) karke try karein.'
+        ? 'reCAPTCHA failed. Please refresh the page (F5) and try again.'
         : e.code === 'auth/network-request-failed'
-        ? 'Network error. Internet check karein aur dobara try karein.'
-        : `OTP nahi bheja ja saka (${e.code || e.message}). Page refresh karke try karein.`
+        ? 'Network error. Please check your internet and try again.'
+        : `Could not send OTP (${e.code || e.message}). Please refresh and try again.`
       setError(msg)
     }
   }
@@ -490,11 +490,11 @@ export default function LoginPage() {
                 {signupPhoneReady && otpStep === 'idle' && (
                   <button type="button" onClick={sendOtp}
                     style={{ marginTop:8, width:'100%', padding:'9px', background:'#fff7ed', color:'#e85d04', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}>
-                    📲 OTP Bhejo — +91{signupPhoneDigits}
+                    📲 Send OTP — +91{signupPhoneDigits}
                   </button>
                 )}
                 {otpStep === 'sending' && (
-                  <div style={{ marginTop:8, textAlign:'center', fontSize:13, color:'#9ca3af' }}>⏳ OTP bheja ja raha hai...</div>
+                  <div style={{ marginTop:8, textAlign:'center', fontSize:13, color:'#9ca3af' }}>⏳ Sending OTP...</div>
                 )}
               </div>
 
@@ -502,7 +502,7 @@ export default function LoginPage() {
               {(otpStep === 'sent' || otpStep === 'verifying') && (
                 <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:12, padding:'16px', marginBottom:14 }}>
                   <p style={{ margin:'0 0 12px 0', fontSize:13, color:'#92400e', fontWeight:600, textAlign:'center' }}>
-                    📲 OTP +91{signupPhoneDigits} pe bheja gaya
+                    📲 OTP sent to +91{signupPhoneDigits}
                   </p>
                   {/* 6 individual boxes */}
                   <div style={{ display:'flex', gap:8, justifyContent:'center', marginBottom:14 }} onPaste={handleOtpPaste}>
@@ -535,13 +535,13 @@ export default function LoginPage() {
                       transition:'background 0.2s',
                     }}>
                     {otpStep === 'verifying'
-                      ? <><span className="spinner" /> Verify ho raha hai...</>
-                      : <><span style={{ fontSize:18 }}>✓</span> OTP Verify Karo</>}
+                      ? <><span className="spinner" /> Verifying...</>
+                      : <><span style={{ fontSize:18 }}>✓</span> Verify OTP</>}
                   </button>
                   <div style={{ marginTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:12, color:'#9ca3af' }}>OTP 5 min mein expire hoga</span>
+                    <span style={{ fontSize:12, color:'#9ca3af' }}>OTP expires in 5 minutes</span>
                     {otpTimer > 0
-                      ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend {otpTimer}s mein</span>
+                      ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend in {otpTimer}s</span>
                       : <button type="button" onClick={sendOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>🔄 Resend OTP</button>}
                   </div>
                 </div>
@@ -551,14 +551,14 @@ export default function LoginPage() {
               {otpStep === 'verified' && (
                 <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', marginBottom:12, display:'flex', alignItems:'center', gap:8 }}>
                   <span style={{ fontSize:20 }}>✅</span>
-                  <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>Phone number verify ho gaya!</span>
+                  <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>Phone number verified!</span>
                 </div>
               )}
               {/* OTP failed */}
               {otpStep === 'failed' && (
                 <div style={{ background:'#fef9c3', border:'1.5px solid #fde047', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
-                  <p style={{ margin:'0 0 4px 0', fontSize:13, color:'#854d0e', fontWeight:600 }}>⚠️ OTP nahi bheja ja saka</p>
-                  <p style={{ margin:0, fontSize:12, color:'#78350f' }}>Account ban jayega, phone baad mein verify kar sakte ho.</p>
+                  <p style={{ margin:'0 0 4px 0', fontSize:13, color:'#854d0e', fontWeight:600 }}>⚠️ Could not send OTP</p>
+                  <p style={{ margin:0, fontSize:12, color:'#78350f' }}>Account will be created, you can verify phone later.</p>
                 </div>
               )}
 
@@ -583,12 +583,12 @@ export default function LoginPage() {
                 <textarea
                   value={form.address}
                   onChange={e => set('address', e.target.value)}
-                  placeholder="Flat 4B, Frazer Road, Patna — ya GPS se auto-fill karein"
+                  placeholder="Flat 4B, Frazer Road, Patna — or auto-fill with GPS"
                   rows={2}
                   style={{ width:'100%', padding:'10px 12px', border:'1.5px solid var(--bdr)', borderRadius:8, fontSize:14, fontFamily:'inherit', resize:'vertical', outline:'none', boxSizing:'border-box', lineHeight:1.5 }}
                 />
                 <p style={{ margin:'3px 0 0', fontSize:11, color:'#9ca3af' }}>
-                  📍 GPS button se Google Maps ka detailed address auto-fill ho jayega
+                  📍 GPS button will auto-fill your address from Google Maps
                 </p>
               </div>
             </>
@@ -598,7 +598,7 @@ export default function LoginPage() {
           {mode === 'login' && (
             <div className="field">
               <label style={{ display:'flex', alignItems:'center', gap:6 }}>
-                Email ya Mobile Number
+                Email or Mobile Number
                 {loginType === 'phone' && <span style={{ fontSize:11, background:'#fff7ed', color:'#e85d04', border:'1px solid #fed7aa', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>📱 Mobile</span>}
                 {loginType === 'email' && <span style={{ fontSize:11, background:'#eff6ff', color:'#2563eb', border:'1px solid #bfdbfe', borderRadius:4, padding:'1px 6px', fontWeight:600 }}>📧 Email</span>}
               </label>
@@ -615,7 +615,7 @@ export default function LoginPage() {
                     setIdentifier(val)
                     setError('')
                   }}
-                  placeholder={loginType === 'phone' ? '98765 43210' : loginType === 'email' ? 'you@email.com' : 'Email ya 10-digit mobile...'}
+                  placeholder={loginType === 'phone' ? '98765 43210' : loginType === 'email' ? 'you@email.com' : 'Email or 10-digit mobile...'}
                   maxLength={loginType === 'phone' ? 10 : 100}
                   inputMode={loginType === 'phone' ? 'numeric' : 'email'}
                   style={{ borderRadius:'0 8px 8px 0', borderLeft:'none', flex:1 }}
@@ -623,7 +623,7 @@ export default function LoginPage() {
                 />
               </div>
               {loginType === 'unknown' && identifier.length > 0 && (
-                <p style={{ fontSize:11, color:'#9ca3af', margin:'4px 0 0' }}>Email ke liye @ likho, phone ke liye sirf digits</p>
+                <p style={{ fontSize:11, color:'#9ca3af', margin:'4px 0 0' }}>Type @ for email, digits only for phone number</p>
               )}
             </div>
           )}
@@ -643,7 +643,7 @@ export default function LoginPage() {
                 style={{ flex:1, padding:'9px', fontSize:13, fontWeight:700, border:'none', borderLeft:'1.5px solid var(--bdr)', cursor:'pointer', transition:'all 0.15s',
                   background: loginMethod === 'otp' ? '#e85d04' : 'var(--bg)',
                   color: loginMethod === 'otp' ? '#fff' : 'var(--t2)' }}>
-                📱 OTP se Login
+                📱 Login with OTP
               </button>
             </div>
           )}
@@ -663,18 +663,18 @@ export default function LoginPage() {
               {(otpStep === 'idle' || otpStep === 'failed') && (
                 <button type="button" onClick={sendLoginOtp}
                   style={{ width:'100%', padding:'12px', background:'#fff7ed', color:'#e85d04', border:'1.5px solid #fed7aa', borderRadius:10, fontSize:14, fontWeight:700, cursor:'pointer' }}>
-                  📲 OTP Bhejo — +91{loginPhoneDigits}
+                  📲 Send OTP — +91{loginPhoneDigits}
                 </button>
               )}
               {otpStep === 'sending' && (
-                <div style={{ textAlign:'center', padding:'12px', fontSize:13, color:'#9ca3af' }}>⏳ OTP bheja ja raha hai...</div>
+                <div style={{ textAlign:'center', padding:'12px', fontSize:13, color:'#9ca3af' }}>⏳ Sending OTP...</div>
               )}
 
               {/* OTP boxes */}
               {(otpStep === 'sent' || otpStep === 'verifying') && (
                 <div style={{ background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:12, padding:'16px' }}>
                   <p style={{ margin:'0 0 12px', fontSize:13, color:'#92400e', fontWeight:600, textAlign:'center' }}>
-                    📲 OTP +91{loginPhoneDigits} pe bheja gaya
+                    📲 OTP sent to +91{loginPhoneDigits}
                   </p>
                   <div style={{ display:'flex', gap:8, justifyContent:'center', marginBottom:14 }} onPaste={handleOtpPaste}>
                     {otpInput.map((digit, i) => (
@@ -704,13 +704,13 @@ export default function LoginPage() {
                       color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', gap:8, transition:'background 0.2s',
                     }}>
                     {otpStep === 'verifying'
-                      ? <><span className="spinner" /> Verify ho raha hai...</>
-                      : <><span style={{ fontSize:18 }}>✓</span> OTP Verify Karo</>}
+                      ? <><span className="spinner" /> Verifying...</>
+                      : <><span style={{ fontSize:18 }}>✓</span> Verify OTP</>}
                   </button>
                   <div style={{ marginTop:10, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                    <span style={{ fontSize:12, color:'#9ca3af' }}>5 min mein expire hoga</span>
+                    <span style={{ fontSize:12, color:'#9ca3af' }}>Expires in 5 minutes</span>
                     {otpTimer > 0
-                      ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend {otpTimer}s mein</span>
+                      ? <span style={{ fontSize:12, color:'#9ca3af' }}>Resend in {otpTimer}s</span>
                       : <button type="button" onClick={sendLoginOtp} style={{ fontSize:12, color:'#e85d04', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>🔄 Resend OTP</button>}
                   </div>
                 </div>
@@ -720,7 +720,7 @@ export default function LoginPage() {
               {otpStep === 'verified' && (
                 <div style={{ background:'#f0fdf4', border:'1.5px solid #86efac', borderRadius:10, padding:'10px 14px', display:'flex', alignItems:'center', gap:8 }}>
                   <span style={{ fontSize:20 }}>✅</span>
-                  <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>OTP verify ho gaya! Login ho raha hai...</span>
+                  <span style={{ fontSize:13, color:'#16a34a', fontWeight:700 }}>OTP verified! Logging in...</span>
                 </div>
               )}
             </div>
@@ -730,7 +730,7 @@ export default function LoginPage() {
             <div style={{ textAlign:'right', marginBottom:8 }}>
               <button type="button" onClick={() => router.push('/forgot-password')}
                 style={{ background:'none', border:'none', color:'#e85d04', fontSize:13, cursor:'pointer' }}>
-                Password bhool gaye?
+                Forgot Password?
               </button>
             </div>
           )}
@@ -744,24 +744,24 @@ export default function LoginPage() {
         </form>
 
         <p className={styles.switchMode}>
-          {mode === 'login' ? 'Naya account?' : 'Pehle se account hai?'}{' '}
+          {mode === 'login' ? 'New here?' : 'Already have an account?'}{' '}
           <button onClick={() => { setMode(mode==='login'?'signup':'login'); setError(''); setIdentifier(''); setForm({ name:'', email:'', phone:'', password:'', address:'' }) }}>
-            {mode === 'login' ? 'Sign Up karo' : 'Login karo'}
+            {mode === 'login' ? 'Sign Up' : 'Login'}
           </button>
         </p>
 
         {mode === 'login' && (
           <p style={{ fontSize:11, color:'#9ca3af', textAlign:'center', marginTop:8 }}>
-            Admin aur Delivery Boy bhi yahi se login karein
+            Admin and Delivery Boy can also login here
           </p>
         )}
 
         {/* Delivery Boy Apply link */}
         <div style={{ borderTop:'1px solid #f3f4f6', marginTop:16, paddingTop:14, textAlign:'center' }}>
-          <p style={{ fontSize:12, color:'#6b7280', marginBottom:6 }}>Delivery Boy banana chahte ho?</p>
+          <p style={{ fontSize:12, color:'#6b7280', marginBottom:6 }}>Want to become a Delivery Partner?</p>
           <button onClick={() => router.push('/delivery/apply')}
             style={{ background:'none', border:'1.5px solid #e85d04', color:'#e85d04', borderRadius:8, padding:'8px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-            🛵 Delivery Boy Application
+            🛵 Delivery Partner Application
           </button>
         </div>
       </div>

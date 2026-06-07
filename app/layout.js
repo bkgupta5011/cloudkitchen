@@ -2,9 +2,10 @@ import './globals.css'
 import PWAInstall from './components/PWAInstall'
 
 export const metadata = {
-  title: 'FoodFi — Fresh Food Delivered',
-  description: 'Order fresh homemade food online. Cash on delivery.',
+  title: 'FoodFi – Best Food Delivery in Patna | Rajma Chawal, Chole Chawal, Rice Bowls',
+  description: 'Order fresh and delicious meals online from FoodFi. Best Rajma Chawal, Chole Chawal, Dal Chawal, Protein Rice Bowls and Roti Combos with fast home delivery in Kankarbagh, Jaganpura, East Laxmi Nagar, Ramkrishna Nagar, Rajendra Nagar and across Patna.',
   manifest: '/manifest.json',
+  metadataBase: new URL('https://foodfi.in'),
 }
 
 export default function RootLayout({ children }) {

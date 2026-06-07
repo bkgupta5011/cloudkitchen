@@ -168,11 +168,12 @@ export default function OrderPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
             <LogoMark size={54} />
             <div style={{ textAlign: 'left' }}>
+              {/* H1 for SEO — primary keyword */}
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#fff', letterSpacing: -0.5 }}>
                 Food<span style={{ opacity: 0.75 }}>Fi</span>
               </h1>
               <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>
-                {kitchen?.kitchen_name || 'Cloud Kitchen'} · Patna
+                Best Food Delivery in Patna · {kitchen?.kitchen_name || 'Cloud Kitchen'}
               </p>
             </div>
           </div>
@@ -505,10 +506,42 @@ export default function OrderPage() {
           </div>
         </div>
 
+        {/* ── Delivery Areas (SEO section) ──────────────── */}
+        <div style={{ marginTop: 36, background: '#fff', borderRadius: 14, padding: '20px 22px', border: '1px solid #f3f4f6' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 800, color: '#1f2937', marginBottom: 8 }}>
+            🚀 Food Delivery Areas in Patna
+          </h2>
+          <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 12, lineHeight: 1.6 }}>
+            FoodFi delivers Rajma Chawal, Chole Chawal, Dal Chawal, Protein Rice Bowls and Roti Combos across Patna. We currently serve:
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {[
+              'Kankarbagh','Jaganpura','New Jaganpura','East Laxmi Nagar','Ramkrishna Nagar',
+              'Rajendra Nagar','Lohia Nagar','Hanuman Nagar','Mithapur','Postal Park',
+              'Patrakar Nagar','Ashok Nagar','Bhupatipur','Chitragupta Nagar','Vijay Nagar',
+              'RMS Colony','Sipara','Bhootnath Road','Doctor Colony','Jai Prakash Nagar',
+              'Bankman Colony','Tempo Stand','Zero Mile','Transport Nagar','Chiraiyatand',
+              'Bypass Road','Mahatma Gandhi Nagar','Khemnichak','Agamkuan','Kumhrar',
+            ].map(area => (
+              <span key={area} style={{
+                background: '#fff7ed', color: '#c2410c', fontSize: 11, fontWeight: 600,
+                padding: '4px 10px', borderRadius: 20, border: '1px solid #fed7aa',
+              }}>
+                {area}
+              </span>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 12 }}>
+            Best Rajma Chawal in Kankarbagh · Best Chole Chawal in Jaganpura · Food Delivery East Laxmi Nagar · Cloud Kitchen Patna
+          </p>
+        </div>
+
         {/* ── Footer ────────────────────────────────────── */}
         <div style={{ marginTop: 32, paddingTop: 20, borderTop: '1px solid #e5e7eb', textAlign: 'center' }}>
           <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 4 }}>© 2025 FoodFi Cloud Kitchen · Patna, Bihar</p>
-          <p style={{ fontSize: 11, color: '#d1d5db' }}>Made with ❤️ for Patna · Fresh food every day</p>
+          <p style={{ fontSize: 11, color: '#d1d5db' }}>
+            Best Food Delivery in Patna · Rajma Chawal · Chole Chawal · Rice Bowls · Roti Combos
+          </p>
         </div>
       </div>
 

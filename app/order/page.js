@@ -102,6 +102,23 @@ export default function OrderPage() {
   const [loading, setLoading] = useState(true)
   const [hoveredId, setHoveredId] = useState(null)
 
+  // Disable inspect / right-click / F12
+  useEffect(() => {
+    const blockContext = e => e.preventDefault()
+    const blockKeys = e => {
+      if (e.key === 'F12') e.preventDefault()
+      if (e.ctrlKey && e.shiftKey && ['I','J','C'].includes(e.key)) e.preventDefault()
+      if (e.ctrlKey && e.key === 'u') e.preventDefault()
+      if (e.ctrlKey && e.key === 'U') e.preventDefault()
+    }
+    document.addEventListener('contextmenu', blockContext)
+    document.addEventListener('keydown', blockKeys)
+    return () => {
+      document.removeEventListener('contextmenu', blockContext)
+      document.removeEventListener('keydown', blockKeys)
+    }
+  }, [])
+
   const loadMenu = () => {
     // Timestamp in URL bypasses ALL caching layers (CDN, browser, proxy)
     fetch(`/api/public/menu?_=${Date.now()}`, { cache: 'no-store' })

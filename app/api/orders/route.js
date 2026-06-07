@@ -319,68 +319,44 @@ export async function POST(request) {
     }
   } catch {}
 
-  // ── AUTO-ASSIGN DELIVERY BOY ──────────────────────────────────────
-  let assignedBoy = null
+  // ── BROADCAST TO ALL ONLINE DELIVERY BOYS ────────────────────────
+  // No auto-assign — all online boys get notified; first to accept gets the order
+  let onlineBoyCount = 0
   try {
-    // Find available delivery boys: online + approved + not currently out for delivery
-    const availableBoys = await sql`
-      SELECT db.id, db.name, db.phone,
-        COUNT(o.id) FILTER (WHERE o.status IN ('confirmed','preparing')) AS active_orders
-      FROM delivery_boys db
-      LEFT JOIN orders o ON o.delivery_boy_id = db.id
-        AND o.status IN ('confirmed', 'preparing', 'out_for_delivery')
-      WHERE db.is_online = true
-        AND db.status = 'approved'
-        AND NOT EXISTS (
-          SELECT 1 FROM orders
-          WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
-        )
-      GROUP BY db.id, db.name, db.phone
-      ORDER BY active_orders ASC, RANDOM()
-      LIMIT 1
+    const onlineBoys = await sql`
+      SELECT id, name FROM delivery_boys
+      WHERE is_online = true AND status = 'approved'
     `
-
-    if (availableBoys.length > 0) {
-      assignedBoy = availableBoys[0]
-      // Get per_km_earning for boy_payout calculation
-      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${assignedBoy.id}`
-      const perKm = parseFloat(boyRate?.per_km_earning || 0)
-      const distKm = distanceKm ? parseFloat(distanceKm) : null
-      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
-      // Assign to order and save boy_payout
-      await sql`
-        UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout} WHERE id = ${order.id}
-      `
-      // Notify delivery boy
-      sendPushToUser(String(assignedBoy.id), {
-        title: '📦 Naya Delivery Assignment!',
-        body: `Order #${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 50)}`,
-        url: '/delivery',
-        tag: `delivery-${order.id}`,
+    onlineBoyCount = onlineBoys.length
+    for (const boy of onlineBoys) {
+      sendPushToUser(String(boy.id), {
+        title: '🔔 Naya Order! Jaldi Accept Karo',
+        body:  `#${order.order_number} — ₹${Math.round(order.total)} · ${(deliveryAddress || '').slice(0, 45)}`,
+        url:   '/delivery',
+        tag:   `new-order-${order.id}`,
         requireInteraction: true,
       }, 'delivery').catch(() => {})
     }
   } catch (e) {
-    console.error('Auto-assign error:', e)
-    // Non-fatal — order still placed, admin can manually assign
+    console.error('Broadcast error:', e)
   }
 
   // Notify all admins — new order arrived
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,
-    body: assignedBoy
-      ? `✅ Auto-assigned: ${assignedBoy.name} · ₹${Math.round(order.total)}`
-      : `⚠️ Koi delivery boy available nahi — manually assign karo · ₹${Math.round(order.total)}`,
+    body: onlineBoyCount > 0
+      ? `${onlineBoyCount} delivery boy${onlineBoyCount > 1 ? 's' : ''} ko notify kiya — ₹${Math.round(order.total)}`
+      : `⚠️ Koi delivery boy online nahi — manually assign karo · ₹${Math.round(order.total)}`,
     url: '/admin',
     tag: 'new-order',
     requireInteraction: true,
   }).catch(() => {})
 
   return NextResponse.json({
-    order: { ...order, delivery_boy_id: assignedBoy?.id || null },
+    order: { ...order, delivery_boy_id: null },
     orderNumber: order.order_number,
-    autoAssigned: !!assignedBoy,
-    deliveryBoyName: assignedBoy?.name || null,
+    autoAssigned: false,
+    deliveryBoyName: null,
   }, { status: 201 })
 }
 

@@ -209,7 +209,10 @@ export default function AdminPage() {
         if (newOnes.length > 0) {
           playLoudAlert()
           setNotifCount(n => n + newOnes.length)
-          setNewOrderPopup(newOnes) // ← show popup
+          // Fetch items for the first new order to show in popup
+          const detail = await fetch(`/api/orders?id=${newOnes[0].id}`).then(r => r.json()).catch(() => ({}))
+          const firstWithItems = { ...newOnes[0], items: detail.order?.items || [] }
+          setNewOrderPopup([firstWithItems, ...newOnes.slice(1)])
           if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
             new Notification('🍽️ Naya Order!', { body: `${newOnes.length} naya order aa gaya!`, icon: '/favicon.ico' })
           }
@@ -704,6 +707,21 @@ export default function AdminPage() {
                   <span style={{ fontSize: 20, marginTop: 1 }}>📍</span>
                   <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{o.delivery_address || '—'}</div>
                 </div>
+
+                {/* Items */}
+                {o.items?.length > 0 && (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '10px 14px', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', marginBottom: 7, letterSpacing: 0.4 }}>
+                      📋 ITEMS ({o.items.reduce((s, i) => s + i.quantity, 0)} total)
+                    </div>
+                    {o.items.map((item, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: '#1a1a1a', paddingBottom: i < o.items.length - 1 ? 5 : 0 }}>
+                        <span><span style={{ fontWeight: 700 }}>{item.quantity}×</span> {item.name}</span>
+                        <span style={{ fontWeight: 600, color: '#15803d' }}>₹{Math.round(parseFloat(item.price) * item.quantity)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Delivery boy */}
                 <div style={{ background: o.delivery_boy_name ? '#f0fdf4' : '#fffbeb', border: `1px solid ${o.delivery_boy_name ? '#86efac' : '#fcd34d'}`, borderRadius: 12, padding: '9px 14px', marginBottom: 16, fontSize: 13 }}>

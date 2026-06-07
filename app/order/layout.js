@@ -140,7 +140,7 @@ export const metadata = {
     },
   },
   verification: {
-    google: 'google6c3d9354bbab7542',
+    google: 'OqwVaLDUn1_mmzdrpSbRCsPzGNbjesQBwuYQY0CPKSo',
   },
   other: {
     'geo.region': 'IN-BR',

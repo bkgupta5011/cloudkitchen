@@ -362,8 +362,9 @@ export default function MenuPage() {
   const [kitchenPhone, setKitchenPhone] = useState(null)
   const [stockPopup, setStockPopup] = useState(null)   // { itemName, available }
   const [selectedItem, setSelectedItem] = useState(null) // item detail modal
-  const notifPollRef = useRef(null)
+  const notifPollRef  = useRef(null)
   const lastUnreadRef = useRef(-1)
+  const syncTimerRef  = useRef(null) // debounce DB sync
 
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
@@ -383,7 +384,7 @@ export default function MenuPage() {
   }
 
   useEffect(() => {
-    // Restore cart from localStorage (persists across logout/login)
+    // Restore cart from localStorage first (instant, no flash)
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
 
@@ -393,9 +394,15 @@ export default function MenuPage() {
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/admin?type=offers').then(r => r.json()),
       fetch('/api/ratings?type=menu').then(r => r.json()).catch(() => ({ itemRatings: {} })),
-    ]).then(([authData, menuData, settingsData, offersData, ratingsData]) => {
+      fetch('/api/cart').then(r => r.json()).catch(() => ({ cart: {} })),
+    ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData]) => {
       if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
       setUser(authData.user)
+      // DB cart wins over localStorage (cross-device sync)
+      if (cartData.cart && Object.keys(cartData.cart).length > 0) {
+        setCart(cartData.cart)
+        localStorage.setItem('ck_cart', JSON.stringify(cartData.cart))
+      }
       setMenuItems(menuData.items || [])
       setKitchenOpen(settingsData.settings?.is_open ?? true)
       setKitchenPhone(settingsData.settings?.phone || null)
@@ -405,9 +412,22 @@ export default function MenuPage() {
     })
   }, [])
 
+  // Debounced DB sync — fires 800ms after last change
+  const syncCartToDB = (cartData) => {
+    clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => {
+      fetch('/api/cart', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart: cartData })
+      }).catch(() => {})
+    }, 800)
+  }
+
   const saveCart = (newCart) => {
     setCart(newCart)
     localStorage.setItem('ck_cart', JSON.stringify(newCart))
+    syncCartToDB(newCart)
   }
 
   const addItem = (id) => {

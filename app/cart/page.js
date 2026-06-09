@@ -340,6 +340,7 @@ export default function CartPage() {
   const [showMapPicker, setShowMapPicker] = useState(false)
   const [newAddrLabel, setNewAddrLabel] = useState('Home')
   const pricingRef = useRef([])
+  const syncTimerRef = useRef(null) // debounce DB sync
 
   // 🎉 Confetti + thank-you when order is placed
   useEffect(() => {
@@ -355,6 +356,14 @@ export default function CartPage() {
   }, [placed])
 
   useEffect(() => {
+    // Load DB cart (cross-device sync) — DB wins over localStorage if non-empty
+    fetch('/api/cart').then(r => r.json()).then(d => {
+      if (d.cart && Object.keys(d.cart).length > 0) {
+        setCart(d.cart)
+        localStorage.setItem('ck_cart', JSON.stringify(d.cart))
+      }
+    }).catch(() => {})
+
     // cart already loaded from localStorage via lazy initializer — no read needed here
     fetch('/api/menu').then(r => r.json()).then(d => {
       setMenuItems(d.items || [])
@@ -421,7 +430,23 @@ export default function CartPage() {
     }
   }, [lat, lng, kitchenLat, kitchenLng, maxKm])
 
-  const saveCart = (c) => { setCart(c); localStorage.setItem('ck_cart', JSON.stringify(c)) }
+  // Debounced DB sync — fires 800ms after last change
+  const syncCartToDB = (cartData) => {
+    clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = setTimeout(() => {
+      fetch('/api/cart', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cart: cartData })
+      }).catch(() => {})
+    }, 800)
+  }
+
+  const saveCart = (c) => {
+    setCart(c)
+    localStorage.setItem('ck_cart', JSON.stringify(c))
+    syncCartToDB(c)
+  }
   const addItem = (id) => saveCart({ ...cart, [id]: (cart[id] || 0) + 1 })
   const removeItem = (id) => {
     const nc = { ...cart }
@@ -518,6 +543,8 @@ export default function CartPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error); return }
       localStorage.removeItem('ck_cart')
+      setCart({})
+      fetch('/api/cart', { method: 'DELETE' }).catch(() => {})
       setOrderNum(data.orderNumber)
       setDeliveryBoyName(data.deliveryBoyName || null)
       setPlaced(true)

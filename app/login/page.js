@@ -425,7 +425,23 @@ export default function LoginPage() {
           <h2 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 4px 0', color: '#1e293b', lineHeight: 1.1 }}>
             Cloud Kitchen
           </h2>
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>Fresh food, delivered fast</p>
+          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 6px 0' }}>Fresh food, delivered fast</p>
+          <a
+            href="https://order.foodfi.in"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              fontSize: 12,
+              color: '#e85d04',
+              fontWeight: 700,
+              textDecoration: 'none',
+              letterSpacing: 0.3,
+              borderBottom: '1.5px dashed #e85d04',
+              paddingBottom: 1,
+            }}
+          >
+            🌐 order.foodfi.in
+          </a>
         </div>
 
         {/* Login / Sign Up tabs */}

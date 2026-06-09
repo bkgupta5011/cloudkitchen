@@ -60,7 +60,9 @@ export default function Home() {
 
   // Redirect when BOTH splash is done AND auth is resolved
   useEffect(() => {
-    if (splashDone && redirectTo) router.push(redirectTo)
+    if (splashDone && redirectTo) {
+      setTimeout(() => router.push(redirectTo), 900)
+    }
   }, [splashDone, redirectTo])
 
   return (

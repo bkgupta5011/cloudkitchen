@@ -23,7 +23,11 @@ export function middleware(request) {
     ) {
       return NextResponse.next()
     }
-    // Rewrite EVERYTHING else (including /login, /, /menu etc.) → /order
+    // Allow root path — splash screen handles auth + redirect
+    if (url.pathname === '/') {
+      return NextResponse.next()
+    }
+    // Rewrite EVERYTHING else (including /login, /menu etc.) → /order
     url.pathname = '/order'
     return NextResponse.rewrite(url)
   }

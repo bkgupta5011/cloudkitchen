@@ -361,6 +361,12 @@ const SPLASH_LINES = [
   { main: 'खुशबू आए रसोई से, दिल खुश हो जाए', sub: 'Chef special, delivered special ✨' },
   { main: 'Zindagi mein do cheezein khoobsurat hain —', sub: 'Accha insaan aur accha khana 🍛' },
   { main: 'Har subah ek naya swad', sub: 'Har shaam ek naya ehsaas — FoodFi ke saath 🌟' },
+  { main: 'भूख लगी है? — चिंता मत करो, FoodFi हैं ना 🤗', sub: 'Bas ek order — baaki sab humpe chodo 🛵' },
+  { main: 'थक गए? बैठो — खाना हम भेज रहे हैं 💆', sub: 'Aaram karo, hum kaam karte hain 🍽️' },
+  { main: 'Diet कल से... आज FoodFi है 😅', sub: 'Ek din aur nahi bigdega — promise! 😄' },
+  { main: 'Seedha रसोई से आपके पास', sub: 'No middleman, no delay — just fresh food ✨' },
+  { main: 'Made with love. Delivered with care.', sub: 'Every order is personal to us 🧡' },
+  { main: 'Khana nahi — khayaal hai yeh', sub: 'Aapki bhookh, hamari zimmedari 💝' },
 ]
 
 export default function MenuPage() {

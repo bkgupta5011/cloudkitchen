@@ -119,6 +119,24 @@ export default function OrderPage() {
     }
   }, [])
 
+  // Dynamic page title based on active category
+  useEffect(() => {
+    const titles = {
+      'All':          'FoodFi | Best Food Delivery in Patna – Rajma Chawal, Chole Chawal & More',
+      'Rice Combos':  'Best Rice Combos Delivery in Patna | FoodFi Cloud Kitchen',
+      'Roti Combos':  'Best Roti Combo Home Delivery Patna | FoodFi',
+      'Puri Combos':  'Best Puri Combo Delivery Patna | FoodFi',
+      'Tadka Specials':'Chana Tadka, Dal Tadka Delivery Patna | FoodFi',
+      'Thali':        'Thali Delivery in Patna | FoodFi Cloud Kitchen',
+      'Biryani':      'Best Biryani Delivery in Patna | FoodFi',
+      'Paneer':       'Paneer Dishes Delivery Patna | FoodFi Cloud Kitchen',
+      'Chicken':      'Chicken Delivery in Patna | FoodFi Cloud Kitchen',
+      'Snacks':       'Snacks & Starters Delivery Patna | FoodFi',
+      'Drinks':       'Cold Drinks Delivery Patna | FoodFi Cloud Kitchen',
+    }
+    document.title = titles[activeCategory] || `${activeCategory} – FoodFi | Best Food Delivery in Patna`
+  }, [activeCategory])
+
   const loadMenu = () => {
     // Timestamp in URL bypasses ALL caching layers (CDN, browser, proxy)
     fetch(`/api/public/menu?_=${Date.now()}`, { cache: 'no-store' })
@@ -160,6 +178,16 @@ export default function OrderPage() {
 
   const handleOrder = () => window.open(FOODFI_URL, '_blank')
   const handleWhatsApp = () => window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=Hi! I want to order from FoodFi Cloud Kitchen`, '_blank')
+  const handleCall = () => window.open(`tel:${kitchen?.phone || '+91' + WHATSAPP_NUMBER}`, '_self')
+  const handleShare = async () => {
+    const shareText = 'FoodFi ka menu dekho! 😋 Best ghar jaisa khana Patna mein 🍛 – Rajma Chawal, Chole Chawal, Protein Bowl aur bahut kuch!'
+    const shareUrl = 'https://order.foodfi.in'
+    if (navigator.share) {
+      try { await navigator.share({ title: 'FoodFi Cloud Kitchen', text: shareText, url: shareUrl }) } catch (_) {}
+    } else {
+      window.open(`https://wa.me/?text=${encodeURIComponent(shareText + '\n' + shareUrl)}`, '_blank')
+    }
+  }
 
   const formatOffer = (offer) => {
     if (offer.type === 'percent') return `${offer.value}% off`
@@ -304,11 +332,19 @@ export default function OrderPage() {
           </p>
         )}
 
-        {/* ── Loading ───────────────────────────────────── */}
+        {/* ── Loading Skeleton ──────────────────────────── */}
         {loading && (
-          <div style={{ textAlign: 'center', padding: '60px 0' }}>
-            <div style={{ width: 44, height: 44, border: '4px solid #f3f4f6', borderTop: '4px solid #e85d04', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 14px' }} />
-            <p style={{ color: '#9ca3af', fontSize: 14 }}>Loading menu...</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 14 }}>
+            {[...Array(8)].map((_, i) => (
+              <div key={i} style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', border: '1.5px solid #f3f4f6', boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
+                <div style={{ aspectRatio: '1', background: 'linear-gradient(90deg,#f3f4f6 25%,#e9eaec 50%,#f3f4f6 75%)', backgroundSize: '200% 100%', animation: `shimmer 1.4s ease-in-out ${i * 0.1}s infinite` }} />
+                <div style={{ padding: '10px 10px 13px' }}>
+                  <div style={{ height: 11, background: 'linear-gradient(90deg,#f3f4f6 25%,#e9eaec 50%,#f3f4f6 75%)', backgroundSize: '200% 100%', borderRadius: 6, marginBottom: 6, animation: `shimmer 1.4s ease-in-out ${i * 0.1}s infinite` }} />
+                  <div style={{ height: 11, width: '65%', background: 'linear-gradient(90deg,#f3f4f6 25%,#e9eaec 50%,#f3f4f6 75%)', backgroundSize: '200% 100%', borderRadius: 6, marginBottom: 9, animation: `shimmer 1.4s ease-in-out ${i * 0.1 + 0.15}s infinite` }} />
+                  <div style={{ height: 15, width: '40%', background: 'linear-gradient(90deg,#f3f4f6 25%,#e9eaec 50%,#f3f4f6 75%)', backgroundSize: '200% 100%', borderRadius: 6, animation: `shimmer 1.4s ease-in-out ${i * 0.1 + 0.05}s infinite` }} />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
@@ -602,18 +638,51 @@ export default function OrderPage() {
         </div>
       </div>
 
-      {/* ── Floating Order Button ─────────────────────── */}
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50, background: 'linear-gradient(transparent, rgba(245,245,245,0.97))', padding: '14px 16px 20px' }}>
-        <button onClick={handleOrder} style={{
-          width: '100%', maxWidth: 500, margin: '0 auto', display: 'flex',
-          background: 'linear-gradient(135deg, #e85d04, #f97316)',
-          color: '#fff', border: 'none', borderRadius: 14,
-          padding: '15px', fontSize: 16, fontWeight: 800, cursor: 'pointer',
-          boxShadow: '0 8px 24px rgba(232,93,4,0.4)',
-          alignItems: 'center', justifyContent: 'center', gap: 10,
-        }}>
-          🛒 Order Now on FoodFi <span style={{ fontSize: 18 }}>→</span>
-        </button>
+      {/* ── Sticky Bottom Bar ─────────────────────────── */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+        background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(12px)',
+        borderTop: '1px solid #f3f4f6',
+        boxShadow: '0 -4px 20px rgba(0,0,0,0.09)',
+        padding: '10px 14px 14px',
+      }}>
+        <div style={{ maxWidth: 500, margin: '0 auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+
+          {/* Share */}
+          <button onClick={handleShare} title="Share Menu" style={{
+            width: 48, height: 48, borderRadius: 13, border: '1.5px solid #e5e7eb',
+            background: '#fff', cursor: 'pointer', flexShrink: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>📤</span>
+            <span style={{ fontSize: 9, color: '#6b7280', fontWeight: 600 }}>Share</span>
+          </button>
+
+          {/* Order Now — main CTA */}
+          <button onClick={handleOrder} style={{
+            flex: 1, background: 'linear-gradient(135deg, #e85d04, #f97316)',
+            color: '#fff', border: 'none', borderRadius: 13,
+            padding: '13px 10px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
+            boxShadow: '0 6px 18px rgba(232,93,4,0.38)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+          }}>
+            🛒 Order Now
+            <span style={{ fontSize: 16 }}>→</span>
+          </button>
+
+          {/* Call */}
+          <button onClick={handleCall} title="Call Us" style={{
+            width: 48, height: 48, borderRadius: 13, border: '1.5px solid #e5e7eb',
+            background: '#fff', cursor: 'pointer', flexShrink: 0,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+          }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>📞</span>
+            <span style={{ fontSize: 9, color: '#6b7280', fontWeight: 600 }}>Call</span>
+          </button>
+
+        </div>
       </div>
 
       {/* ── Item Modal ────────────────────────────────── */}
@@ -671,6 +740,7 @@ export default function OrderPage() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         ::-webkit-scrollbar { display: none; }
         * { box-sizing: border-box; }
         body { margin: 0; }

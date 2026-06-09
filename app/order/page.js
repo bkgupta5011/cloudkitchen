@@ -188,41 +188,42 @@ export default function OrderPage() {
 
       {/* ── Hero ───────────────────────────────────────── */}
       <div style={{
-        background: 'linear-gradient(135deg, #d4520a 0%, #e85d04 45%, #f97316 100%)',
-        padding: '28px 20px 72px',
+        background: 'linear-gradient(135deg, #0f1f5c 0%, #1e3a8a 40%, #c2410c 80%, #e85d04 100%)',
+        padding: '18px 20px 52px',
         textAlign: 'center', position: 'relative', overflow: 'hidden',
       }}>
         {/* dot pattern */}
-        <div style={{ position: 'absolute', inset: 0, opacity: 0.07, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
+        <div style={{ position: 'absolute', inset: 0, opacity: 0.06, backgroundImage: 'radial-gradient(circle, #fff 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
 
         <div style={{ position: 'relative', zIndex: 1 }}>
           {/* Logo + name */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
-            <FoodFiLogo size={54} style={{ display: 'block', boxShadow: '0 4px 16px rgba(0,0,0,0.22)', borderRadius: 14 }} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
+            <FoodFiLogo size={50} style={{ display: 'block', boxShadow: '0 4px 16px rgba(0,0,0,0.28)', borderRadius: 14 }} />
             <div style={{ textAlign: 'left' }}>
               {/* H1 for SEO — primary keyword */}
-              <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#fff', letterSpacing: -0.5 }}>
-                Food<span style={{ opacity: 0.75 }}>Fi</span>
+              <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: -0.5 }}>
+                Food<span style={{ color: '#fbbf24' }}>Fi</span>
               </h1>
-              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>
+              <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontWeight: 600 }}>
                 Best Food Delivery in Patna · {kitchen?.kitchen_name || 'Cloud Kitchen'}
               </p>
             </div>
           </div>
 
-          <h2 style={{ margin: '10px 0 6px', fontSize: 20, fontWeight: 800, color: '#fff', lineHeight: 1.35 }}>
-            Fresh Homemade Food<br />Delivered to Your Door 🚀
+          <h2 style={{ margin: '8px 0 5px', fontSize: 18, fontWeight: 800, color: '#fff', lineHeight: 1.35 }}>
+            Fresh Homemade Food · Delivered to Your Door 🚀
           </h2>
-          <p style={{ margin: '0 0 6px', color: 'rgba(255,255,255,0.9)', fontSize: 13 }}>
+          <p style={{ margin: '0 0 5px', color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>
             Order online · Cash on delivery · {kitchen?.estimated_time || 45} min delivery
           </p>
           {kitchen && (
-            <p style={{ margin: '0 0 18px', color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
+            <p style={{ margin: '0 0 14px', color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>
               ⏰ {formatTime(kitchen.open_time)} – {formatTime(kitchen.close_time)}
               &nbsp;·&nbsp;
               <span style={{
-                background: kitchen.is_open ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)',
-                padding: '2px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+                background: kitchen.is_open ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)',
+                border: `1px solid ${kitchen.is_open ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)'}`,
+                padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
               }}>
                 {kitchen.is_open ? '🟢 Open Now' : '🔴 Closed'}
               </span>
@@ -230,16 +231,16 @@ export default function OrderPage() {
           )}
 
           <button onClick={handleOrder} style={{
-            background: '#fff', color: '#e85d04', border: 'none', borderRadius: 50,
-            padding: '12px 32px', fontSize: 15, fontWeight: 800, cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: '#fbbf24', color: '#7c2d12', border: 'none', borderRadius: 50,
+            padding: '10px 28px', fontSize: 14, fontWeight: 800, cursor: 'pointer',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+            display: 'inline-flex', alignItems: 'center', gap: 7,
           }}>
             🛒 Order Now
           </button>
 
           {/* Search — sits inside hero, sticks out below */}
-          <div style={{ maxWidth: 560, margin: '20px auto -28px', padding: '0 4px', position: 'relative', zIndex: 5 }}>
+          <div style={{ maxWidth: 560, margin: '16px auto -28px', padding: '0 4px', position: 'relative', zIndex: 5 }}>
             <div style={{
               background: '#fff', borderRadius: 14,
               boxShadow: '0 6px 24px rgba(0,0,0,0.18)',

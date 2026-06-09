@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import FoodFiLogo from '../components/FoodFiLogo'
 
 const FOODFI_URL = 'https://foodfi.in'
 const WHATSAPP_NUMBER = '917546983536'
@@ -73,20 +74,6 @@ function StarRating({ rating }) {
   )
 }
 
-/* ── Styled FoodFi logo mark (since icon is plain orange square) ── */
-function LogoMark({ size = 56 }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: size * 0.25,
-      background: '#fff',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-      flexShrink: 0,
-    }}>
-      <span style={{ fontSize: size * 0.52, lineHeight: 1 }}>🍽️</span>
-    </div>
-  )
-}
 
 export default function OrderPage() {
   const [items, setItems] = useState([])
@@ -211,7 +198,7 @@ export default function OrderPage() {
         <div style={{ position: 'relative', zIndex: 1 }}>
           {/* Logo + name */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
-            <LogoMark size={54} />
+            <FoodFiLogo size={54} style={{ display: 'block', boxShadow: '0 4px 16px rgba(0,0,0,0.22)', borderRadius: 14 }} />
             <div style={{ textAlign: 'left' }}>
               {/* H1 for SEO — primary keyword */}
               <h1 style={{ margin: 0, fontSize: 28, fontWeight: 900, color: '#fff', letterSpacing: -0.5 }}>

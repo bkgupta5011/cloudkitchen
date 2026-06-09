@@ -640,6 +640,23 @@ export async function PATCH(request) {
           url: '/orders', tag: `order-${order.id}`
         }, 'customer').catch(() => {})
 
+        // Post-delivery care message — 3 min baad
+        setTimeout(async () => {
+          try {
+            const msgs = await sql`SELECT message FROM engagement_messages WHERE category = 'post_delivery' AND is_active = true`
+            const defaultMsg = "Khana pasand aaya? 😊 Ek review doge toh hamare chef ka dil khush ho jaayega! ⭐"
+            const body = msgs.length
+              ? msgs[Math.floor(Math.random() * msgs.length)].message
+              : defaultMsg
+            sendPushToUser(String(order.user_id), {
+              title: '😊 Kaisa Laga Khana? — FoodFi',
+              body,
+              url: '/orders',
+              tag: `care-${order.id}`,
+            }, 'customer').catch(() => {})
+          } catch {}
+        }, 3 * 60 * 1000) // 3 minutes
+
         // SMS notification
         const [cust] = await sql`SELECT phone FROM users WHERE id = ${order.user_id}`
         if (cust?.phone) {

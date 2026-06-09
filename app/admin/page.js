@@ -19,7 +19,8 @@ const SECTIONS = [
   { id: 'notices',   label: '📣 Notices' },
   { id: 'broadcast', label: '📢 Broadcast' },
   { id: 'stock',     label: '📦 Stock',         badge: 'stock' },
-  { id: 'recipes',   label: '📖 Recipe Book' },
+  { id: 'recipes',    label: '📖 Recipe Book' },
+  { id: 'engagement', label: '💌 Engagement' },
 ]
 
 export default function AdminPage() {
@@ -87,6 +88,13 @@ export default function AdminPage() {
   const [broadcastForm, setBroadcastForm] = useState({ title: '', body: '', target: 'customer', url: '' })
   const [broadcastSending, setBroadcastSending] = useState(false)
   const [broadcastResult, setBroadcastResult] = useState(null)
+  // Engagement
+  const [engagementData, setEngagementData] = useState(null)
+  const [engagementLoading, setEngagementLoading] = useState(false)
+  const [engagementCat, setEngagementCat] = useState('')
+  const [engagementNewMsg, setEngagementNewMsg] = useState('')
+  const [engagementSaving, setEngagementSaving] = useState(false)
+  const [testingNotif, setTestingNotif] = useState('')
   // Recipe Book
   const [recipeCat, setRecipeCat] = useState('Sab Recipes')
   const [recipeSearch, setRecipeSearch] = useState('')
@@ -2113,6 +2121,156 @@ export default function AdminPage() {
             </>
           )
         })()}
+
+        {/* ── ENGAGEMENT ── */}
+        {section === 'engagement' && (
+          <div>
+            <h2 style={{ fontSize:18, fontWeight:700, marginBottom:4 }}>💌 Customer Engagement Messages</h2>
+            <p style={{ fontSize:12, color:'var(--t2)', marginBottom:16 }}>Har category mein messages add/remove karo — app automatically random message choose karega</p>
+
+            {/* Load button */}
+            {!engagementData && (
+              <button
+                onClick={async () => {
+                  setEngagementLoading(true)
+                  const d = await fetch('/api/engagement').then(r => r.json())
+                  setEngagementData(d.grouped || {})
+                  const firstCat = Object.keys(d.grouped || {})[0]
+                  if (firstCat) setEngagementCat(firstCat)
+                  setEngagementLoading(false)
+                }}
+                disabled={engagementLoading}
+                style={{ background:'var(--or)', color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', fontSize:14, fontWeight:700, cursor:'pointer' }}>
+                {engagementLoading ? '⏳ Load ho raha hai...' : '📂 Messages Load Karo'}
+              </button>
+            )}
+
+            {engagementData && (
+              <div>
+                {/* Category tabs */}
+                <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:20 }}>
+                  {Object.entries(engagementData).map(([cat, { label }]) => (
+                    <button key={cat} onClick={() => { setEngagementCat(cat); setEngagementNewMsg('') }}
+                      style={{ padding:'7px 14px', borderRadius:20, fontSize:12, fontWeight:600, cursor:'pointer', border:'1.5px solid', whiteSpace:'nowrap',
+                        borderColor: engagementCat===cat ? 'var(--or)' : 'var(--bd)',
+                        background: engagementCat===cat ? '#fff7ed' : 'var(--bg)',
+                        color: engagementCat===cat ? 'var(--or)' : 'var(--t2)',
+                      }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {engagementCat && engagementData[engagementCat] && (() => {
+                  const { label, messages } = engagementData[engagementCat]
+                  return (
+                    <div>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+                        <div style={{ fontSize:15, fontWeight:700 }}>{label}</div>
+                        {/* Test send button */}
+                        {engagementCat.endsWith('_notif') || engagementCat === 'miss_you' || engagementCat === 'friday' ? (
+                          <button
+                            disabled={!!testingNotif}
+                            onClick={async () => {
+                              const typeMap = { morning_notif:'morning', lunch_notif:'lunch', dinner_notif:'dinner', miss_you:'miss_you', friday:'friday' }
+                              const t = typeMap[engagementCat]
+                              if (!t) return
+                              setTestingNotif(engagementCat)
+                              await fetch(`/api/cron/notifications?type=${t}`).then(r => r.json())
+                              setTestingNotif('')
+                              setToast('Test notification bhej diya! ✅')
+                              setTimeout(() => setToast(''), 3000)
+                            }}
+                            style={{ background:'#dcfce7', color:'#15803d', border:'1px solid #86efac', borderRadius:8, padding:'6px 14px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                            {testingNotif === engagementCat ? '⏳ Bhej raha hai...' : '🧪 Test Send Karo'}
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {/* Messages list */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20 }}>
+                        {messages.length === 0 && (
+                          <div style={{ fontSize:13, color:'var(--t2)', padding:'20px', textAlign:'center', background:'var(--bg)', borderRadius:10 }}>
+                            Koi message nahi hai — neeche add karo 👇
+                          </div>
+                        )}
+                        {messages.map(msg => (
+                          <div key={msg.id} style={{ background:'var(--bg)', borderRadius:12, padding:'12px 14px', display:'flex', alignItems:'flex-start', gap:10,
+                            border: msg.is_active ? '1.5px solid #d1fae5' : '1.5px solid var(--bd)', opacity: msg.is_active ? 1 : 0.55 }}>
+                            <div style={{ flex:1, fontSize:13, color:'var(--t1)', lineHeight:1.55 }}>{msg.message}</div>
+                            <div style={{ display:'flex', gap:6, flexShrink:0, alignItems:'center' }}>
+                              {/* Toggle active */}
+                              <button
+                                onClick={async () => {
+                                  await fetch('/api/engagement', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: msg.id, is_active: !msg.is_active }) })
+                                  setEngagementData(prev => {
+                                    const updated = { ...prev }
+                                    updated[engagementCat] = { ...updated[engagementCat], messages: updated[engagementCat].messages.map(m => m.id === msg.id ? { ...m, is_active: !m.is_active } : m) }
+                                    return updated
+                                  })
+                                }}
+                                title={msg.is_active ? 'Disable karo' : 'Enable karo'}
+                                style={{ background: msg.is_active ? '#dcfce7' : '#f3f4f6', color: msg.is_active ? '#15803d' : '#9ca3af', border:'none', borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                                {msg.is_active ? '✅ Active' : '⏸ Off'}
+                              </button>
+                              {/* Delete */}
+                              <button
+                                onClick={async () => {
+                                  if (!confirm('Delete karein?')) return
+                                  await fetch('/api/engagement', { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: msg.id }) })
+                                  setEngagementData(prev => {
+                                    const updated = { ...prev }
+                                    updated[engagementCat] = { ...updated[engagementCat], messages: updated[engagementCat].messages.filter(m => m.id !== msg.id) }
+                                    return updated
+                                  })
+                                }}
+                                style={{ background:'#fee2e2', color:'#dc2626', border:'none', borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                                🗑
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Add new message */}
+                      <div style={{ background:'var(--card)', border:'1.5px dashed var(--bd2)', borderRadius:14, padding:'16px' }}>
+                        <div style={{ fontSize:13, fontWeight:700, marginBottom:10, color:'var(--t1)' }}>➕ Naya Message Add Karo</div>
+                        <textarea
+                          value={engagementNewMsg}
+                          onChange={e => setEngagementNewMsg(e.target.value)}
+                          placeholder="Yahan message likhein... (emoji bhi use kar sakte hain 😄)"
+                          rows={3}
+                          style={{ width:'100%', padding:'10px 12px', border:'1.5px solid var(--bd)', borderRadius:10, fontSize:13, resize:'vertical', background:'var(--bg)', color:'var(--t1)', boxSizing:'border-box', fontFamily:'inherit', lineHeight:1.5 }}
+                        />
+                        <button
+                          disabled={!engagementNewMsg.trim() || engagementSaving}
+                          onClick={async () => {
+                            if (!engagementNewMsg.trim()) return
+                            setEngagementSaving(true)
+                            const d = await fetch('/api/engagement', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ category: engagementCat, message: engagementNewMsg.trim() }) }).then(r => r.json())
+                            if (d.success) {
+                              setEngagementData(prev => {
+                                const updated = { ...prev }
+                                updated[engagementCat] = { ...updated[engagementCat], messages: [...updated[engagementCat].messages, d.message] }
+                                return updated
+                              })
+                              setEngagementNewMsg('')
+                              setToast('Message add ho gaya! ✅')
+                              setTimeout(() => setToast(''), 2500)
+                            }
+                            setEngagementSaving(false)
+                          }}
+                          style={{ marginTop:10, background: engagementNewMsg.trim() ? 'var(--or)' : '#d1d5db', color:'#fff', border:'none', borderRadius:10, padding:'10px 24px', fontSize:13, fontWeight:700, cursor: engagementNewMsg.trim() ? 'pointer' : 'not-allowed' }}>
+                          {engagementSaving ? '⏳ Saving...' : '💾 Add Karo'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+          </div>
+        )}
 
       </main>
 

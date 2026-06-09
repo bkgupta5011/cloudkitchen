@@ -381,6 +381,7 @@ export default function MenuPage() {
   const [kitchenPhone, setKitchenPhone] = useState(null)
   const [stockPopup, setStockPopup] = useState(null)   // { itemName, available }
   const [selectedItem, setSelectedItem] = useState(null) // item detail modal
+  const [greetingBanner, setGreetingBanner] = useState(null) // time-based banner
   const notifPollRef  = useRef(null)
   const lastUnreadRef = useRef(-1)
   const syncTimerRef  = useRef(null) // debounce DB sync
@@ -446,6 +447,23 @@ export default function MenuPage() {
       setItemRatings(ratingsData.itemRatings || {})
       setLoading(false)
     })
+  }, [])
+
+  // Time-based greeting banner
+  useEffect(() => {
+    const hour = new Date().getHours()
+    let category = ''
+    let title = ''
+    if (hour >= 6  && hour < 11) { category = 'morning_banner';    title = 'Subah' }
+    else if (hour >= 11 && hour < 16) { category = 'afternoon_banner'; title = 'Dopahar' }
+    else if (hour >= 16 && hour < 20) { category = 'evening_banner';   title = 'Shaam' }
+    else if (hour >= 20 && hour < 23) { category = 'night_banner';     title = 'Raat' }
+    else                              { category = 'late_night_banner'; title = 'Late Night' }
+
+    fetch(`/api/engagement?category=${category}`)
+      .then(r => r.json())
+      .then(d => { if (d.message) setGreetingBanner(d.message) })
+      .catch(() => {})
   }, [])
 
   // Debounced DB sync — fires 800ms after last change
@@ -831,6 +849,27 @@ export default function MenuPage() {
         <h2>What are you craving today?</h2>
         <p>Fresh homemade food · 30–45 mins · Cash on Delivery</p>
       </div>
+
+      {/* Greeting Banner */}
+      {greetingBanner && (
+        <div style={{
+          margin: '0 16px 4px',
+          background: 'linear-gradient(135deg, #fff7ed, #fef3c7)',
+          border: '1px solid #fed7aa',
+          borderRadius: 14,
+          padding: '12px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>👋</span>
+          <div style={{ flex: 1 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>
+              {user?.name?.split(' ')[0] ? `${user.name.split(' ')[0]}, ` : ''}{greetingBanner}
+            </span>
+          </div>
+          <button onClick={() => setGreetingBanner(null)}
+            style={{ background: 'none', border: 'none', fontSize: 16, color: '#d97706', cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>✕</button>
+        </div>
+      )}
 
       {/* Offers strip */}
       {offers.length > 0 && (

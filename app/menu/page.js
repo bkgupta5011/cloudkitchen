@@ -403,6 +403,27 @@ export default function MenuPage() {
     return () => timers.forEach(clearTimeout)
   }, [])
 
+  // ── Kitchen Closed Splash (after regular splash, if kitchen is closed) ──
+  const [showClosedSplash, setShowClosedSplash] = useState(false)
+  const [closedPhase, setClosedPhase] = useState(0)
+
+  useEffect(() => {
+    if (!showSplash && !kitchenOpen && !loading) {
+      setClosedPhase(0)
+      setShowClosedSplash(true)
+      const timers = [
+        setTimeout(() => setClosedPhase(1), 300),   // 👩‍🍳 emoji bounce
+        setTimeout(() => setClosedPhase(2), 950),   // title
+        setTimeout(() => setClosedPhase(3), 1700),  // line 1
+        setTimeout(() => setClosedPhase(4), 2600),  // line 2
+        setTimeout(() => setClosedPhase(5), 3500),  // notification hint
+        setTimeout(() => setClosedPhase(6), 5800),  // fade out
+        setTimeout(() => setShowClosedSplash(false), 6700),
+      ]
+      return () => timers.forEach(clearTimeout)
+    }
+  }, [showSplash, kitchenOpen, loading])
+
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
   // Show install banner after 4s if not already installed
@@ -720,6 +741,168 @@ export default function MenuPage() {
             letterSpacing: 2.5, textTransform: 'uppercase', fontWeight: 500,
           }}>
             foodfi.in
+          </div>
+        </div>
+      )}
+
+      {/* ── Kitchen Closed Splash ── */}
+      {showClosedSplash && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99998,
+          background: 'linear-gradient(160deg, #1a0800 0%, #2d1200 50%, #1a0800 100%)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden',
+          opacity: closedPhase >= 6 ? 0 : 1,
+          transition: closedPhase >= 6 ? 'opacity 0.9s ease' : 'none',
+          pointerEvents: closedPhase >= 6 ? 'none' : 'all',
+        }}>
+          <style>{`
+            @keyframes chefBounce {
+              0%   { transform: scale(0) rotate(-15deg); opacity: 0; }
+              55%  { transform: scale(1.2) rotate(5deg);  opacity: 1; }
+              75%  { transform: scale(0.92) rotate(-2deg); }
+              90%  { transform: scale(1.05) rotate(1deg); }
+              100% { transform: scale(1) rotate(0deg); opacity: 1; }
+            }
+            @keyframes chefWiggle {
+              0%,100% { transform: rotate(-4deg); }
+              50%      { transform: rotate(4deg); }
+            }
+            @keyframes closedShimmer {
+              0%   { background-position: -300% center; }
+              100% { background-position:  300% center; }
+            }
+            @keyframes bellRing {
+              0%,100% { transform: rotate(0deg); }
+              20%      { transform: rotate(15deg); }
+              40%      { transform: rotate(-12deg); }
+              60%      { transform: rotate(8deg); }
+              80%      { transform: rotate(-5deg); }
+            }
+            @keyframes floatUpClosed {
+              0%   { transform: translateY(0) rotate(0deg); opacity: 0.12; }
+              100% { transform: translateY(-110vh) rotate(20deg); opacity: 0; }
+            }
+          `}</style>
+
+          {/* Floating soft emojis */}
+          {['🍳','🥘','🫕','🍲','🥗','🍜','🫙','🧂'].map((em, i) => (
+            <div key={i} style={{
+              position: 'absolute',
+              left: `${i * 12 + 3}%`,
+              bottom: `-5%`,
+              fontSize: `${12 + (i % 3) * 7}px`,
+              animation: `floatUpClosed ${7 + i * 0.7}s linear ${i * 0.5}s infinite`,
+              opacity: 0.15,
+              userSelect: 'none', pointerEvents: 'none',
+            }}>{em}</div>
+          ))}
+
+          {/* Warm radial glow */}
+          <div style={{
+            position: 'absolute', width: 280, height: 280, borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(251,191,36,0.1) 0%, transparent 70%)',
+            top: '50%', left: '50%', transform: 'translate(-50%, -65%)',
+            pointerEvents: 'none',
+          }} />
+
+          {/* Chef emoji */}
+          <div style={{
+            fontSize: 72,
+            marginBottom: 8,
+            animation: closedPhase >= 1
+              ? 'chefBounce 0.75s cubic-bezier(0.34,1.56,0.64,1) forwards'
+              : 'none',
+            opacity: closedPhase >= 1 ? 1 : 0,
+            display: 'inline-block',
+            transformOrigin: 'bottom center',
+          }}>
+            👩‍🍳
+          </div>
+
+          {/* Sad face sub-emoji */}
+          <div style={{
+            fontSize: 28,
+            marginBottom: 18,
+            opacity: closedPhase >= 1 ? 1 : 0,
+            transition: 'opacity 0.4s ease 0.3s',
+            animation: closedPhase >= 1 ? 'chefWiggle 1.8s ease-in-out 1s infinite' : 'none',
+            display: 'inline-block',
+          }}>
+            😅
+          </div>
+
+          {/* Title */}
+          <div style={{
+            opacity: closedPhase >= 2 ? 1 : 0,
+            transform: closedPhase >= 2 ? 'translateY(0)' : 'translateY(18px)',
+            transition: 'opacity 0.55s ease, transform 0.55s ease',
+            textAlign: 'center', marginBottom: 20, padding: '0 24px',
+          }}>
+            <div style={{
+              fontSize: 22, fontWeight: 900, lineHeight: 1.3,
+              background: 'linear-gradient(90deg, #fbbf24, #f59e0b, #fbbf24)',
+              backgroundSize: '200% auto',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              animation: closedPhase >= 2 ? 'closedShimmer 2.5s linear infinite' : 'none',
+            }}>
+              Oops! FoodFi Thodi Der<br />Ke Liye Break Pe Hai!
+            </div>
+          </div>
+
+          {/* Line 1 */}
+          <div style={{
+            opacity: closedPhase >= 3 ? 1 : 0,
+            transform: closedPhase >= 3 ? 'translateY(0)' : 'translateY(14px)',
+            transition: 'opacity 0.6s ease, transform 0.6s ease',
+            textAlign: 'center', padding: '0 36px', marginBottom: 12, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.82)', fontWeight: 600, lineHeight: 1.6 }}>
+              Chinta mat karo — garam khana lekar<br />jald wapas aayenge! 😄
+            </div>
+          </div>
+
+          {/* Line 2 */}
+          <div style={{
+            opacity: closedPhase >= 4 ? 1 : 0,
+            transform: closedPhase >= 4 ? 'translateY(0)' : 'translateY(14px)',
+            transition: 'opacity 0.6s ease, transform 0.6s ease',
+            textAlign: 'center', padding: '0 36px', marginBottom: 24, maxWidth: 340,
+          }}>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.58)', fontWeight: 500, lineHeight: 1.6, fontStyle: 'italic' }}>
+              "Tab tak thoda sabr... khana aur bhi<br />acha bana ke laayenge!" 🍛
+            </div>
+          </div>
+
+          {/* Notification hint */}
+          <div style={{
+            opacity: closedPhase >= 5 ? 1 : 0,
+            transform: closedPhase >= 5 ? 'translateY(0)' : 'translateY(10px)',
+            transition: 'opacity 0.55s ease, transform 0.55s ease',
+            background: 'rgba(251,191,36,0.12)',
+            border: '1px solid rgba(251,191,36,0.3)',
+            borderRadius: 14, padding: '10px 20px',
+            display: 'flex', alignItems: 'center', gap: 10, maxWidth: 300,
+          }}>
+            <span style={{
+              fontSize: 20,
+              animation: closedPhase >= 5 ? 'bellRing 1.2s ease-in-out 0.3s infinite' : 'none',
+              display: 'inline-block',
+            }}>🔔</span>
+            <span style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, lineHeight: 1.5 }}>
+              Notification on rakho —<br />opening pe pehle aap! 🌟
+            </span>
+          </div>
+
+          {/* Bottom */}
+          <div style={{
+            position: 'absolute', bottom: 28,
+            opacity: closedPhase >= 5 ? 0.35 : 0,
+            transition: 'opacity 0.5s ease 0.3s',
+            fontSize: 10, color: 'rgba(255,255,255,0.35)',
+            letterSpacing: 2.5, textTransform: 'uppercase', fontWeight: 500,
+          }}>
+            jald milenge ❤️
           </div>
         </div>
       )}

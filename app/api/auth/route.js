@@ -129,7 +129,7 @@ export async function POST(request) {
         email: user.email,
         phone: user.phone,
         address: address || '',
-      }).catch(() => {})
+      }).catch(err => console.error('[NewCustomerAlert] Email failed:', err?.message))
 
       return res
     }

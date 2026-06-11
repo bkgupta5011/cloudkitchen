@@ -418,13 +418,13 @@ export default function MenuPage() {
       setClosedPhase(0)
       setShowClosedSplash(true)
       const timers = [
-        setTimeout(() => setClosedPhase(1), 300),   // 👩‍🍳 emoji bounce
-        setTimeout(() => setClosedPhase(2), 950),   // title
-        setTimeout(() => setClosedPhase(3), 1700),  // line 1
-        setTimeout(() => setClosedPhase(4), 2600),  // line 2
-        setTimeout(() => setClosedPhase(5), 3500),  // notification hint
-        setTimeout(() => setClosedPhase(6), 5800),  // fade out
-        setTimeout(() => setShowClosedSplash(false), 6700),
+        setTimeout(() => setClosedPhase(1), 150),   // 👩‍🍳 emoji bounce
+        setTimeout(() => setClosedPhase(2), 500),   // title
+        setTimeout(() => setClosedPhase(3), 900),   // line 1
+        setTimeout(() => setClosedPhase(4), 1400),  // line 2
+        setTimeout(() => setClosedPhase(5), 1900),  // notification hint
+        setTimeout(() => setClosedPhase(6), 2500),  // fade out
+        setTimeout(() => setShowClosedSplash(false), 3000), // 3 sec total
       ]
       return () => timers.forEach(clearTimeout)
     }

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
 import crypto from 'crypto'
-import { sendPasswordResetOtp, sendPasswordResetLink } from '@/lib/email'
+import { sendPasswordResetOtp, sendPasswordResetLink, sendNewCustomerAlert } from '@/lib/email'
 
 async function ensureResetTable(sql) {
   await sql`
@@ -122,6 +122,15 @@ export async function POST(request) {
       const token = signToken({ id: user.id, role: 'customer', name: user.name, email: user.email })
       const res = NextResponse.json({ success: true, user: { ...user, role: 'customer' } })
       res.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+
+      // Alert admin — non-blocking (signup succeeds even if email fails)
+      sendNewCustomerAlert({
+        customerName: user.name,
+        email: user.email,
+        phone: user.phone,
+        address: address || '',
+      }).catch(() => {})
+
       return res
     }
 

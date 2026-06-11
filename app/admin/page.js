@@ -1274,24 +1274,67 @@ export default function AdminPage() {
         )}
 
         {/* ── CUSTOMERS ── */}
-        {section === 'customers' && (
-          <>
-            <div className={styles.sectionHead}><h2>Customers</h2><span style={{ fontSize:12, color:'var(--t2)' }}>{customers.length} registered</span></div>
-            <div className={styles.table}>
-              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr' }}><span>Name</span><span>Phone</span><span>Orders</span><span>Total Spent</span><span>Joined</span><span>Last Order</span></div>
-              {customers.map(c => (
-                <div key={c.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr' }}>
-                  <div><div style={{ fontWeight:500, fontSize:13 }}>{c.name}</div><div style={{ fontSize:11, color:'var(--t2)' }}>{c.email}</div></div>
-                  <span style={{ fontSize:12, color:'var(--t2)' }}>{c.phone||'—'}</span>
-                  <span style={{ fontWeight:600, color:'var(--bl)' }}>{c.total_orders}</span>
-                  <span style={{ fontWeight:600, color:'var(--gr-d)' }}>₹{Math.round(c.total_spent)}</span>
-                  <span style={{ fontSize:11, color:'var(--t2)' }}>{new Date(c.created_at).toLocaleDateString('en-IN')}</span>
-                  <span style={{ fontSize:11, color:'var(--t2)' }}>{c.last_order_at ? new Date(c.last_order_at).toLocaleDateString('en-IN') : '—'}</span>
+        {section === 'customers' && (() => {
+          // Sort: latest joined first
+          const sorted = [...customers].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+          // Excel/CSV export
+          const exportCSV = () => {
+            const headers = ['Name', 'Email', 'Phone', 'Orders', 'Total Spent (₹)', 'Joined', 'Last Order']
+            const rows = sorted.map(c => [
+              c.name || '',
+              c.email || '',
+              c.phone || '',
+              c.total_orders || 0,
+              Math.round(c.total_spent || 0),
+              c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '',
+              c.last_order_at ? new Date(c.last_order_at).toLocaleDateString('en-IN') : '',
+            ])
+            const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `FoodFi_Customers_${new Date().toISOString().slice(0,10)}.csv`
+            a.click()
+            URL.revokeObjectURL(url)
+          }
+
+          return (
+            <>
+              <div className={styles.sectionHead}>
+                <h2>Customers</h2>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontSize:12, color:'var(--t2)' }}>{customers.length} registered</span>
+                  <button onClick={exportCSV} style={{
+                    display:'flex', alignItems:'center', gap:5,
+                    background:'#16a34a', color:'#fff', border:'none', borderRadius:8,
+                    padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer',
+                  }}>
+                    📥 Excel Export
+                  </button>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
+              </div>
+              <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 220px)', borderRadius:12, border:'1px solid var(--bdr)' }}>
+                <div className={styles.table} style={{ minWidth:700 }}>
+                  <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr', position:'sticky', top:0, zIndex:2 }}>
+                    <span>Name</span><span>Phone</span><span>Orders</span><span>Total Spent</span><span>Joined</span><span>Last Order</span>
+                  </div>
+                  {sorted.map(c => (
+                    <div key={c.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr' }}>
+                      <div><div style={{ fontWeight:500, fontSize:13 }}>{c.name}</div><div style={{ fontSize:11, color:'var(--t2)' }}>{c.email}</div></div>
+                      <span style={{ fontSize:12, color:'var(--t2)' }}>{c.phone||'—'}</span>
+                      <span style={{ fontWeight:600, color:'var(--bl)' }}>{c.total_orders}</span>
+                      <span style={{ fontWeight:600, color:'var(--gr-d)' }}>₹{Math.round(c.total_spent)}</span>
+                      <span style={{ fontSize:11, color:'var(--t2)' }}>{new Date(c.created_at).toLocaleDateString('en-IN')}</span>
+                      <span style={{ fontSize:11, color:'var(--t2)' }}>{c.last_order_at ? new Date(c.last_order_at).toLocaleDateString('en-IN') : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )
+        })()}
 
         {/* ── SUPPORT CHAT ── */}
         {section === 'support' && (

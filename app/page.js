@@ -54,12 +54,12 @@ export default function Home() {
   // Splash animation phases
   useEffect(() => {
     const timers = [
-      setTimeout(() => setSplashPhase(1), 200),
-      setTimeout(() => setSplashPhase(2), 850),
-      setTimeout(() => setSplashPhase(3), 1550),
-      setTimeout(() => setSplashPhase(4), 2400),
-      setTimeout(() => setSplashPhase(5), 3700),
-      setTimeout(() => setSplashDone(true), 4500),
+      setTimeout(() => setSplashPhase(1), 150),
+      setTimeout(() => setSplashPhase(2), 600),
+      setTimeout(() => setSplashPhase(3), 1100),
+      setTimeout(() => setSplashPhase(4), 1700),
+      setTimeout(() => setSplashPhase(5), 2500),
+      setTimeout(() => setSplashDone(true), 3000), // 3 sec total — before login
     ]
     return () => timers.forEach(clearTimeout)
   }, [])

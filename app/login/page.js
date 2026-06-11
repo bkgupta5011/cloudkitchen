@@ -69,12 +69,12 @@ export default function LoginPage() {
 
   useEffect(() => {
     const timers = [
-      setTimeout(() => setSplashPhase(1), 200),    // logo bounces in
-      setTimeout(() => setSplashPhase(2), 850),    // FoodFi brand name
-      setTimeout(() => setSplashPhase(3), 1550),   // main line
-      setTimeout(() => setSplashPhase(4), 2400),   // sub line
-      setTimeout(() => setSplashPhase(5), 3700),   // fade out starts
-      setTimeout(() => setShowSplash(false), 4500),// completely gone
+      setTimeout(() => setSplashPhase(1), 150),    // logo bounces in
+      setTimeout(() => setSplashPhase(2), 600),    // FoodFi brand name
+      setTimeout(() => setSplashPhase(3), 1100),   // main line
+      setTimeout(() => setSplashPhase(4), 1700),   // sub line
+      setTimeout(() => setSplashPhase(5), 2500),   // fade out starts
+      setTimeout(() => setShowSplash(false), 3000),// completely gone — 3 sec total
     ]
     return () => timers.forEach(clearTimeout)
   }, [])

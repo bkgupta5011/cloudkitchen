@@ -399,12 +399,12 @@ export default function MenuPage() {
 
   useEffect(() => {
     const timers = [
-      setTimeout(() => setSplashPhase(1), 200),
-      setTimeout(() => setSplashPhase(2), 850),
-      setTimeout(() => setSplashPhase(3), 1550),
-      setTimeout(() => setSplashPhase(4), 2400),
-      setTimeout(() => setSplashPhase(5), 3700),
-      setTimeout(() => setShowSplash(false), 4500),
+      setTimeout(() => setSplashPhase(1), 100),
+      setTimeout(() => setSplashPhase(2), 400),
+      setTimeout(() => setSplashPhase(3), 750),
+      setTimeout(() => setSplashPhase(4), 1150),
+      setTimeout(() => setSplashPhase(5), 1500),
+      setTimeout(() => setShowSplash(false), 2000), // 2 sec total — after login
     ]
     return () => timers.forEach(clearTimeout)
   }, [])

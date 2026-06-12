@@ -354,20 +354,23 @@ export async function POST(request) {
           const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
           user = u; detectedRole = 'customer'
         } else {
+          // Use phone-based unique email — avoids both NOT NULL and UNIQUE constraint issues
+          const digits = normalized.replace(/[^0-9]/g, '')
+          const otpEmail = `${digits}@otp.phone`
           const dummyHash = await hashPassword(crypto.randomUUID())
           const [newUser] = await sql`
             INSERT INTO users (name, email, phone, address, password_hash)
-            VALUES ('', NULL, ${normalized}, '', ${dummyHash})
+            VALUES ('', ${otpEmail}, ${normalized}, '', ${dummyHash})
+            ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
             RETURNING id, name, email, phone
           `
           user = newUser; detectedRole = 'customer'
-          // Alert admin — non-blocking
           sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' })
             .catch(() => {})
         }
       } catch (dbErr) {
         console.error('[login-otp] New user create error:', dbErr?.message)
-        // Maybe unique constraint on email hit — try one more lookup
+        // Fallback — maybe inserted in a race, just fetch
         const [retry] = await sql`SELECT * FROM users WHERE phone = ${normalized} LIMIT 1`.catch(() => [])
         if (retry) {
           user = retry; detectedRole = 'customer'
@@ -499,11 +502,13 @@ export async function POST(request) {
     }
 
     // Create new account (no password — OTP-based)
-    // Use NULL for email (not '') to avoid UNIQUE constraint violations
+    // Use phone-based unique email to satisfy both NOT NULL and UNIQUE constraints
+    const otpEmail = `${digits}@otp.phone`
     const dummyHash = await hashPassword(crypto.randomUUID()) // random password, login via OTP
     const [newUser] = await sql`
       INSERT INTO users (name, email, phone, address, password_hash)
-      VALUES (${name.trim()}, NULL, ${normalized}, ${address.trim()}, ${dummyHash})
+      VALUES (${name.trim()}, ${otpEmail}, ${normalized}, ${address.trim()}, ${dummyHash})
+      ON CONFLICT (phone) DO UPDATE SET name = EXCLUDED.name, address = EXCLUDED.address
       RETURNING id, name, email, phone
     `
     const token = signToken({ id: newUser.id, role: 'customer', name: newUser.name, email: newUser.email })

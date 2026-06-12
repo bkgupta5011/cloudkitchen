@@ -344,8 +344,26 @@ export async function POST(request) {
     }
 
     if (!user) {
-      // New user — return needsName so frontend shows name modal
-      return NextResponse.json({ success: true, needsName: true, phone, firebaseToken })
+      // New customer — auto-create account (phone already Firebase-verified above)
+      // Name collected at checkout — no extra round trip needed
+      const normalized = phone.startsWith('+') ? phone : '+91' + phone.replace(/[^0-9]/g, '')
+      // Guard: check once more to avoid race condition
+      const [existing] = await sql`SELECT id FROM users WHERE phone = ${normalized} LIMIT 1`
+      if (existing) {
+        const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
+        user = u; detectedRole = 'customer'
+      } else {
+        const dummyHash = await hashPassword(crypto.randomUUID())
+        const [newUser] = await sql`
+          INSERT INTO users (name, email, phone, address, password_hash)
+          VALUES ('', '', ${normalized}, '', ${dummyHash})
+          RETURNING id, name, email, phone
+        `
+        user = newUser; detectedRole = 'customer'
+        // Alert admin — non-blocking
+        sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' })
+          .catch(() => {})
+      }
     }
 
     // Check delivery boy status

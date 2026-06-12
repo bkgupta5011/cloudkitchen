@@ -201,6 +201,12 @@ export default function LoginPage() {
     } catch(e) {}
   }
 
+  // Pre-warm Firebase modules on mount — eliminates delay when user clicks Send OTP
+  useEffect(() => {
+    import('@/lib/firebase-client').catch(() => {})
+    import('firebase/auth').catch(() => {})
+  }, [])
+
   // Cleanup on page unmount (client-side navigation)
   useEffect(() => {
     return () => { cleanupFirebase() }
@@ -253,7 +259,10 @@ export default function LoginPage() {
   // ── Auto-verify OTP (Firebase confirm → backend login-otp) ──────
   const autoVerifyOtp = async (otp) => {
     if (otpStep === 'verifying') return
-    if (!confirmationResultRef.current) { setError('Please send OTP first'); return }
+    if (!confirmationResultRef.current) {
+      setError('OTP bhejne ke baad fill karo. Pehle Send OTP dabaao.')
+      return
+    }
     setOtpStep('verifying'); setError('')
     try {
       // Step 1: Firebase confirms OTP → get idToken
@@ -261,7 +270,7 @@ export default function LoginPage() {
       const idToken = await result.user.getIdToken()
       firebaseTokenRef.current = idToken
 
-      // Step 2: Backend looks up user by phone
+      // Step 2: Single backend call — new users auto-created inside login-otp now
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -269,40 +278,21 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Login failed. Please try again.')
+        setError(data.error || 'Login fail hua. Dobara try karo.')
         setOtpStep('sent')
         setOtpInput(['', '', '', '', '', ''])
         setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
         return
       }
-      if (data.needsName) {
-        // New user — auto-create account (name collected at checkout)
-        const signupRes = await fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'otp-signup',
-            phone: '+91' + phoneDigits,
-            name: '',
-            firebaseToken: idToken,
-          }),
-        })
-        const signupData = await signupRes.json()
-        if (!signupRes.ok) {
-          setError(signupData.error || 'Account nahi ban saka. Dobara try karo.')
-          setOtpStep('sent'); setOtpInput(['','','','','','']); return
-        }
-        router.push('/menu')
-      } else {
-        const { user } = data
-        if (user.role === 'admin') router.push('/admin')
-        else if (user.role === 'delivery') router.push('/delivery')
-        else router.push('/menu')
-      }
+      // Always get user directly — no needsName round-trip anymore
+      const { user } = data
+      if (user.role === 'admin') router.push('/admin')
+      else if (user.role === 'delivery') router.push('/delivery')
+      else router.push('/menu')
     } catch (e) {
       const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
-        : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Dobara bhejo.'
-        : 'OTP verify nahi hua. Please try again.'
+        : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Resend karo.'
+        : 'OTP verify nahi hua. Dobara try karo.'
       setError(msg)
       setOtpStep('sent')
       setOtpInput(['', '', '', '', '', ''])
@@ -542,7 +532,8 @@ export default function LoginPage() {
               onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
               placeholder="Apna 10 digit number"
               autoComplete="tel"
-              style={{ borderRadius: '0 8px 8px 0', borderLeft: 'none', flex: 1, fontSize: 16, fontWeight: 500 }}
+              disabled={otpStep === 'sent' || otpStep === 'verifying' || otpStep === 'sending'}
+              style={{ borderRadius: '0 8px 8px 0', borderLeft: 'none', flex: 1, fontSize: 16, fontWeight: 500, opacity: (otpStep === 'sent' || otpStep === 'verifying') ? 0.6 : 1 }}
             />
           </div>
         </div>

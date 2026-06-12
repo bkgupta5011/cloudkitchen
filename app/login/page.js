@@ -69,6 +69,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
+  const [savedPhone, setSavedPhone] = useState('')   // phone already in localStorage
+
+  // ── Load saved phone on mount ────────────────────────────────────
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem('ck_saved_phone')
+      if (s) { setSavedPhone(s); setPhone(s); setRememberMe(true) }
+    } catch(e) {}
+  }, [])
 
   const phoneDigits = phone.replace(/[^0-9]/g, '').slice(0, 10)
   const phoneReady = phoneDigits.length === 10
@@ -179,6 +189,22 @@ export default function LoginPage() {
 
   // ── OTP Box handlers ─────────────────────────────────────────────
   const handleOtpBox = (index, val) => {
+    // Multi-digit: browser auto-fill / paste into single box
+    const digits = val.replace(/[^0-9]/g, '')
+    if (digits.length > 1) {
+      const arr = ['', '', '', '', '', '']
+      digits.slice(0, 6).split('').forEach((d, j) => { if (index + j < 6) arr[index + j] = d })
+      // Keep existing digits for unfilled spots
+      const next = otpInput.map((existing, j) => arr[j] || (j < index ? existing : ''))
+      const filled = digits.slice(0, 6 - index)
+      filled.split('').forEach((d, j) => { next[index + j] = d })
+      setOtpInput(next)
+      const lastIdx = Math.min(index + filled.length - 1, 5)
+      otpBoxRefs.current[lastIdx]?.focus()
+      const full = next.join('')
+      if (full.length === 6) autoVerifyOtp(full)
+      return
+    }
     if (!/^[0-9]?$/.test(val)) return
     const next = [...otpInput]
     next[index] = val
@@ -306,10 +332,14 @@ export default function LoginPage() {
       }
       if (data.newUser) {
         pendingUserRef.current = user
+        if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
+        else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
         setShowNameModal(true)
         setTimeout(() => nameInputRef.current?.focus(), 350)
         return
       }
+      if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
+      else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
@@ -365,6 +395,8 @@ export default function LoginPage() {
       const data = await res.json()
       if (!res.ok) { setError(data.error || 'Login failed. Please check your password.'); return }
       const { user } = data
+      if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
+      else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
@@ -795,8 +827,8 @@ export default function LoginPage() {
                         ref={el => otpBoxRefs.current[i] = el}
                         type="text"
                         inputMode="numeric"
-                        maxLength={1}
-                        // autocomplete="one-time-code" on first box → browser/iOS shows OTP suggestion
+                        maxLength={i === 0 ? 6 : 1}
+                        // autocomplete="one-time-code" on first box → browser fills all 6 digits
                         autoComplete={i === 0 ? 'one-time-code' : 'off'}
                         value={digit}
                         onChange={e => handleOtpBox(i, e.target.value)}
@@ -868,9 +900,33 @@ export default function LoginPage() {
 
           {/* Phone Number */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
-              Mobile Number
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>
+                Mobile Number
+              </label>
+              {savedPhone && phone !== savedPhone && (
+                <button type="button"
+                  onClick={() => { setPhone(savedPhone); setRememberMe(true) }}
+                  style={{
+                    fontSize: 11, color: '#e85d04', background: '#fff7ed',
+                    border: '1px solid #fed7aa', borderRadius: 6,
+                    padding: '2px 8px', cursor: 'pointer', fontWeight: 700,
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                  📱 +91 {savedPhone}
+                </button>
+              )}
+              {savedPhone && phone === savedPhone && (
+                <button type="button"
+                  onClick={() => { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} setSavedPhone(''); setRememberMe(false) }}
+                  style={{
+                    fontSize: 11, color: '#6b7280', background: 'none',
+                    border: 'none', cursor: 'pointer', textDecoration: 'underline',
+                  }}>
+                  Remove saved
+                </button>
+              )}
+            </div>
             <div style={{ display: 'flex' }}>
               <span style={{
                 padding: '12px 14px', background: '#f9fafb',
@@ -927,17 +983,56 @@ export default function LoginPage() {
                 </div>
               )}
               {phoneReady && (
-                <button type="button" onClick={sendOtp}
-                  style={{
-                    width: '100%', padding: '15px', marginBottom: 14,
-                    background: 'linear-gradient(135deg, #e85d04, #f97316)',
-                    color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
-                    borderRadius: 12, cursor: 'pointer',
-                    boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
-                    letterSpacing: 0.3,
+                <>
+                  {/* Remember me checkbox */}
+                  <label style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    marginBottom: 14, cursor: 'pointer', userSelect: 'none',
+                    padding: '10px 12px',
+                    background: rememberMe ? '#fff7ed' : '#f9fafb',
+                    border: `1.5px solid ${rememberMe ? '#fed7aa' : '#e5e7eb'}`,
+                    borderRadius: 10, transition: 'all 0.18s',
                   }}>
-                  Continue →
-                </button>
+                    <div
+                      onClick={() => setRememberMe(r => !r)}
+                      style={{
+                        width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                        background: rememberMe ? '#e85d04' : '#fff',
+                        border: `2px solid ${rememberMe ? '#e85d04' : '#d1d5db'}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.18s',
+                      }}>
+                      {rememberMe && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
+                    </div>
+                    <div onClick={() => setRememberMe(r => !r)} style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: rememberMe ? '#92400e' : '#374151' }}>
+                        📱 Is number ko yaad rakho
+                      </div>
+                      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
+                        Next time faster signin — number auto fill hoga
+                      </div>
+                    </div>
+                    {savedPhone && savedPhone === phoneDigits && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, color: '#16a34a',
+                        background: '#f0fdf4', border: '1px solid #bbf7d0',
+                        borderRadius: 6, padding: '2px 7px',
+                      }}>Saved ✓</span>
+                    )}
+                  </label>
+
+                  <button type="button" onClick={sendOtp}
+                    style={{
+                      width: '100%', padding: '15px', marginBottom: 14,
+                      background: 'linear-gradient(135deg, #e85d04, #f97316)',
+                      color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
+                      borderRadius: 12, cursor: 'pointer',
+                      boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
+                      letterSpacing: 0.3,
+                    }}>
+                    Continue →
+                  </button>
+                </>
               )}
               {error && <div className={styles.error}>{error}</div>}
             </div>
@@ -961,7 +1056,21 @@ export default function LoginPage() {
                       style={{ borderRadius: 10, padding: '12px 14px', fontSize: 15 }}
                     />
                   </div>
-                  <div style={{ textAlign: 'right', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', userSelect: 'none' }}>
+                      <div
+                        onClick={() => setRememberMe(r => !r)}
+                        style={{
+                          width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                          background: rememberMe ? '#e85d04' : '#fff',
+                          border: `2px solid ${rememberMe ? '#e85d04' : '#d1d5db'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.18s',
+                        }}>
+                        {rememberMe && <span style={{ color: '#fff', fontSize: 11, lineHeight: 1 }}>✓</span>}
+                      </div>
+                      <span onClick={() => setRememberMe(r => !r)} style={{ fontSize: 12, color: '#6b7280', fontWeight: 500 }}>Remember me</span>
+                    </label>
                     <button type="button" onClick={() => router.push('/forgot-password')}
                       style={{ background: 'none', border: 'none', color: '#e85d04', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
                       Forgot Password?

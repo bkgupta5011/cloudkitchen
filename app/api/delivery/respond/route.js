@@ -89,11 +89,20 @@ export async function POST(request) {
       WHERE id              = ${orderId}
         AND delivery_boy_id = ${user.id}
         AND boy_accepted_at IS NULL
-        AND status          = 'pending'
+        AND status NOT IN ('delivered', 'cancelled')
       RETURNING id, order_number
     `
     if (!updated.length) {
-      return NextResponse.json({ success: false, reason: 'already_accepted_or_not_yours' })
+      // Check why it failed — already accepted, wrong boy, or completed/cancelled
+      const [check] = await sql`
+        SELECT id, delivery_boy_id, boy_accepted_at, status
+        FROM orders WHERE id = ${orderId}
+      `.catch(() => [])
+
+      if (!check) return NextResponse.json({ success: false, reason: 'order_not_found' })
+      if (check.boy_accepted_at) return NextResponse.json({ success: false, reason: 'already_accepted' })
+      if (['delivered','cancelled'].includes(check.status)) return NextResponse.json({ success: false, reason: 'order_closed' })
+      return NextResponse.json({ success: false, reason: 'not_assigned_to_you' })
     }
     return NextResponse.json({
       success: true,

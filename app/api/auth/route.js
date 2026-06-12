@@ -319,11 +319,20 @@ export async function POST(request) {
     const phoneVariants = [phone, phone.replace(/^\+91/, ''), '+91' + phone.replace(/[^0-9]/g, '')]
     let user = null; let detectedRole = null
 
-    // Check delivery boys
-    await ensureDeliveryBoyColumns(sql)
+    // Check admins FIRST (by phone)
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
     for (const p of phoneVariants) {
-      const boys = await sql`SELECT * FROM delivery_boys WHERE phone = ${p} LIMIT 1`
-      if (boys[0]) { user = boys[0]; detectedRole = 'delivery'; break }
+      const admins = await sql`SELECT * FROM admins WHERE phone = ${p} LIMIT 1`
+      if (admins[0]) { user = admins[0]; detectedRole = 'admin'; break }
+    }
+
+    // Check delivery boys
+    if (!user) {
+      await ensureDeliveryBoyColumns(sql)
+      for (const p of phoneVariants) {
+        const boys = await sql`SELECT * FROM delivery_boys WHERE phone = ${p} LIMIT 1`
+        if (boys[0]) { user = boys[0]; detectedRole = 'delivery'; break }
+      }
     }
 
     // Check customers

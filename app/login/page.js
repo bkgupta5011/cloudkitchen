@@ -515,7 +515,7 @@ export default function LoginPage() {
                   required
                   value={newUserName}
                   onChange={e => setNewUserName(e.target.value)}
-                  placeholder="Rahul Kumar"
+                  placeholder="Jaise: Rahul Kumar"
                   autoComplete="name"
                   style={{
                     width: '100%', padding: '11px 14px', fontSize: 15, fontWeight: 500,
@@ -617,7 +617,7 @@ export default function LoginPage() {
               maxLength={10}
               value={phone}
               onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
-              placeholder="98765 43210"
+              placeholder="Apna 10 digit number"
               autoComplete="tel"
               style={{ borderRadius: '0 8px 8px 0', borderLeft: 'none', flex: 1, fontSize: 16, fontWeight: 500 }}
             />

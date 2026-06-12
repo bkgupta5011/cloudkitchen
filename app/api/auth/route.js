@@ -36,6 +36,26 @@ async function ensureResetOtpsTable(sql) {
   `
 }
 
+// ── Fast2SMS OTP sender ─────────────────────────────────────────
+async function sendSmsOtp(phone, otp) {
+  const key = process.env.FAST2SMS_API_KEY
+  if (!key) throw new Error('FAST2SMS_API_KEY missing')
+  const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '').slice(-10)
+  const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+    method: 'POST',
+    headers: { 'authorization': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ route: 'otp', variables_values: otp, numbers: digits }),
+  })
+  const data = await res.json()
+  if (!data.return) throw new Error(data.message || 'SMS send failed')
+}
+
+// ── Normalize phone to +91XXXXXXXXXX ───────────────────────────
+function normalizePhone(phone) {
+  const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '').slice(-10)
+  return '+91' + digits
+}
+
 // Rate limiting: identifier -> { count, lockedUntil }
 const loginAttempts = new Map()
 function checkRate(id) {
@@ -305,6 +325,120 @@ export async function POST(request) {
     const loginRes = NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: detectedRole } })
     loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
     return loginRes
+  }
+
+  // ── SEND LOGIN OTP (Fast2SMS) ───────────────────────────────────
+  if (action === 'send-login-otp') {
+    const { phone } = body
+    if (!phone) return NextResponse.json({ error: 'Phone number required hai' }, { status: 400 })
+    const normalized = normalizePhone(phone)
+    const digits = normalized.replace('+91', '')
+    if (digits.length !== 10) return NextResponse.json({ error: 'Valid 10-digit phone number daalo' }, { status: 400 })
+
+    const rateCheck = checkRate('otp_' + digits)
+    if (rateCheck.locked) return NextResponse.json({ error: `Bahut zyada attempts. ${rateCheck.mins} min baad try karo.` }, { status: 429 })
+
+    try {
+      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      await ensureResetOtpsTable(sql)
+      await sql`DELETE FROM reset_otps WHERE identifier = ${'phone_' + digits}`
+      await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'phone_' + digits}, ${otp}, ${expiresAt})`
+      await sendSmsOtp(normalized, otp)
+      return NextResponse.json({ success: true })
+    } catch (e) {
+      console.error('send-login-otp error:', e.message)
+      return NextResponse.json({ error: 'OTP nahi bheja ja saka: ' + e.message }, { status: 500 })
+    }
+  }
+
+  // ── VERIFY LOGIN OTP → auto-login or needsName ──────────────────
+  if (action === 'verify-login-otp') {
+    const { phone, otp } = body
+    if (!phone || !otp) return NextResponse.json({ error: 'Phone aur OTP required hai' }, { status: 400 })
+    const normalized = normalizePhone(phone)
+    const digits = normalized.replace('+91', '')
+
+    await ensureResetOtpsTable(sql)
+    const [otpRow] = await sql`
+      SELECT * FROM reset_otps
+      WHERE identifier = ${'phone_' + digits} AND otp = ${otp}
+      AND used = false AND expires_at > NOW() LIMIT 1
+    `
+    if (!otpRow) {
+      recordFail('otp_' + digits)
+      return NextResponse.json({ error: 'Galat ya expired OTP. Dobara try karo.' }, { status: 400 })
+    }
+    // Mark OTP used
+    await sql`UPDATE reset_otps SET used = true WHERE id = ${otpRow.id}`
+    clearRate('otp_' + digits)
+
+    // Check delivery boys first
+    await ensureDeliveryBoyColumns(sql)
+    const [boy] = await sql`SELECT * FROM delivery_boys WHERE phone = ${normalized} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
+    if (boy) {
+      if (boy.status === 'pending') return NextResponse.json({ error: '⏳ Application pending hai.' }, { status: 403 })
+      if (boy.status === 'suspended') return NextResponse.json({ error: '🚫 Account suspend hai.' }, { status: 403 })
+      const token = signToken({ id: boy.id, role: 'delivery', name: boy.name, email: boy.email })
+      const r = NextResponse.json({ success: true, user: { id: boy.id, name: boy.name, role: 'delivery' } })
+      r.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+      return r
+    }
+
+    // Check customers
+    const [customer] = await sql`SELECT * FROM users WHERE phone = ${normalized} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
+    if (customer) {
+      const token = signToken({ id: customer.id, role: 'customer', name: customer.name, email: customer.email })
+      const r = NextResponse.json({ success: true, user: { id: customer.id, name: customer.name, role: 'customer' } })
+      r.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+      return r
+    }
+
+    // New user — need name to create account
+    return NextResponse.json({ success: true, needsName: true, phone: normalized })
+  }
+
+  // ── OTP SIGNUP (new user — name collected on frontend) ──────────
+  if (action === 'otp-signup') {
+    const { phone, name, otp, address = '' } = body
+    if (!phone || !name || !otp) return NextResponse.json({ error: 'Phone, naam aur OTP required hai' }, { status: 400 })
+    const normalized = normalizePhone(phone)
+    const digits = normalized.replace('+91', '')
+
+    // Re-verify OTP (used=true already, but re-check within last 2 min as grace window)
+    await ensureResetOtpsTable(sql)
+    const [otpRow] = await sql`
+      SELECT * FROM reset_otps
+      WHERE identifier = ${'phone_' + digits} AND otp = ${otp}
+      AND expires_at > NOW() LIMIT 1
+    `
+    if (!otpRow) return NextResponse.json({ error: 'OTP expired. Dobara OTP bhejo.' }, { status: 400 })
+
+    // Check if already registered (race condition guard)
+    const [exists] = await sql`SELECT id FROM users WHERE phone = ${normalized} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
+    if (exists) {
+      const [u] = await sql`SELECT * FROM users WHERE id = ${exists.id}`
+      const token = signToken({ id: u.id, role: 'customer', name: u.name, email: u.email })
+      const r = NextResponse.json({ success: true, user: { id: u.id, name: u.name, role: 'customer' } })
+      r.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+      return r
+    }
+
+    // Create new account (no password — OTP-based)
+    const dummyHash = await hashPassword(crypto.randomUUID()) // random password, login via OTP
+    const [newUser] = await sql`
+      INSERT INTO users (name, email, phone, address, password_hash)
+      VALUES (${name.trim()}, ${''}, ${normalized}, ${address.trim()}, ${dummyHash})
+      RETURNING id, name, email, phone
+    `
+    const token = signToken({ id: newUser.id, role: 'customer', name: newUser.name, email: newUser.email })
+    const r = NextResponse.json({ success: true, user: { id: newUser.id, name: newUser.name, role: 'customer' }, newUser: true })
+    r.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+
+    sendNewCustomerAlert({ customerName: newUser.name, email: '', phone: normalized, address: address.trim() })
+      .catch(err => console.error('[NewCustomerAlert]', err?.message))
+
+    return r
   }
 
   // ── LOGOUT ──────────────────────────────────────────────────────

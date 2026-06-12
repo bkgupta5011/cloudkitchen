@@ -70,6 +70,7 @@ export async function PATCH(request) {
     const [profile] = await sql`
       UPDATE users SET
         name    = COALESCE(${fields.name    ?? null}, name),
+        email   = COALESCE(NULLIF(${fields.email ?? ''}, ''), email),
         phone   = COALESCE(${fields.phone   ?? null}, phone),
         address = COALESCE(${fields.address ?? null}, address)
       WHERE id = ${user.id}

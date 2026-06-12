@@ -204,7 +204,7 @@ export default function ProfilePage() {
       .then(([profileRes, addrRes, ordersRes, noticesRes]) => {
         if (!profileRes) return
         setProfile(profileRes.profile)
-        setForm({ name: profileRes.profile?.name || '', phone: profileRes.profile?.phone || '', address: profileRes.profile?.address || '' })
+        setForm({ name: profileRes.profile?.name || '', email: profileRes.profile?.email || '', phone: profileRes.profile?.phone || '', address: profileRes.profile?.address || '' })
         setAddresses(addrRes?.addresses || [])
         setOrders(ordersRes?.orders || [])
         setNotices(noticesRes?.notices || [])
@@ -337,6 +337,10 @@ export default function ProfilePage() {
             {editing ? (
               <>
                 <div className="field"><label>Full Name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
+                <div className="field">
+                  <label>Email Address <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>(optional — receipts ke liye)</span></label>
+                  <input type="email" value={form.email || ''} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="you@email.com" autoComplete="email" />
+                </div>
                 <div className="field">
                   <label>Phone Number</label>
                   <div style={{ display: 'flex', gap: 0 }}>

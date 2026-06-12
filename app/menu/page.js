@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
@@ -371,6 +371,8 @@ const SPLASH_LINES = [
 
 export default function MenuPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isGuest = searchParams.get('guest') === 'true'
   const [user, setUser] = useState(null)
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -460,10 +462,13 @@ export default function MenuPage() {
       fetch('/api/ratings?type=menu').then(r => r.json()).catch(() => ({ itemRatings: {} })),
       fetch('/api/cart').then(r => r.json()).catch(() => ({ cart: {} })),
     ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData]) => {
-      if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
-      setUser(authData.user)
-      // DB cart wins over localStorage (cross-device sync)
-      if (cartData.cart && Object.keys(cartData.cart).length > 0) {
+      // Guest mode: skip auth redirect — guests can browse menu freely
+      if (!isGuest) {
+        if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
+      }
+      if (authData.user?.role === 'customer') setUser(authData.user)
+      // DB cart wins over localStorage (cross-device sync) — only for logged-in users
+      if (!isGuest && cartData.cart && Object.keys(cartData.cart).length > 0) {
         setCart(cartData.cart)
         localStorage.setItem('ck_cart', JSON.stringify(cartData.cart))
       }
@@ -914,29 +919,36 @@ export default function MenuPage() {
       )}
 
       {/* Navbar */}
-      <nav className={styles.nav}>
+      <nav className={styles.nav} style={isGuest ? { marginTop: 44 } : {}}>
         <span className={styles.logo}>🍽️ <span style={{color:'#e85d04'}}>Food</span>Fi</span>
         <div className={styles.navRight}>
           <span className={`${styles.kitchenBadge} ${kitchenOpen ? styles.open : styles.closed}`}>
             <span className={styles.dot} /> {kitchenOpen ? 'Open' : 'Closed'}
           </span>
-          <span className={styles.greeting}>Hi, {user?.name?.split(' ')[0]}</span>
-          <button className={styles.cartBtn} onClick={() => router.push('/cart')}>
-            🛒 Cart
-            {cartCount > 0 && <span className={styles.cartBadge}>{cartCount}</span>}
-          </button>
-          <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>
-          <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>
-          {/* Notification Bell */}
-          <button onClick={() => { setShowNotifDrawer(true); setUnreadCount(0); lastUnreadRef.current = 0 }}
-            style={{ position:'relative', background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:16 }}>
-            🔔
-            {unreadCount > 0 && (
-              <span style={{ position:'absolute', top:-6, right:-6, background:'#e85d04', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+          {isGuest
+            ? <button className="btn btn-primary" onClick={() => router.push('/login')} style={{ fontSize: 12, padding: '6px 12px', background: '#e85d04' }}>Login</button>
+            : <span className={styles.greeting}>Hi, {user?.name?.split(' ')[0]}</span>
+          }
+          {!isGuest && (
+            <button className={styles.cartBtn} onClick={() => router.push('/cart')}>
+              🛒 Cart
+              {cartCount > 0 && <span className={styles.cartBadge}>{cartCount}</span>}
+            </button>
+          )}
+          {!isGuest && <button className="btn btn-secondary" onClick={() => router.push('/orders')} style={{ fontSize: 12, padding: '6px 10px' }}>My Orders</button>}
+          {!isGuest && <button className="btn btn-secondary" onClick={() => router.push('/profile')} style={{ fontSize: 12, padding: '6px 10px' }}>👤 Profile</button>}
+          {/* Notification Bell — logged-in only */}
+          {!isGuest && (
+            <button onClick={() => { setShowNotifDrawer(true); setUnreadCount(0); lastUnreadRef.current = 0 }}
+              style={{ position:'relative', background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 10px', cursor:'pointer', fontSize:16 }}>
+              🔔
+              {unreadCount > 0 && (
+                <span style={{ position:'absolute', top:-6, right:-6, background:'#e85d04', color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
           {/* Install button — Android: native prompt, iOS: step-by-step modal */}
           {!isInstalled && (installPrompt || isIOS) && (
             <button
@@ -1184,11 +1196,48 @@ export default function MenuPage() {
       </div>
 
       {/* Cart sticky bar */}
-      {cartCount > 0 && (
+      {cartCount > 0 && !isGuest && (
         <div className={styles.cartBar}>
           <span>{cartCount} item{cartCount > 1 ? 's' : ''} in cart</span>
           <button className="btn btn-primary" onClick={() => router.push('/cart')}>
             View Cart →
+          </button>
+        </div>
+      )}
+
+      {/* Guest cart bar — prompt login to checkout */}
+      {cartCount > 0 && isGuest && (
+        <div className={styles.cartBar} style={{ background: 'linear-gradient(135deg, #1e3a8a, #0f1f5c)' }}>
+          <span style={{ fontSize: 13 }}>🛒 {cartCount} item{cartCount > 1 ? 's' : ''} — Login to order</span>
+          <button
+            className="btn btn-primary"
+            style={{ background: '#fbbf24', color: '#1f2937', fontWeight: 800 }}
+            onClick={() => router.push('/login')}
+          >
+            Login / Sign Up →
+          </button>
+        </div>
+      )}
+
+      {/* Guest top banner */}
+      {isGuest && !loading && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999,
+          background: 'linear-gradient(135deg, #1e3a8a 0%, #e85d04 100%)',
+          color: '#fff', padding: '10px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontSize: 13, gap: 10,
+          boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
+        }}>
+          <span style={{ fontWeight: 600 }}>👀 Guest mode — Browse karo, order ke liye login karo</span>
+          <button
+            onClick={() => router.push('/login')}
+            style={{
+              background: '#fbbf24', color: '#1f2937', border: 'none',
+              borderRadius: 8, padding: '5px 12px', fontSize: 12,
+              fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            Login →
           </button>
         </div>
       )}

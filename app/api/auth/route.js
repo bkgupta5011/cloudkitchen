@@ -331,7 +331,8 @@ export async function POST(request) {
     }
 
     if (!user) {
-      return NextResponse.json({ error: 'Is phone se koi account nahi mila. Pehle Sign Up karein.' }, { status: 404 })
+      // New user — return needsName so frontend shows name modal
+      return NextResponse.json({ success: true, needsName: true, phone, firebaseToken })
     }
 
     // Check delivery boy status
@@ -418,21 +419,32 @@ export async function POST(request) {
 
   // ── OTP SIGNUP (new user — name collected on frontend) ──────────
   if (action === 'otp-signup') {
-    const { phone, name, verifiedToken, address = '' } = body
-    if (!phone || !name || !verifiedToken) return NextResponse.json({ error: 'Phone, naam aur verified token required hai' }, { status: 400 })
+    const { phone, name, firebaseToken, verifiedToken, address = '' } = body
+    if (!phone || !name) return NextResponse.json({ error: 'Phone aur naam required hai' }, { status: 400 })
+    if (!firebaseToken && !verifiedToken) return NextResponse.json({ error: 'OTP verification required hai' }, { status: 400 })
     const normalized = normalizePhone(phone)
     const digits = normalized.replace('+91', '')
 
-    // Check verifiedToken (generated after Twilio OTP approval)
-    await ensureResetOtpsTable(sql)
-    const [otpRow] = await sql`
-      SELECT * FROM reset_otps
-      WHERE identifier = ${'vtoken_' + digits} AND otp = ${verifiedToken}
-      AND expires_at > NOW() LIMIT 1
-    `
-    if (!otpRow) return NextResponse.json({ error: 'Session expired. Dobara OTP verify karo.' }, { status: 400 })
-    // Delete used token
-    await sql`DELETE FROM reset_otps WHERE identifier = ${'vtoken_' + digits}`
+    // Verify via Firebase token OR verifiedToken (Twilio path)
+    if (firebaseToken) {
+      try {
+        const apiKey = process.env.FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY
+        const fbRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken: firebaseToken }),
+        })
+        const fbData = await fbRes.json()
+        if (!fbData.users?.[0]) return NextResponse.json({ error: 'Firebase token invalid. Dobara OTP verify karo.' }, { status: 401 })
+      } catch (e) {
+        return NextResponse.json({ error: 'Verification failed. Dobara try karo.' }, { status: 401 })
+      }
+    } else {
+      // verifiedToken path (Twilio)
+      await ensureResetOtpsTable(sql)
+      const [tokenRow] = await sql`SELECT * FROM reset_otps WHERE identifier = ${'vtoken_' + digits} AND otp = ${verifiedToken} AND expires_at > NOW() LIMIT 1`
+      if (!tokenRow) return NextResponse.json({ error: 'Session expired. Dobara OTP verify karo.' }, { status: 400 })
+      await sql`DELETE FROM reset_otps WHERE identifier = ${'vtoken_' + digits}`
+    }
 
     // Check if already registered (race condition guard)
     const [exists] = await sql`SELECT id FROM users WHERE phone = ${normalized} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`

@@ -77,11 +77,15 @@ export default function LoginPage() {
   const timerRef = useRef(null)
   const otpBoxRefs = useRef([])
 
+  // Firebase refs
+  const confirmationResultRef = useRef(null)
+  const recaptchaVerifierRef  = useRef(null)
+  const firebaseTokenRef      = useRef(null)
+
   // ── Name modal (new user) ────────────────────────────────────────
   const [showNameModal, setShowNameModal] = useState(false)
   const [newUserName, setNewUserName] = useState('')
   const [newUserAddress, setNewUserAddress] = useState('')
-  const [verifiedToken, setVerifiedToken] = useState('')  // Token from verify-login-otp (needed for otp-signup)
   const [locationLoading, setLocationLoading] = useState(false)
   const nameInputRef = useRef(null)
 
@@ -93,20 +97,32 @@ export default function LoginPage() {
     return () => clearTimeout(timerRef.current)
   }, [otpTimer])
 
-  // Reset OTP when phone changes
+  // Reset OTP + Firebase when phone changes
   useEffect(() => {
     setOtpStep('idle')
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
+    confirmationResultRef.current = null
+    firebaseTokenRef.current = null
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
   }, [phone])
 
-  // Reset OTP when tab changes
+  // Reset OTP + Firebase when tab changes
   useEffect(() => {
     setOtpStep('idle')
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
+    confirmationResultRef.current = null
+    firebaseTokenRef.current = null
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
   }, [tab])
 
   // Focus name input when modal opens
@@ -173,57 +189,97 @@ export default function LoginPage() {
     e.preventDefault()
   }
 
-  // ── Send OTP ─────────────────────────────────────────────────────
+  // ── Send OTP (Firebase — client-side, no server IP issues) ──────
   const sendOtp = async () => {
     if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
+
+    // Clean up previous recaptcha
+    if (recaptchaVerifierRef.current) {
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
+      recaptchaVerifierRef.current = null
+    }
+    confirmationResultRef.current = null
+
     try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send-login-otp', phone: '+91' + phoneDigits }),
+      const { getFirebaseAuth } = await import('@/lib/firebase-client')
+      const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth')
+      const auth = getFirebaseAuth()
+      if (!auth) throw new Error('Firebase auth init failed')
+
+      const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible', callback: () => {},
+        'expired-callback': () => {
+          if (recaptchaVerifierRef.current) {
+            try { recaptchaVerifierRef.current.clear() } catch(e) {}
+            recaptchaVerifierRef.current = null
+          }
+        }
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Could not send OTP. Please try again.'); setOtpStep('idle'); return }
+      recaptchaVerifierRef.current = verifier
+
+      const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
+      confirmationResultRef.current = result
       setOtpStep('sent')
       setOtpTimer(60)
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
-    } catch { setError('Network error. Please check your connection.'); setOtpStep('idle') }
+    } catch (e) {
+      console.error('Firebase OTP error:', e.code, e.message)
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear() } catch(err) {}
+        recaptchaVerifierRef.current = null
+      }
+      const msg = e.code === 'auth/too-many-requests'  ? 'Too many requests. 10-15 min baad try karo.'
+        : e.code === 'auth/invalid-phone-number'        ? 'Invalid phone number. 10-digit Indian number daalo.'
+        : e.code === 'auth/captcha-check-failed'        ? 'reCAPTCHA failed. Page refresh (F5) karke dobara try karo.'
+        : e.code === 'auth/network-request-failed'      ? 'Network error. Internet check karo.'
+        : 'OTP nahi bheja ja saka. Page refresh karke dobara try karo.'
+      setError(msg); setOtpStep('idle')
+    }
   }
 
-  // ── Auto-verify OTP ──────────────────────────────────────────────
-  const autoVerifyOtp = async (otp, arr) => {
+  // ── Auto-verify OTP (Firebase confirm → backend login-otp) ──────
+  const autoVerifyOtp = async (otp) => {
     if (otpStep === 'verifying') return
+    if (!confirmationResultRef.current) { setError('Please send OTP first'); return }
     setOtpStep('verifying'); setError('')
     try {
+      // Step 1: Firebase confirms OTP → get idToken
+      const result = await confirmationResultRef.current.confirm(otp)
+      const idToken = await result.user.getIdToken()
+      firebaseTokenRef.current = idToken
+
+      // Step 2: Backend looks up user by phone
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'verify-login-otp', phone: '+91' + phoneDigits, otp }),
+        body: JSON.stringify({ action: 'login-otp', phone: '+91' + phoneDigits, firebaseToken: idToken }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Incorrect OTP. Please check and try again.')
+        setError(data.error || 'Login failed. Please try again.')
         setOtpStep('sent')
         setOtpInput(['', '', '', '', '', ''])
         setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
         return
       }
       if (data.needsName) {
-        // New user — show name modal (store verifiedToken for otp-signup call)
-        setVerifiedToken(data.verifiedToken)
+        // New user — show name modal
         setShowNameModal(true)
       } else {
-        // Existing user — redirect
         const { user } = data
         if (user.role === 'admin') router.push('/admin')
         else if (user.role === 'delivery') router.push('/delivery')
         else router.push('/menu')
       }
-    } catch {
-      setError('Verification failed. Please try again.')
+    } catch (e) {
+      const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
+        : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Dobara bhejo.'
+        : 'OTP verify nahi hua. Please try again.'
+      setError(msg)
       setOtpStep('sent')
       setOtpInput(['', '', '', '', '', ''])
+      setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     }
   }
 
@@ -241,7 +297,7 @@ export default function LoginPage() {
           phone: '+91' + phoneDigits,
           name: newUserName.trim(),
           address: newUserAddress.trim(),
-          verifiedToken,
+          firebaseToken: firebaseTokenRef.current,
         }),
       })
       const data = await res.json()
@@ -527,6 +583,9 @@ export default function LoginPage() {
           </div>
         </div>
       )}
+
+      {/* Invisible reCAPTCHA container (Firebase needs this) */}
+      <div id="recaptcha-container" />
 
       {/* ── Main Card ── */}
       <div className={styles.card}>

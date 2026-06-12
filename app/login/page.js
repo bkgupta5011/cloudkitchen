@@ -513,16 +513,10 @@ export default function LoginPage() {
           background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
           display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
         }}>
-          <style>{`
-            @keyframes slideUp {
-              from { transform: translateY(100%); opacity: 0; }
-              to   { transform: translateY(0);    opacity: 1; }
-            }
-          `}</style>
           <div style={{
             background: '#fff', borderRadius: '24px 24px 0 0',
             width: '100%', maxWidth: 480, padding: '28px 24px 44px',
-            animation: 'slideUp 0.38s cubic-bezier(0.34,1.1,0.64,1)',
+            animation: 'slideUpSheet 0.38s cubic-bezier(0.34,1.1,0.64,1)',
             boxShadow: '0 -8px 48px rgba(0,0,0,0.18)',
           }}>
             {/* Handle bar */}

@@ -88,6 +88,8 @@ body {
 .toast.success { background: var(--gr-d); }
 .toast.error { background: var(--rd); }
 @keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+/* Bottom sheet slide-up (full height — for modals/drawers) */
+@keyframes slideUpSheet { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
 /* Veg/Non-veg dot */
 .veg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }

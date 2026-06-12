@@ -239,9 +239,13 @@ export async function POST(request) {
     let user = null
     let detectedRole = null
 
-    // Check admins (email only)
+    // Check admins (email OR phone)
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
     if (isEmail) {
       const admins = await sql`SELECT * FROM admins WHERE email = ${loginId} LIMIT 1`
+      if (admins[0]) { user = admins[0]; detectedRole = 'admin' }
+    } else {
+      const admins = await sql`SELECT * FROM admins WHERE phone = ${loginId} OR phone = ${'91' + loginId.replace(/[^0-9]/g,'')} OR phone = ${'+91' + loginId.replace(/[^0-9]/g,'')} LIMIT 1`
       if (admins[0]) { user = admins[0]; detectedRole = 'admin' }
     }
 

@@ -103,12 +103,9 @@ export default function LoginPage() {
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
-    confirmationResultRef.current = null
-    firebaseTokenRef.current = null
-    if (recaptchaVerifierRef.current) {
-      try { recaptchaVerifierRef.current.clear() } catch(e) {}
-      recaptchaVerifierRef.current = null
-    }
+    // Async cleanup — fire-and-forget (no await in useEffect)
+    cleanupFirebase().catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
 
   // Reset OTP + Firebase when tab changes
@@ -117,12 +114,8 @@ export default function LoginPage() {
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
-    confirmationResultRef.current = null
-    firebaseTokenRef.current = null
-    if (recaptchaVerifierRef.current) {
-      try { recaptchaVerifierRef.current.clear() } catch(e) {}
-      recaptchaVerifierRef.current = null
-    }
+    cleanupFirebase().catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
   // Focus name input when modal opens
@@ -189,17 +182,37 @@ export default function LoginPage() {
     e.preventDefault()
   }
 
-  // ── Send OTP (Firebase — client-side, no server IP issues) ──────
-  const sendOtp = async () => {
-    if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
-    setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
-
-    // Clean up previous recaptcha
+  // ── Cleanup Firebase + recaptcha container fully ─────────────────
+  const cleanupFirebase = async () => {
+    // 1. Clear our verifier
     if (recaptchaVerifierRef.current) {
       try { recaptchaVerifierRef.current.clear() } catch(e) {}
       recaptchaVerifierRef.current = null
     }
     confirmationResultRef.current = null
+    firebaseTokenRef.current = null
+
+    // 2. Sign out from Firebase (clears stale phone auth session in browser)
+    try {
+      const { getFirebaseAuth } = await import('@/lib/firebase-client')
+      const auth = getFirebaseAuth()
+      if (auth) await auth.signOut()
+    } catch(e) {}
+
+    // 3. Wipe the recaptcha container DOM (removes stale widget)
+    try {
+      const el = document.getElementById('recaptcha-container')
+      if (el) el.innerHTML = ''
+    } catch(e) {}
+  }
+
+  // ── Send OTP (Firebase — client-side, no server IP issues) ──────
+  const sendOtp = async () => {
+    if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
+    setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
+
+    // Always do a full cleanup before each attempt
+    await cleanupFirebase()
 
     try {
       const { getFirebaseAuth } = await import('@/lib/firebase-client')
@@ -208,12 +221,11 @@ export default function LoginPage() {
       if (!auth) throw new Error('Firebase auth init failed')
 
       const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible', callback: () => {},
-        'expired-callback': () => {
-          if (recaptchaVerifierRef.current) {
-            try { recaptchaVerifierRef.current.clear() } catch(e) {}
-            recaptchaVerifierRef.current = null
-          }
+        size: 'invisible',
+        callback: () => {},
+        'expired-callback': async () => {
+          // Token expired — clean up so next attempt starts fresh
+          await cleanupFirebase()
         }
       })
       recaptchaVerifierRef.current = verifier
@@ -225,16 +237,18 @@ export default function LoginPage() {
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     } catch (e) {
       console.error('Firebase OTP error:', e.code, e.message)
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear() } catch(err) {}
-        recaptchaVerifierRef.current = null
-      }
-      const msg = e.code === 'auth/too-many-requests'  ? 'Too many requests. 10-15 min baad try karo.'
-        : e.code === 'auth/invalid-phone-number'        ? 'Invalid phone number. 10-digit Indian number daalo.'
-        : e.code === 'auth/captcha-check-failed'        ? 'reCAPTCHA failed. Page refresh (F5) karke dobara try karo.'
-        : e.code === 'auth/network-request-failed'      ? 'Network error. Internet check karo.'
-        : 'OTP nahi bheja ja saka. Page refresh karke dobara try karo.'
-      setError(msg); setOtpStep('idle')
+      await cleanupFirebase()
+      const msg = e.code === 'auth/too-many-requests'
+        ? 'Bahut zyada attempts. 10-15 min baad try karo.'
+        : e.code === 'auth/invalid-phone-number'
+        ? 'Invalid phone number. 10-digit Indian number daalo.'
+        : e.code === 'auth/captcha-check-failed' || e.code === 'auth/internal-error'
+        ? 'Dobara try karo — OTP bhej raha hoon...'   // auto-retry friendly message
+        : e.code === 'auth/network-request-failed'
+        ? 'Network error. Internet check karo.'
+        : 'OTP nahi bheja ja saka. Dobara try karo.'
+      setError(msg)
+      setOtpStep('idle')
     }
   }
 

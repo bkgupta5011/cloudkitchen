@@ -85,21 +85,22 @@ export default function ForgotPasswordPage() {
     e.preventDefault()
   }
 
-  // ── Firebase RecaptchaVerifier ──────────────────────────────────
-  const getRecaptchaVerifier = async () => {
-    const { getFirebaseAuth } = await import('@/lib/firebase-client')
-    const { RecaptchaVerifier } = await import('firebase/auth')
-    const auth = getFirebaseAuth()
-    if (!auth) throw new Error('Firebase init failed')
+  // ── Full Firebase + recaptcha cleanup ──────────────────────────
+  const cleanupFirebase = async () => {
     if (recaptchaVerifierRef.current) {
-      try { recaptchaVerifierRef.current.clear() } catch (e) {}
+      try { recaptchaVerifierRef.current.clear() } catch(e) {}
       recaptchaVerifierRef.current = null
     }
-    const verifier = new RecaptchaVerifier(auth, 'fp-recaptcha-container', {
-      size: 'invisible', callback: () => {}
-    })
-    recaptchaVerifierRef.current = verifier
-    return { auth, verifier }
+    confirmationResultRef.current = null
+    try {
+      const { getFirebaseAuth } = await import('@/lib/firebase-client')
+      const auth = getFirebaseAuth()
+      if (auth) await auth.signOut()
+    } catch(e) {}
+    try {
+      const el = document.getElementById('fp-recaptcha-container')
+      if (el) el.innerHTML = ''
+    } catch(e) {}
   }
 
   // ── SEND OTP ────────────────────────────────────────────────────
@@ -111,10 +112,22 @@ export default function ForgotPasswordPage() {
     setError(''); setLoading(true); setOtpStep('sending')
     setOtpInput(['', '', '', '', '', ''])
 
+    // Full cleanup before every attempt
+    await cleanupFirebase()
+
     try {
       if (loginType === 'phone') {
-        const { signInWithPhoneNumber } = await import('firebase/auth')
-        const { auth, verifier } = await getRecaptchaVerifier()
+        const { getFirebaseAuth } = await import('@/lib/firebase-client')
+        const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth')
+        const auth = getFirebaseAuth()
+        if (!auth) throw new Error('Firebase init failed')
+
+        const verifier = new RecaptchaVerifier(auth, 'fp-recaptcha-container', {
+          size: 'invisible',
+          callback: () => {},
+          'expired-callback': () => { cleanupFirebase().catch(() => {}) }
+        })
+        recaptchaVerifierRef.current = verifier
         const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
         confirmationResultRef.current = result
       } else {
@@ -132,7 +145,11 @@ export default function ForgotPasswordPage() {
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     } catch (e) {
       console.error('Send OTP error:', e)
-      setError('OTP nahi bheja ja saka. Dobara try karo.')
+      await cleanupFirebase()
+      const msg = e.code === 'auth/too-many-requests' ? 'Bahut zyada attempts. 10-15 min baad try karo.'
+        : e.code === 'auth/captcha-check-failed' || e.code === 'auth/internal-error' ? 'Dobara try karo.'
+        : 'OTP nahi bheja ja saka. Dobara try karo.'
+      setError(msg)
       setOtpStep('idle')
     } finally { setLoading(false) }
   }

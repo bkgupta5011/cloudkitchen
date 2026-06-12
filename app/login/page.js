@@ -69,7 +69,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [rememberMe, setRememberMe] = useState(false)
+  const [rememberMe, setRememberMe] = useState(true)
   const [savedPhone, setSavedPhone] = useState('')   // phone already in localStorage
 
   // ── Load saved phone on mount ────────────────────────────────────
@@ -94,6 +94,7 @@ export default function LoginPage() {
   const confirmationResultRef = useRef(null)
   const recaptchaVerifierRef  = useRef(null)
   const firebaseTokenRef      = useRef(null)
+  const otpStepRef            = useRef('idle')   // always-fresh otpStep for async callbacks
 
   // ── New user welcome modal ───────────────────────────────────────
   const [showNameModal, setShowNameModal] = useState(false)
@@ -103,6 +104,9 @@ export default function LoginPage() {
   const [newUserSaving, setNewUserSaving] = useState(false)
   const nameInputRef = useRef(null)
   const pendingUserRef = useRef(null)
+
+  // Keep ref in sync so async callbacks (Web OTP, auto-verify) always see fresh value
+  useEffect(() => { otpStepRef.current = otpStep }, [otpStep])
 
   // Countdown timer
   useEffect(() => {
@@ -301,7 +305,7 @@ export default function LoginPage() {
 
   // ── Auto-verify OTP ───────────────────────────────────────────────
   const autoVerifyOtp = async (otp) => {
-    if (otpStep === 'verifying') return
+    if (otpStepRef.current === 'verifying') return   // use ref — never stale
     if (!confirmationResultRef.current) {
       setError('OTP bhejne ke baad fill karo. Pehle Send OTP dabaao.')
       return
@@ -825,13 +829,19 @@ export default function LoginPage() {
                     {otpInput.map((digit, i) => (
                       <input key={i}
                         ref={el => otpBoxRefs.current[i] = el}
-                        type="text"
+                        type="tel"
                         inputMode="numeric"
                         maxLength={i === 0 ? 6 : 1}
-                        // autocomplete="one-time-code" on first box → browser fills all 6 digits
-                        autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                        // All boxes: one-time-code → Chrome fills sequentially
+                        // Box 0: maxLength 6 → catches full OTP from keyboard suggestion / Web OTP
+                        autoComplete="one-time-code"
                         value={digit}
                         onChange={e => handleOtpBox(i, e.target.value)}
+                        onInput={e => {
+                          // Some browsers fire onInput (not onChange) for auto-fill
+                          const val = e.target.value.replace(/[^0-9]/g, '')
+                          if (val.length > 1) handleOtpBox(i, val)
+                        }}
                         onKeyDown={e => handleOtpKeyDown(i, e)}
                         disabled={otpStep === 'verifying'}
                         style={{

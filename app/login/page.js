@@ -264,8 +264,23 @@ export default function LoginPage() {
         return
       }
       if (data.needsName) {
-        // New user — show name modal
-        setShowNameModal(true)
+        // New user — auto-create account (name collected at checkout)
+        const signupRes = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'otp-signup',
+            phone: '+91' + phoneDigits,
+            name: '',
+            firebaseToken: idToken,
+          }),
+        })
+        const signupData = await signupRes.json()
+        if (!signupRes.ok) {
+          setError(signupData.error || 'Account nahi ban saka. Dobara try karo.')
+          setOtpStep('sent'); setOtpInput(['','','','','','']); return
+        }
+        router.push('/menu')
       } else {
         const { user } = data
         if (user.role === 'admin') router.push('/admin')
@@ -478,111 +493,7 @@ export default function LoginPage() {
         </div>
       )}
 
-      {/* ── Name Modal (new user after OTP) ── */}
-      {showNameModal && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 9999,
-          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px',
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 20, padding: '28px 24px', width: '100%', maxWidth: 380,
-            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          }}>
-            {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: 22 }}>
-              <div style={{ fontSize: 40, marginBottom: 8 }}>🎉</div>
-              <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 900, color: '#1f2937' }}>
-                Welcome to <span style={{ color: '#e85d04' }}>FoodFi</span>!
-              </h2>
-              <p style={{ margin: 0, fontSize: 13, color: '#6b7280', lineHeight: 1.6 }}>
-                Aapka number verify ho gaya!<br />
-                Sirf apna naam batao — account ready ho jayega 😊
-              </p>
-              <div style={{ marginTop: 10, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 12px', display: 'inline-block' }}>
-                <span style={{ fontSize: 12, color: '#c2410c', fontWeight: 600 }}>📱 +91{phoneDigits}</span>
-              </div>
-            </div>
-
-            <form onSubmit={handleNameSubmit}>
-              {/* Name */}
-              <div className="field" style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-                  Aapka Naam <span style={{ color: '#e85d04' }}>*</span>
-                </label>
-                <input
-                  ref={nameInputRef}
-                  required
-                  value={newUserName}
-                  onChange={e => setNewUserName(e.target.value)}
-                  placeholder="Jaise: Rahul Kumar"
-                  autoComplete="name"
-                  style={{
-                    width: '100%', padding: '11px 14px', fontSize: 15, fontWeight: 500,
-                    border: '1.5px solid #e5e7eb', borderRadius: 10, outline: 'none',
-                    boxSizing: 'border-box', fontFamily: 'inherit',
-                  }}
-                  onFocus={e => e.target.style.borderColor = '#f97316'}
-                  onBlur={e => e.target.style.borderColor = '#e5e7eb'}
-                />
-              </div>
-
-              {/* Address (optional) */}
-              <div className="field" style={{ marginBottom: 18 }}>
-                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span>Delivery Address <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 400 }}>(optional, fill now or at checkout)</span></span>
-                  <button type="button" onClick={fetchLocation} disabled={locationLoading}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 4,
-                      background: locationLoading ? '#f3f4f6' : '#fff7ed',
-                      color: locationLoading ? '#9ca3af' : '#e85d04',
-                      border: '1.5px solid', borderColor: locationLoading ? '#e5e7eb' : '#fed7aa',
-                      borderRadius: 6, padding: '3px 9px', fontSize: 11, fontWeight: 600,
-                      cursor: locationLoading ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
-                    }}>
-                    {locationLoading
-                      ? <><span className="spinner" style={{ width: 10, height: 10, borderWidth: 2 }} /> Fetching...</>
-                      : <>📍 GPS</>}
-                  </button>
-                </label>
-                <textarea
-                  value={newUserAddress}
-                  onChange={e => setNewUserAddress(e.target.value)}
-                  placeholder="Flat 4B, Frazer Road, Patna — ya GPS se auto-fill karein"
-                  rows={2}
-                  style={{
-                    width: '100%', padding: '10px 12px', fontSize: 13, fontFamily: 'inherit',
-                    border: '1.5px solid #e5e7eb', borderRadius: 10, outline: 'none',
-                    resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5,
-                  }}
-                  onFocus={e => e.target.style.borderColor = '#f97316'}
-                  onBlur={e => e.target.style.borderColor = '#e5e7eb'}
-                />
-              </div>
-
-              {error && (
-                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 13, color: '#dc2626' }}>
-                  {error}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || !newUserName.trim()}
-                style={{
-                  width: '100%', padding: '14px', fontSize: 16, fontWeight: 800, border: 'none',
-                  borderRadius: 12, cursor: newUserName.trim() ? 'pointer' : 'not-allowed',
-                  background: newUserName.trim() ? 'linear-gradient(135deg, #e85d04, #f97316)' : '#d1d5db',
-                  color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  boxShadow: newUserName.trim() ? '0 4px 16px rgba(232,93,4,0.35)' : 'none',
-                  transition: 'all 0.2s',
-                }}>
-                {loading ? <><span className="spinner" /> Creating account...</> : <>🛒 Account Banao & Order Karo</>}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Name modal removed — name is collected at checkout instead */}
 
       {/* Invisible reCAPTCHA container (Firebase needs this) */}
       <div id="recaptcha-container" />

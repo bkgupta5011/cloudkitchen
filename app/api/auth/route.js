@@ -433,7 +433,7 @@ export async function POST(request) {
   // ── OTP SIGNUP (new user — name collected on frontend) ──────────
   if (action === 'otp-signup') {
     const { phone, name, firebaseToken, verifiedToken, address = '' } = body
-    if (!phone || !name) return NextResponse.json({ error: 'Phone aur naam required hai' }, { status: 400 })
+    if (!phone) return NextResponse.json({ error: 'Phone required hai' }, { status: 400 })
     if (!firebaseToken && !verifiedToken) return NextResponse.json({ error: 'OTP verification required hai' }, { status: 400 })
     const normalized = normalizePhone(phone)
     const digits = normalized.replace('+91', '')

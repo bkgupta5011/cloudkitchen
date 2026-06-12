@@ -329,6 +329,10 @@ export default function CartPage() {
   const [orderNum, setOrderNum] = useState(null)
   const [deliveryBoyName, setDeliveryBoyName] = useState(null)
   const [userName, setUserName] = useState('')
+  const [userId, setUserId] = useState(null)
+  const [needsName, setNeedsName] = useState(false)   // true if account has no name yet
+  const [nameInput, setNameInput] = useState('')
+  const [nameSaving, setNameSaving] = useState(false)
   const [showThankYou, setShowThankYou] = useState(false)
   const [kitchenLat, setKitchenLat] = useState(25.5801392)
   const [kitchenLng, setKitchenLng] = useState(85.1569214)
@@ -369,9 +373,13 @@ export default function CartPage() {
       setMenuItems(d.items || [])
       setMenuLoading(false)
     })
-    // Fetch customer name for thank-you message
+    // Fetch customer info — check if name is missing
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
-      .then(r => r.json()).then(d => { if (d.user?.name) setUserName(d.user.name.split(' ')[0]) }).catch(() => {})
+      .then(r => r.json()).then(d => {
+        if (d.user?.name) setUserName(d.user.name.split(' ')[0])
+        if (d.user?.id) setUserId(d.user.id)
+        if (d.user && !d.user.name) setNeedsName(true)  // new user — no name yet
+      }).catch(() => {})
 
     // Load settings + pricing + addresses together so delivery charge can be computed immediately
     Promise.all([
@@ -526,7 +534,19 @@ export default function CartPage() {
     } catch { setOfferError('Offer check nahi ho paya') }
   }
 
+  const saveName = async () => {
+    if (!nameInput.trim()) return
+    setNameSaving(true)
+    try {
+      await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: nameInput.trim() }) })
+      setUserName(nameInput.trim().split(' ')[0])
+      setNeedsName(false)
+    } catch {}
+    setNameSaving(false)
+  }
+
   const placeOrder = async () => {
+    if (needsName) { setError('Pehle apna naam batao 👆'); return }
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
     if (outOfRange) { setError(`Sorry, we only deliver within ${maxKm} km of our kitchen`); return }
@@ -766,9 +786,50 @@ export default function CartPage() {
                 : `💵 Cash on Delivery — Pay ₹${total} when food arrives`}
             </div>
 
+            {/* ── Name prompt for new users ── */}
+            {needsName && (
+              <div style={{
+                background: 'linear-gradient(135deg, #fff7ed, #fef3c7)',
+                border: '2px solid #fed7aa', borderRadius: 14,
+                padding: '16px', marginBottom: 14,
+              }}>
+                <p style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700, color: '#92400e' }}>
+                  👋 Aapka naam kya hai?
+                </p>
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: '#b45309' }}>
+                  Order ke liye ek baar naam batao — hum save kar lenge 😊
+                </p>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveName()}
+                    placeholder="Jaise: Rahul Kumar"
+                    autoFocus
+                    style={{
+                      flex: 1, padding: '10px 12px', fontSize: 14, fontWeight: 500,
+                      border: '1.5px solid #f97316', borderRadius: 8, outline: 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  <button
+                    type="button" onClick={saveName}
+                    disabled={!nameInput.trim() || nameSaving}
+                    style={{
+                      padding: '10px 16px', background: nameInput.trim() ? '#e85d04' : '#d1d5db',
+                      color: '#fff', border: 'none', borderRadius: 8,
+                      fontSize: 14, fontWeight: 700, cursor: nameInput.trim() ? 'pointer' : 'not-allowed',
+                      whiteSpace: 'nowrap',
+                    }}>
+                    {nameSaving ? '...' : '✓ Save'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {error && <div className={styles.error}>{error}</div>}
 
-            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading || outOfRange || !Number.isFinite(deliveryCharge)}>
+            <button className="btn btn-primary btn-full" onClick={placeOrder} disabled={loading || outOfRange || !Number.isFinite(deliveryCharge) || needsName}>
               {loading ? <span className="spinner" /> : Number.isFinite(deliveryCharge) ? `Place Order · ₹${total}` : 'Select Delivery Location First'}
             </button>
           </>

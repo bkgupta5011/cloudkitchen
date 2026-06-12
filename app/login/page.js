@@ -81,7 +81,7 @@ export default function LoginPage() {
   const [showNameModal, setShowNameModal] = useState(false)
   const [newUserName, setNewUserName] = useState('')
   const [newUserAddress, setNewUserAddress] = useState('')
-  const [verifiedOtp, setVerifiedOtp] = useState('')   // OTP that was verified (needed for otp-signup)
+  const [verifiedToken, setVerifiedToken] = useState('')  // Token from verify-login-otp (needed for otp-signup)
   const [locationLoading, setLocationLoading] = useState(false)
   const nameInputRef = useRef(null)
 
@@ -210,8 +210,8 @@ export default function LoginPage() {
         return
       }
       if (data.needsName) {
-        // New user — show name modal (store OTP for otp-signup call)
-        setVerifiedOtp(otp)
+        // New user — show name modal (store verifiedToken for otp-signup call)
+        setVerifiedToken(data.verifiedToken)
         setShowNameModal(true)
       } else {
         // Existing user — redirect
@@ -241,7 +241,7 @@ export default function LoginPage() {
           phone: '+91' + phoneDigits,
           name: newUserName.trim(),
           address: newUserAddress.trim(),
-          otp: verifiedOtp,
+          verifiedToken,
         }),
       })
       const data = await res.json()

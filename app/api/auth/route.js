@@ -36,18 +36,37 @@ async function ensureResetOtpsTable(sql) {
   `
 }
 
-// ── Fast2SMS OTP sender ─────────────────────────────────────────
-async function sendSmsOtp(phone, otp) {
-  const key = process.env.FAST2SMS_API_KEY
-  if (!key) throw new Error('FAST2SMS_API_KEY missing')
-  const digits = phone.replace(/[^0-9]/g, '').replace(/^91/, '').slice(-10)
-  const res = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+// ── Twilio Verify OTP helpers ────────────────────────────────────
+function getTwilioCreds() {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID
+  const authToken  = process.env.TWILIO_AUTH_TOKEN
+  const verifySid  = process.env.TWILIO_VERIFY_SID
+  if (!accountSid || !authToken || !verifySid) throw new Error('Twilio env vars missing')
+  const creds = Buffer.from(`${accountSid}:${authToken}`).toString('base64')
+  return { creds, verifySid }
+}
+
+async function twilioSendOtp(phone) {
+  const { creds, verifySid } = getTwilioCreds()
+  const res = await fetch(`https://verify.twilio.com/v2/Services/${verifySid}/Verifications`, {
     method: 'POST',
-    headers: { 'authorization': key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ route: 'otp', variables_values: otp, numbers: digits }),
+    headers: { 'Authorization': `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `To=${encodeURIComponent(phone)}&Channel=sms`,
   })
   const data = await res.json()
-  if (!data.return) throw new Error(data.message || 'SMS send failed')
+  if (!res.ok) throw new Error(data.message || `Twilio error ${res.status}`)
+}
+
+async function twilioVerifyOtp(phone, code) {
+  const { creds, verifySid } = getTwilioCreds()
+  const res = await fetch(`https://verify.twilio.com/v2/Services/${verifySid}/VerificationCheck`, {
+    method: 'POST',
+    headers: { 'Authorization': `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `To=${encodeURIComponent(phone)}&Code=${encodeURIComponent(code)}`,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.message || `Twilio error ${res.status}`)
+  return data.status === 'approved'
 }
 
 // ── Normalize phone to +91XXXXXXXXXX ───────────────────────────
@@ -327,7 +346,7 @@ export async function POST(request) {
     return loginRes
   }
 
-  // ── SEND LOGIN OTP (Fast2SMS) ───────────────────────────────────
+  // ── SEND LOGIN OTP (Twilio Verify) ─────────────────────────────
   if (action === 'send-login-otp') {
     const { phone } = body
     if (!phone) return NextResponse.json({ error: 'Phone number required hai' }, { status: 400 })
@@ -339,38 +358,33 @@ export async function POST(request) {
     if (rateCheck.locked) return NextResponse.json({ error: `Bahut zyada attempts. ${rateCheck.mins} min baad try karo.` }, { status: 429 })
 
     try {
-      const otp = String(Math.floor(100000 + Math.random() * 900000))
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
-      await ensureResetOtpsTable(sql)
-      await sql`DELETE FROM reset_otps WHERE identifier = ${'phone_' + digits}`
-      await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'phone_' + digits}, ${otp}, ${expiresAt})`
-      await sendSmsOtp(normalized, otp)
+      await twilioSendOtp(normalized)
       return NextResponse.json({ success: true })
     } catch (e) {
       console.error('send-login-otp error:', e.message)
-      return NextResponse.json({ error: 'OTP nahi bheja ja saka: ' + e.message }, { status: 500 })
+      return NextResponse.json({ error: 'OTP nahi bheja ja saka. Please try again.' }, { status: 500 })
     }
   }
 
-  // ── VERIFY LOGIN OTP → auto-login or needsName ──────────────────
+  // ── VERIFY LOGIN OTP (Twilio Verify) → auto-login or needsName ─
   if (action === 'verify-login-otp') {
     const { phone, otp } = body
     if (!phone || !otp) return NextResponse.json({ error: 'Phone aur OTP required hai' }, { status: 400 })
     const normalized = normalizePhone(phone)
     const digits = normalized.replace('+91', '')
 
-    await ensureResetOtpsTable(sql)
-    const [otpRow] = await sql`
-      SELECT * FROM reset_otps
-      WHERE identifier = ${'phone_' + digits} AND otp = ${otp}
-      AND used = false AND expires_at > NOW() LIMIT 1
-    `
-    if (!otpRow) {
+    // Verify with Twilio
+    let approved = false
+    try {
+      approved = await twilioVerifyOtp(normalized, otp)
+    } catch (e) {
+      console.error('verify-login-otp error:', e.message)
+      return NextResponse.json({ error: 'OTP verification failed. Please try again.' }, { status: 500 })
+    }
+    if (!approved) {
       recordFail('otp_' + digits)
       return NextResponse.json({ error: 'Galat ya expired OTP. Dobara try karo.' }, { status: 400 })
     }
-    // Mark OTP used
-    await sql`UPDATE reset_otps SET used = true WHERE id = ${otpRow.id}`
     clearRate('otp_' + digits)
 
     // Check delivery boys first
@@ -394,25 +408,31 @@ export async function POST(request) {
       return r
     }
 
-    // New user — need name to create account
-    return NextResponse.json({ success: true, needsName: true, phone: normalized })
+    // New user — generate a short-lived verified token (10 min) for signup
+    const verifiedToken = crypto.randomUUID()
+    await ensureResetOtpsTable(sql)
+    await sql`DELETE FROM reset_otps WHERE identifier = ${'vtoken_' + digits}`
+    await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'vtoken_' + digits}, ${verifiedToken}, ${new Date(Date.now() + 10 * 60 * 1000).toISOString()})`
+    return NextResponse.json({ success: true, needsName: true, phone: normalized, verifiedToken })
   }
 
   // ── OTP SIGNUP (new user — name collected on frontend) ──────────
   if (action === 'otp-signup') {
-    const { phone, name, otp, address = '' } = body
-    if (!phone || !name || !otp) return NextResponse.json({ error: 'Phone, naam aur OTP required hai' }, { status: 400 })
+    const { phone, name, verifiedToken, address = '' } = body
+    if (!phone || !name || !verifiedToken) return NextResponse.json({ error: 'Phone, naam aur verified token required hai' }, { status: 400 })
     const normalized = normalizePhone(phone)
     const digits = normalized.replace('+91', '')
 
-    // Re-verify OTP (used=true already, but re-check within last 2 min as grace window)
+    // Check verifiedToken (generated after Twilio OTP approval)
     await ensureResetOtpsTable(sql)
     const [otpRow] = await sql`
       SELECT * FROM reset_otps
-      WHERE identifier = ${'phone_' + digits} AND otp = ${otp}
+      WHERE identifier = ${'vtoken_' + digits} AND otp = ${verifiedToken}
       AND expires_at > NOW() LIMIT 1
     `
-    if (!otpRow) return NextResponse.json({ error: 'OTP expired. Dobara OTP bhejo.' }, { status: 400 })
+    if (!otpRow) return NextResponse.json({ error: 'Session expired. Dobara OTP verify karo.' }, { status: 400 })
+    // Delete used token
+    await sql`DELETE FROM reset_otps WHERE identifier = ${'vtoken_' + digits}`
 
     // Check if already registered (race condition guard)
     const [exists] = await sql`SELECT id FROM users WHERE phone = ${normalized} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`

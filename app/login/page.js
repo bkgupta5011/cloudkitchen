@@ -353,7 +353,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#0f0500', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ minHeight: '100vh', background: '#0f0500', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', position: 'relative' }}>
+    <div style={{ width: '100%', maxWidth: 480, minHeight: '100vh', display: 'flex', flexDirection: 'column', position: 'relative', boxShadow: '0 0 80px rgba(0,0,0,0.6)' }}>
 
       {/* ── Splash Screen ── */}
       {showSplash && (
@@ -940,6 +941,7 @@ export default function LoginPage() {
         </div>
 
       </div>
+    </div>
     </div>
   )
 }

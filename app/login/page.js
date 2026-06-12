@@ -29,6 +29,9 @@ const SPLASH_LINES = [
   { main: 'Khana nahi — khayaal hai yeh', sub: 'Aapki bhookh, hamari zimmedari 💝' },
 ]
 
+// Food emojis for hero background
+const FOOD_EMOJIS = ['🍛','🍜','🥘','🍱','🌮','🍝','🍚','🫕','🥗','🍲','🧆','🍖','🥙','🫔','🍣','🥩']
+
 export default function LoginPage() {
   const router = useRouter()
 
@@ -61,7 +64,7 @@ export default function LoginPage() {
   }, [])
 
   // ── Form state ───────────────────────────────────────────────────
-  const [tab, setTab] = useState('otp')           // 'password' | 'otp'
+  const [tab, setTab] = useState('otp')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -71,7 +74,7 @@ export default function LoginPage() {
   const phoneReady = phoneDigits.length === 10
 
   // ── OTP state ────────────────────────────────────────────────────
-  const [otpStep, setOtpStep] = useState('idle') // idle|sending|sent|verifying
+  const [otpStep, setOtpStep] = useState('idle')
   const [otpInput, setOtpInput] = useState(['', '', '', '', '', ''])
   const [otpTimer, setOtpTimer] = useState(0)
   const timerRef = useRef(null)
@@ -89,7 +92,7 @@ export default function LoginPage() {
   const [locationLoading, setLocationLoading] = useState(false)
   const [newUserSaving, setNewUserSaving] = useState(false)
   const nameInputRef = useRef(null)
-  const pendingUserRef = useRef(null) // stores user object while modal is open
+  const pendingUserRef = useRef(null)
 
   // Countdown timer
   useEffect(() => {
@@ -161,7 +164,6 @@ export default function LoginPage() {
     next[index] = val
     setOtpInput(next)
     if (val && index < 5) otpBoxRefs.current[index + 1]?.focus()
-    // Auto-verify on 6th digit
     if (val && index === 5) {
       const full = next.join('')
       if (full.length === 6) autoVerifyOtp(full, next)
@@ -183,8 +185,7 @@ export default function LoginPage() {
     e.preventDefault()
   }
 
-  // ── Cleanup verifier + replace container div (NO auth.signOut) ───
-  // auth.signOut() triggers visible captcha — never call it before sendOtp
+  // ── Cleanup verifier + replace container div ─────────────────────
   const cleanupFirebase = () => {
     if (recaptchaVerifierRef.current) {
       try { recaptchaVerifierRef.current.clear() } catch(e) {}
@@ -192,7 +193,6 @@ export default function LoginPage() {
     }
     confirmationResultRef.current = null
     firebaseTokenRef.current = null
-    // Replace the div entirely — most reliable way to reset reCAPTCHA widget
     try {
       const old = document.getElementById('recaptcha-container')
       if (old?.parentNode) {
@@ -203,39 +203,34 @@ export default function LoginPage() {
     } catch(e) {}
   }
 
-  // Pre-warm Firebase modules on mount — eliminates delay when user clicks Send OTP
+  // Pre-warm Firebase on mount
   useEffect(() => {
     import('@/lib/firebase-client').catch(() => {})
     import('firebase/auth').catch(() => {})
   }, [])
 
-  // Cleanup on page unmount (client-side navigation)
+  // Cleanup on unmount
   useEffect(() => {
     return () => { cleanupFirebase() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Send OTP (Firebase — client-side, no server IP issues) ──────
+  // ── Send OTP ─────────────────────────────────────────────────────
   const sendOtp = async () => {
     if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
-
-    // Clean up stale verifier + replace container before every attempt
     cleanupFirebase()
-
     try {
       const { getFirebaseAuth } = await import('@/lib/firebase-client')
       const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth')
       const auth = getFirebaseAuth()
       if (!auth) throw new Error('Firebase auth init failed')
-
       const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
         size: 'invisible',
         callback: () => {},
         'expired-callback': () => { cleanupFirebase() },
       })
       recaptchaVerifierRef.current = verifier
-
       const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
       confirmationResultRef.current = result
       setOtpStep('sent')
@@ -249,7 +244,7 @@ export default function LoginPage() {
         : e.code === 'auth/invalid-phone-number'
         ? 'Invalid phone number. 10-digit Indian number daalo.'
         : e.code === 'auth/captcha-check-failed'
-        ? 'reCAPTCHA fail hua. Page reload (F5) karke dobara try karo.'
+        ? 'reCAPTCHA fail hua. Page reload karke dobara try karo.'
         : e.code === 'auth/network-request-failed'
         ? 'Network error. Internet check karo.'
         : 'OTP nahi bheja ja saka. Dobara try karo.'
@@ -258,7 +253,7 @@ export default function LoginPage() {
     }
   }
 
-  // ── Auto-verify OTP (Firebase confirm → backend login-otp) ──────
+  // ── Auto-verify OTP ───────────────────────────────────────────────
   const autoVerifyOtp = async (otp) => {
     if (otpStep === 'verifying') return
     if (!confirmationResultRef.current) {
@@ -267,12 +262,9 @@ export default function LoginPage() {
     }
     setOtpStep('verifying'); setError('')
     try {
-      // Step 1: Firebase confirms OTP → get idToken
       const result = await confirmationResultRef.current.confirm(otp)
       const idToken = await result.user.getIdToken()
       firebaseTokenRef.current = idToken
-
-      // Step 2: Single backend call — new users auto-created inside login-otp now
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -292,14 +284,12 @@ export default function LoginPage() {
         setOtpStep('sent'); setOtpInput(['','','','','',''])
         return
       }
-      // New user — collect name + address before going to menu
       if (data.newUser) {
         pendingUserRef.current = user
         setShowNameModal(true)
         setTimeout(() => nameInputRef.current?.focus(), 350)
         return
       }
-      // Existing user — direct redirect
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
@@ -327,7 +317,7 @@ export default function LoginPage() {
           address: newUserAddress.trim() || undefined,
         }),
       })
-    } catch(e) { /* non-fatal — user can update from profile later */ }
+    } catch(e) { /* non-fatal */ }
     setNewUserSaving(false)
     const u = pendingUserRef.current
     if (u?.role === 'admin') router.push('/admin')
@@ -362,18 +352,8 @@ export default function LoginPage() {
     finally { setLoading(false) }
   }
 
-  // ── Shared prefix tag ────────────────────────────────────────────
-  const PhonePrefix = () => (
-    <span style={{
-      padding: '10px 12px', background: '#f3f4f6',
-      border: '1.5px solid var(--bdr)', borderRight: 'none',
-      borderRadius: '8px 0 0 8px', fontSize: 14, color: '#374151',
-      fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center',
-    }}>🇮🇳 +91</span>
-  )
-
   return (
-    <div className={styles.wrap}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#0f0500', overflow: 'hidden', position: 'relative' }}>
 
       {/* ── Splash Screen ── */}
       {showSplash && (
@@ -519,21 +499,12 @@ export default function LoginPage() {
             animation: 'slideUpSheet 0.38s cubic-bezier(0.34,1.1,0.64,1)',
             boxShadow: '0 -8px 48px rgba(0,0,0,0.18)',
           }}>
-            {/* Handle bar */}
             <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
-
-            {/* Header */}
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 44, marginBottom: 8 }}>👋</div>
-              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>
-                FoodFi mein Welcome!
-              </h2>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
-                Bas naam aur address batao — order karo!
-              </p>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>FoodFi mein Welcome!</h2>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>Bas naam aur address batao — order karo!</p>
             </div>
-
-            {/* Name field */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
                 Aapka Naam <span style={{ color: '#e85d04' }}>*</span>
@@ -556,12 +527,10 @@ export default function LoginPage() {
                 }}
               />
             </div>
-
-            {/* Address field */}
             <div style={{ marginBottom: 22 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
                 Delivery Address
-                <span style={{ fontSize: 11, fontWeight: 500, color: '#9ca3af', marginLeft: 6 }}>(optional — baad mein bhi add kar sakte ho)</span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#9ca3af', marginLeft: 6 }}>(optional)</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <textarea
@@ -578,10 +547,7 @@ export default function LoginPage() {
                     transition: 'all 0.15s',
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={fetchLocation}
-                  disabled={locationLoading}
+                <button type="button" onClick={fetchLocation} disabled={locationLoading}
                   style={{
                     position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
                     background: locationLoading ? '#f1f5f9' : 'linear-gradient(135deg,#16a34a,#22c55e)',
@@ -589,141 +555,252 @@ export default function LoginPage() {
                     border: 'none', borderRadius: 8, padding: '7px 10px',
                     fontSize: 11, fontWeight: 700, cursor: locationLoading ? 'not-allowed' : 'pointer',
                     whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  {locationLoading
-                    ? <><span style={{ fontSize: 13 }}>⏳</span> Dhundh raha...</>
-                    : <><span style={{ fontSize: 13 }}>📍</span> GPS se lo</>
-                  }
+                  }}>
+                  {locationLoading ? <><span style={{ fontSize: 13 }}>⏳</span> Dhundh raha...</> : <><span style={{ fontSize: 13 }}>📍</span> GPS se lo</>}
                 </button>
               </div>
               {newUserAddress && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
-                  ✅ Address mil gaya — edit bhi kar sakte ho
-                </div>
+                <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✅ Address mil gaya — edit bhi kar sakte ho</div>
               )}
             </div>
-
-            {/* Submit button */}
-            <button
-              type="button"
-              onClick={saveNewUserInfo}
-              disabled={!newUserName.trim() || newUserSaving}
+            <button type="button" onClick={saveNewUserInfo} disabled={!newUserName.trim() || newUserSaving}
               style={{
                 width: '100%', padding: '15px',
-                background: newUserName.trim()
-                  ? 'linear-gradient(135deg, #e85d04, #f97316)'
-                  : '#e5e7eb',
+                background: newUserName.trim() ? 'linear-gradient(135deg, #e85d04, #f97316)' : '#e5e7eb',
                 color: newUserName.trim() ? '#fff' : '#9ca3af',
-                border: 'none', borderRadius: 14,
-                fontSize: 16, fontWeight: 800,
+                border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 800,
                 cursor: newUserName.trim() ? 'pointer' : 'not-allowed',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                 boxShadow: newUserName.trim() ? '0 4px 20px rgba(232,93,4,0.35)' : 'none',
                 transition: 'all 0.2s',
-              }}
-            >
+              }}>
               {newUserSaving
-                ? <><span style={{ width: 18, height: 18, border: '2.5px solid rgba(255,255,255,0.4)', borderTop: '2.5px solid #fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} /> Saving...</>
-                : <>FoodFi pe Chalo! 🍛</>
-              }
+                ? <><span className="spinner" /> Saving...</>
+                : <>FoodFi pe Chalo! 🍛</>}
             </button>
-
             {!newUserName.trim() && (
-              <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>
-                Naam zaroori hai — address baad mein bhi de sakte hain
-              </p>
+              <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>Naam zaroori hai — address baad mein bhi de sakte hain</p>
             )}
           </div>
         </div>
       )}
 
-      {/* Invisible reCAPTCHA container (Firebase needs this) */}
+      {/* Invisible reCAPTCHA container */}
       <div id="recaptcha-container" />
 
-      {/* ── Main Card ── */}
-      <div className={styles.card}>
+      {/* ══════════════════════════════════════════════════════════
+          HERO SECTION
+      ══════════════════════════════════════════════════════════ */}
+      <div style={{
+        flex: '0 0 auto',
+        minHeight: '44vh',
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '48px 24px 36px',
+        overflow: 'hidden',
+      }}>
 
-        {/* Logo */}
-        <div className={styles.logo}>
-          <FoodFiLogo size={64} style={{ borderRadius: 16, boxShadow: '0 4px 20px rgba(232,93,4,0.3)', marginBottom: 10 }} />
-          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 2px 0', lineHeight: 1.1 }}>
-            <span style={{ color: '#e85d04' }}>Food</span><span style={{ color: '#1f2937' }}>Fi</span>
+        {/* Radial glow */}
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: 'radial-gradient(ellipse 80% 60% at 50% 60%, rgba(232,93,4,0.18) 0%, transparent 70%)',
+        }} />
+
+        {/* Floating food emojis */}
+        {FOOD_EMOJIS.map((em, i) => (
+          <div key={i} style={{
+            position: 'absolute',
+            left: `${(i * 23 + 3) % 90}%`,
+            top: `${(i * 31 + 5) % 82}%`,
+            fontSize: `${16 + (i % 4) * 7}px`,
+            opacity: 0.10 + (i % 3) * 0.04,
+            userSelect: 'none', pointerEvents: 'none',
+            transform: `rotate(${(i * 17) % 30 - 15}deg)`,
+          }}>{em}</div>
+        ))}
+
+        {/* Skip button */}
+        <button
+          onClick={() => router.push('/menu?guest=true')}
+          style={{
+            position: 'absolute', top: 16, right: 16,
+            background: 'rgba(255,255,255,0.12)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            color: 'rgba(255,255,255,0.85)', borderRadius: 20,
+            padding: '7px 18px', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', letterSpacing: 0.3,
+            transition: 'all 0.2s',
+          }}>
+          Skip
+        </button>
+
+        {/* Logo + Brand */}
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center' }}>
+          <div style={{ marginBottom: 14, display: 'inline-block' }}>
+            <FoodFiLogo size={70} style={{
+              borderRadius: 20,
+              boxShadow: '0 0 0 3px rgba(232,93,4,0.3), 0 8px 32px rgba(232,93,4,0.45)',
+              display: 'block',
+            }} />
+          </div>
+
+          <h1 style={{
+            fontSize: 36, fontWeight: 900, letterSpacing: '-0.5px',
+            color: '#fff', margin: '0 0 10px', lineHeight: 1.1,
+          }}>
+            <span style={{ color: '#e85d04' }}>Food</span>Fi
+            <span style={{
+              display: 'inline-block', marginLeft: 10, fontSize: 11,
+              background: 'linear-gradient(135deg, #e85d04, #f97316)',
+              color: '#fff', borderRadius: 6, padding: '3px 8px',
+              fontWeight: 700, letterSpacing: 1, verticalAlign: 'middle',
+            }}>CLOUD KITCHEN</span>
           </h1>
-          <h2 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: '0 0 4px 0', color: '#1e293b', lineHeight: 1.1 }}>
-            Cloud Kitchen
-          </h2>
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 6px 0' }}>Fresh food, delivered fast</p>
-          <a href="https://order.foodfi.in" target="_blank" rel="noopener noreferrer"
-            style={{ fontSize: 12, color: '#e85d04', fontWeight: 700, textDecoration: 'none', letterSpacing: 0.3, borderBottom: '1.5px dashed #e85d04', paddingBottom: 1 }}>
-            🌐 order.foodfi.in
-          </a>
-        </div>
 
-        {/* ── Phone Number (always visible) ── */}
-        <div className="field">
-          <label style={{ fontWeight: 700, color: '#374151', fontSize: 13 }}>Mobile Number</label>
+          <p style={{
+            fontSize: 15, color: 'rgba(255,255,255,0.78)',
+            margin: '0 0 18px', fontWeight: 500, lineHeight: 1.5,
+          }}>
+            Ghar jaisa swad, aapke darwaazon tak 🍛
+          </p>
+
+          {/* Social proof pills */}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <div style={{
+              background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 20, padding: '6px 14px',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              <span style={{ fontSize: 13 }}>⭐</span>
+              <span style={{ fontSize: 12, color: '#fbbf24', fontWeight: 700 }}>4.8 Rating</span>
+            </div>
+            <div style={{
+              background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 20, padding: '6px 14px',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              <span style={{ fontSize: 13 }}>📦</span>
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>1000+ Orders</span>
+            </div>
+            <div style={{
+              background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 20, padding: '6px 14px',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}>
+              <span style={{ fontSize: 13 }}>⚡</span>
+              <span style={{ fontSize: 12, color: '#86efac', fontWeight: 600 }}>30 Min Delivery</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════
+          BOTTOM SHEET FORM
+      ══════════════════════════════════════════════════════════ */}
+      <div style={{
+        flex: 1,
+        background: '#fff',
+        borderRadius: '24px 24px 0 0',
+        padding: '28px 20px 36px',
+        boxShadow: '0 -12px 48px rgba(0,0,0,0.3)',
+        overflowY: 'auto',
+      }}>
+        {/* Handle bar */}
+        <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
+
+        <h2 style={{ fontSize: 17, fontWeight: 800, color: '#111827', margin: '0 0 20px', textAlign: 'center' }}>
+          Log in or Sign up
+        </h2>
+
+        {/* Phone Number */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+            Mobile Number
+          </label>
           <div style={{ display: 'flex' }}>
-            <PhonePrefix />
+            <span style={{
+              padding: '12px 14px',
+              background: '#f9fafb',
+              border: '1.5px solid #e5e7eb', borderRight: 'none',
+              borderRadius: '10px 0 0 10px', fontSize: 14, color: '#374151',
+              fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+            }}>🇮🇳 +91</span>
             <input
               type="text"
               inputMode="numeric"
               maxLength={10}
               value={phone}
               onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
-              placeholder="Apna 10 digit number"
+              placeholder="10 digit mobile number"
               autoComplete="tel"
               disabled={otpStep === 'sent' || otpStep === 'verifying' || otpStep === 'sending'}
-              style={{ borderRadius: '0 8px 8px 0', borderLeft: 'none', flex: 1, fontSize: 16, fontWeight: 500, opacity: (otpStep === 'sent' || otpStep === 'verifying') ? 0.6 : 1 }}
+              style={{
+                flex: 1, padding: '12px 14px',
+                border: '1.5px solid #e5e7eb', borderLeft: 'none',
+                borderRadius: '0 10px 10px 0',
+                fontSize: 16, fontWeight: 500,
+                outline: 'none',
+                opacity: (otpStep === 'sent' || otpStep === 'verifying') ? 0.6 : 1,
+                background: phoneReady ? '#fff7ed' : '#fff',
+                transition: 'background 0.2s',
+              }}
             />
           </div>
         </div>
 
-        {/* ── Tab Toggle (Password | OTP) — shown when phone is ready ── */}
+        {/* Tab Toggle */}
         {phoneReady && (
-          <div style={{ display: 'flex', gap: 0, marginBottom: 18, border: '1.5px solid var(--bdr)', borderRadius: 10, overflow: 'hidden' }}>
-            <button type="button"
-              onClick={() => setTab('password')}
+          <div style={{ display: 'flex', marginBottom: 18, background: '#f3f4f6', borderRadius: 10, padding: 4, gap: 4 }}>
+            <button type="button" onClick={() => setTab('password')}
               style={{
-                flex: 1, padding: '10px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s',
-                background: tab === 'password' ? '#e85d04' : 'var(--bg)',
-                color: tab === 'password' ? '#fff' : 'var(--t2)',
+                flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
+                cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
+                background: tab === 'password' ? '#e85d04' : 'transparent',
+                color: tab === 'password' ? '#fff' : '#6b7280',
+                boxShadow: tab === 'password' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
               }}>
               🔑 Password
             </button>
-            <button type="button"
-              onClick={() => setTab('otp')}
+            <button type="button" onClick={() => setTab('otp')}
               style={{
-                flex: 1, padding: '10px', fontSize: 13, fontWeight: 700, border: 'none', borderLeft: '1.5px solid var(--bdr)', cursor: 'pointer', transition: 'all 0.15s',
-                background: tab === 'otp' ? '#e85d04' : 'var(--bg)',
-                color: tab === 'otp' ? '#fff' : 'var(--t2)',
+                flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
+                cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
+                background: tab === 'otp' ? '#e85d04' : 'transparent',
+                color: tab === 'otp' ? '#fff' : '#6b7280',
+                boxShadow: tab === 'otp' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
               }}>
               📱 OTP
             </button>
           </div>
         )}
 
-        {/* ════════════════ OTP TAB ════════════════ */}
+        {/* ── OTP TAB ── */}
         {tab === 'otp' && (
           <div>
             {!phoneReady && (
-              <div style={{ textAlign: 'center', padding: '14px 0 8px', fontSize: 13, color: '#9ca3af' }}>
-                👆 Enter your mobile number above
+              <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
+                👆 Upar apna mobile number daalo
               </div>
             )}
 
-            {/* Send OTP button */}
             {phoneReady && otpStep === 'idle' && (
               <button type="button" onClick={sendOtp}
                 style={{
-                  width: '100%', padding: '14px', marginBottom: 14,
+                  width: '100%', padding: '15px', marginBottom: 14,
                   background: 'linear-gradient(135deg, #e85d04, #f97316)',
                   color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
                   borderRadius: 12, cursor: 'pointer',
-                  boxShadow: '0 4px 16px rgba(232,93,4,0.35)',
+                  boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
+                  letterSpacing: 0.3,
                 }}>
-                📲 Send OTP — +91{phoneDigits}
+                Continue →
               </button>
             )}
 
@@ -733,7 +810,6 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* OTP Boxes */}
             {(otpStep === 'sent' || otpStep === 'verifying') && (
               <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 14, padding: '18px 16px', marginBottom: 14 }}>
                 <p style={{ margin: '0 0 4px', fontSize: 13, color: '#92400e', fontWeight: 700, textAlign: 'center' }}>
@@ -742,7 +818,6 @@ export default function LoginPage() {
                 <p style={{ margin: '0 0 14px', fontSize: 11, color: '#b45309', textAlign: 'center' }}>
                   {otpStep === 'verifying' ? '⏳ Verifying...' : '6 digits enter karo — auto-verify ho jayega ✨'}
                 </p>
-
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 14 }} onPaste={handleOtpPaste}>
                   {otpInput.map((digit, i) => (
                     <input key={i}
@@ -753,7 +828,7 @@ export default function LoginPage() {
                       onKeyDown={e => handleOtpKeyDown(i, e)}
                       disabled={otpStep === 'verifying'}
                       style={{
-                        width: 42, height: 52, textAlign: 'center', fontSize: 22, fontWeight: 700,
+                        width: 44, height: 54, textAlign: 'center', fontSize: 22, fontWeight: 700,
                         border: digit ? '2px solid #f97316' : '2px solid #e5e7eb',
                         borderRadius: 10, outline: 'none',
                         background: otpStep === 'verifying' ? '#f9fafb' : digit ? '#fff7ed' : '#fff',
@@ -764,7 +839,6 @@ export default function LoginPage() {
                     />
                   ))}
                 </div>
-
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: '#9ca3af' }}>OTP 10 min mein expire hoga</span>
                   {otpTimer > 0
@@ -781,19 +855,18 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* ════════════════ PASSWORD TAB ════════════════ */}
+        {/* ── PASSWORD TAB ── */}
         {tab === 'password' && (
           <form onSubmit={handlePasswordLogin}>
             {!phoneReady && (
-              <div style={{ textAlign: 'center', padding: '14px 0 8px', fontSize: 13, color: '#9ca3af' }}>
-                👆 Enter your mobile number above
+              <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
+                👆 Upar apna mobile number daalo
               </div>
             )}
-
             {phoneReady && (
               <>
-                <div className="field">
-                  <label style={{ fontWeight: 700, color: '#374151', fontSize: 13 }}>Password</label>
+                <div className="field" style={{ marginBottom: 8 }}>
+                  <label style={{ fontWeight: 700, color: '#374151', fontSize: 12 }}>Password</label>
                   <input
                     type="password"
                     required
@@ -802,67 +875,70 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     minLength={6}
                     autoComplete="current-password"
+                    style={{ borderRadius: 10, padding: '12px 14px', fontSize: 15 }}
                   />
                 </div>
-
                 <div style={{ textAlign: 'right', marginBottom: 14 }}>
                   <button type="button" onClick={() => router.push('/forgot-password')}
                     style={{ background: 'none', border: 'none', color: '#e85d04', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
                     Forgot Password?
                   </button>
                 </div>
-
                 {error && <div className={styles.error}>{error}</div>}
-
-                <button type="submit" className="btn btn-primary btn-full" disabled={loading}>
-                  {loading ? <span className="spinner" /> : '🔑 Login'}
+                <button type="submit"
+                  style={{
+                    width: '100%', padding: '15px',
+                    background: loading ? '#f9a87a' : 'linear-gradient(135deg, #e85d04, #f97316)',
+                    color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
+                    borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                  disabled={loading}>
+                  {loading ? <><span className="spinner" /> Logging in...</> : 'Login →'}
                 </button>
               </>
             )}
           </form>
         )}
 
-        {/* ── Guest Order Button ── */}
-        <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
-            <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>ya phir</span>
-            <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => router.push('/menu?guest=true')}
-            style={{
-              width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
-              background: 'transparent', color: '#6b7280',
-              border: '1.5px dashed #d1d5db', borderRadius: 10, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all 0.2s',
-            }}
-            onMouseOver={e => { e.currentTarget.style.borderColor = '#e85d04'; e.currentTarget.style.color = '#e85d04'; e.currentTarget.style.background = '#fff7ed' }}
-            onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.background = 'transparent' }}
-          >
-            👀 Guest ke roop mein browse karo
-          </button>
-          <p style={{ margin: '8px 0 0', fontSize: 11, color: '#9ca3af' }}>
-            Login ke bina menu dekho — checkout pe naam + address dena hoga
-          </p>
+        {/* ── Divider ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
+          <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+          <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>ya phir</span>
+          <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
         </div>
 
-        {/* Admin/Delivery note */}
-        <p style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', marginTop: 16 }}>
-          Admin aur Delivery Boy bhi yahan login kar sakte hain
+        {/* ── Guest Button ── */}
+        <button type="button" onClick={() => router.push('/menu?guest=true')}
+          style={{
+            width: '100%', padding: '13px', fontSize: 14, fontWeight: 700,
+            background: 'transparent', color: '#6b7280',
+            border: '1.5px dashed #d1d5db', borderRadius: 10, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            transition: 'all 0.2s',
+          }}
+          onMouseOver={e => { e.currentTarget.style.borderColor = '#e85d04'; e.currentTarget.style.color = '#e85d04'; e.currentTarget.style.background = '#fff7ed' }}
+          onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.background = 'transparent' }}>
+          👀 Guest ke roop mein browse karo
+        </button>
+        <p style={{ margin: '6px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+          Login ke bina menu dekho — checkout pe naam + address dena hoga
         </p>
 
-        {/* Delivery Partner apply */}
-        <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 14, paddingTop: 14, textAlign: 'center' }}>
-          <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Delivery Partner banna chahte ho?</p>
-          <button onClick={() => router.push('/delivery/apply')}
-            style={{ background: 'none', border: '1.5px solid #e85d04', color: '#e85d04', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            🛵 Delivery Partner Application
-          </button>
+        {/* ── Footer ── */}
+        <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 18, paddingTop: 14 }}>
+          <p style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: '0 0 10px' }}>
+            Admin aur Delivery Boy bhi yahan login kar sakte hain
+          </p>
+          <div style={{ textAlign: 'center' }}>
+            <button onClick={() => router.push('/delivery/apply')}
+              style={{ background: 'none', border: '1.5px solid #e85d04', color: '#e85d04', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              🛵 Delivery Partner Apply Karo
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   )

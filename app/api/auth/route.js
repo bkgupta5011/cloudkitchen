@@ -578,16 +578,18 @@ export async function POST(request) {
       const [db] = await sql`SELECT id, email FROM delivery_boys WHERE phone = ${normalizedPhone} OR phone = ${'91' + digits} OR phone = ${digits} LIMIT 1`
 
       const foundUser = cu || db
-      if (!foundUser || !foundUser.email) {
+      if (!foundUser) {
         return NextResponse.json({ error: 'Is phone number se koi account nahi mila.' }, { status: 404 })
       }
 
-      const email = foundUser.email
+      // OTP-only users have no email — use phone as the reset identifier
+      const resetIdentifier = foundUser.email || normalizedPhone
+
       const resetToken = crypto.randomUUID()
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
-      await sql`DELETE FROM password_reset_tokens WHERE email = ${email}`
-      await sql`INSERT INTO password_reset_tokens (email, token, expires_at) VALUES (${email}, ${resetToken}, ${expiresAt})`
+      await sql`DELETE FROM password_reset_tokens WHERE email = ${resetIdentifier}`
+      await sql`INSERT INTO password_reset_tokens (email, token, expires_at) VALUES (${resetIdentifier}, ${resetToken}, ${expiresAt})`
 
       return NextResponse.json({ success: true, token: resetToken })
     } catch (e) {
@@ -678,13 +680,21 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Link invalid ya expire ho gaya hai. Dobara forgot password try karo.' }, { status: 400 })
     }
 
-    const { email } = tokenRow
+    const { email: resetIdentifier } = tokenRow
     const newHash = await hashPassword(newPassword)
 
-    // Update password in correct table
-    await sql`UPDATE users SET password_hash = ${newHash} WHERE email = ${email}`
-    await sql`UPDATE admins SET password_hash = ${newHash} WHERE email = ${email}`
-    await sql`UPDATE delivery_boys SET password_hash = ${newHash} WHERE email = ${email}`
+    // If identifier is a phone number (OTP-only user who had no email)
+    if (resetIdentifier.startsWith('+')) {
+      const ph = resetIdentifier
+      const phDigits = ph.replace(/[^0-9]/g, '')
+      await sql`UPDATE users SET password_hash = ${newHash} WHERE phone = ${ph} OR phone = ${'91' + phDigits.slice(-10)} OR phone = ${phDigits.slice(-10)}`
+      await sql`UPDATE delivery_boys SET password_hash = ${newHash} WHERE phone = ${ph} OR phone = ${'91' + phDigits.slice(-10)} OR phone = ${phDigits.slice(-10)}`
+    } else {
+      // Normal email-based reset
+      await sql`UPDATE users SET password_hash = ${newHash} WHERE email = ${resetIdentifier}`
+      await sql`UPDATE admins SET password_hash = ${newHash} WHERE email = ${resetIdentifier}`
+      await sql`UPDATE delivery_boys SET password_hash = ${newHash} WHERE email = ${resetIdentifier}`
+    }
 
     // Mark token as used
     await sql`UPDATE password_reset_tokens SET used = true WHERE token = ${resetToken}`

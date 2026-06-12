@@ -395,18 +395,24 @@ function MenuPageContent() {
   const syncTimerRef  = useRef(null) // debounce DB sync
 
   // ── Splash Screen ─────────────────────────────────────────────
-  const [showSplash, setShowSplash] = useState(true)
+  // Only show splash once per session (not on every refresh)
+  const [showSplash, setShowSplash] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return !sessionStorage.getItem('menuSplashShown')
+  })
   const [splashPhase, setSplashPhase] = useState(0)
   const [splashLine] = useState(() => SPLASH_LINES[Math.floor(Math.random() * SPLASH_LINES.length)])
 
   useEffect(() => {
+    if (!showSplash) return  // Already shown this session — skip
+    sessionStorage.setItem('menuSplashShown', '1')
     const timers = [
       setTimeout(() => setSplashPhase(1), 100),
       setTimeout(() => setSplashPhase(2), 400),
       setTimeout(() => setSplashPhase(3), 750),
       setTimeout(() => setSplashPhase(4), 1150),
       setTimeout(() => setSplashPhase(5), 1500),
-      setTimeout(() => setShowSplash(false), 2000), // 2 sec total — after login
+      setTimeout(() => setShowSplash(false), 2000),
     ]
     return () => timers.forEach(clearTimeout)
   }, [])

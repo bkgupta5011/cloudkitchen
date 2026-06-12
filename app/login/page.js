@@ -300,8 +300,14 @@ export default function LoginPage() {
         pendingUserRef.current = user
         if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
         else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
-        setShowNameModal(true)
-        setTimeout(() => nameInputRef.current?.focus(), 350)
+        // Clear OTP overlay before showing modal — prevents dual overlay conflict
+        setOtpStep('idle')
+        setOtpInput(['', '', '', '', '', ''])
+        // Small delay so OTP screen unmounts cleanly before modal mounts
+        setTimeout(() => {
+          setShowNameModal(true)
+          setTimeout(() => nameInputRef.current?.focus(), 200)
+        }, 80)
         return
       }
       if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
@@ -336,9 +342,8 @@ export default function LoginPage() {
     } catch(e) { /* non-fatal */ }
     setNewUserSaving(false)
     const u = pendingUserRef.current
-    if (u?.role === 'admin') router.push('/admin')
-    else if (u?.role === 'delivery') router.push('/delivery')
-    else router.push('/menu')
+    const dest = u?.role === 'admin' ? '/admin' : u?.role === 'delivery' ? '/delivery' : '/menu'
+    window.location.href = dest  // hard redirect — avoids any React state issues after new user save
   }
 
   // ── Password Login ───────────────────────────────────────────────

@@ -286,6 +286,11 @@ export default function LoginPage() {
       }
       // Always get user directly — no needsName round-trip anymore
       const { user } = data
+      if (!user) {
+        setError('Login nahi hua. Dobara try karo.')
+        setOtpStep('sent'); setOtpInput(['','','','','',''])
+        return
+      }
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')

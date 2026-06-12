@@ -347,22 +347,33 @@ export async function POST(request) {
       // New customer — auto-create account (phone already Firebase-verified above)
       // Name collected at checkout — no extra round trip needed
       const normalized = phone.startsWith('+') ? phone : '+91' + phone.replace(/[^0-9]/g, '')
-      // Guard: check once more to avoid race condition
-      const [existing] = await sql`SELECT id FROM users WHERE phone = ${normalized} LIMIT 1`
-      if (existing) {
-        const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
-        user = u; detectedRole = 'customer'
-      } else {
-        const dummyHash = await hashPassword(crypto.randomUUID())
-        const [newUser] = await sql`
-          INSERT INTO users (name, email, phone, address, password_hash)
-          VALUES ('', '', ${normalized}, '', ${dummyHash})
-          RETURNING id, name, email, phone
-        `
-        user = newUser; detectedRole = 'customer'
-        // Alert admin — non-blocking
-        sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' })
-          .catch(() => {})
+      try {
+        // Guard: check once more to avoid race condition
+        const [existing] = await sql`SELECT id FROM users WHERE phone = ${normalized} LIMIT 1`
+        if (existing) {
+          const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
+          user = u; detectedRole = 'customer'
+        } else {
+          const dummyHash = await hashPassword(crypto.randomUUID())
+          const [newUser] = await sql`
+            INSERT INTO users (name, email, phone, address, password_hash)
+            VALUES ('', NULL, ${normalized}, '', ${dummyHash})
+            RETURNING id, name, email, phone
+          `
+          user = newUser; detectedRole = 'customer'
+          // Alert admin — non-blocking
+          sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' })
+            .catch(() => {})
+        }
+      } catch (dbErr) {
+        console.error('[login-otp] New user create error:', dbErr?.message)
+        // Maybe unique constraint on email hit — try one more lookup
+        const [retry] = await sql`SELECT * FROM users WHERE phone = ${normalized} LIMIT 1`.catch(() => [])
+        if (retry) {
+          user = retry; detectedRole = 'customer'
+        } else {
+          return NextResponse.json({ error: 'Account nahi ban saka. Dobara try karein.' }, { status: 500 })
+        }
       }
     }
 
@@ -488,10 +499,11 @@ export async function POST(request) {
     }
 
     // Create new account (no password — OTP-based)
+    // Use NULL for email (not '') to avoid UNIQUE constraint violations
     const dummyHash = await hashPassword(crypto.randomUUID()) // random password, login via OTP
     const [newUser] = await sql`
       INSERT INTO users (name, email, phone, address, password_hash)
-      VALUES (${name.trim()}, ${''}, ${normalized}, ${address.trim()}, ${dummyHash})
+      VALUES (${name.trim()}, NULL, ${normalized}, ${address.trim()}, ${dummyHash})
       RETURNING id, name, email, phone
     `
     const token = signToken({ id: newUser.id, role: 'customer', name: newUser.name, email: newUser.email })

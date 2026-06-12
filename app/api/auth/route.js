@@ -90,6 +90,22 @@ function recordFail(id) {
 }
 function clearRate(id) { loginAttempts.delete(id) }
 
+// ── Make users.email optional (one-time idempotent migration) ───────
+async function ensureUserEmailOptional(sql) {
+  // 1. Drop NOT NULL
+  try { await sql`ALTER TABLE users ALTER COLUMN email DROP NOT NULL` } catch(e) {}
+  // 2. Drop old column-level UNIQUE constraint (created by UNIQUE keyword in CREATE TABLE)
+  try { await sql`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key` } catch(e) {}
+  // 3. Partial unique index — only real emails (not NULLs, not otp_* placeholders)
+  try {
+    await sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_real
+      ON users(email)
+      WHERE email IS NOT NULL AND email NOT LIKE 'otp_%@noemail.local'
+    `
+  } catch(e) {}
+}
+
 // Ensure delivery_boys has status + extra columns
 async function ensureDeliveryBoyColumns(sql) {
   try {
@@ -295,6 +311,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Phone aur OTP verification required hai' }, { status: 400 })
     }
 
+    // Ensure email is optional in users table (idempotent — safe to run every time)
+    await ensureUserEmailOptional(sql)
+
+    let isNewUser = false
+
     // Verify Firebase ID token via Google Identity Toolkit
     try {
       const apiKey = process.env.FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY
@@ -354,15 +375,14 @@ export async function POST(request) {
           const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
           user = u; detectedRole = 'customer'
         } else {
-          // email is UNIQUE NOT NULL — use UUID to guarantee no conflict
-          const otpEmail = `otp_${crypto.randomUUID()}@noemail.local`
+          // email is now nullable — use NULL for OTP-only users
           const dummyHash = await hashPassword(crypto.randomUUID())
           const [newUser] = await sql`
             INSERT INTO users (name, email, phone, address, password_hash)
-            VALUES ('', ${otpEmail}, ${normalized}, '', ${dummyHash})
+            VALUES ('', NULL, ${normalized}, '', ${dummyHash})
             RETURNING id, name, email, phone
           `
-          user = newUser; detectedRole = 'customer'
+          user = newUser; detectedRole = 'customer'; isNewUser = true
           sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' })
             .catch(() => {})
         }
@@ -385,7 +405,11 @@ export async function POST(request) {
     }
 
     const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
-    const loginRes = NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: detectedRole } })
+    const loginRes = NextResponse.json({
+      success: true,
+      user: { id: user.id, name: user.name, email: user.email, role: detectedRole },
+      ...(isNewUser ? { newUser: true } : {}),
+    })
     loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
     return loginRes
   }
@@ -500,12 +524,12 @@ export async function POST(request) {
     }
 
     // Create new account (no password — OTP-based)
-    // email is UNIQUE NOT NULL — use UUID to guarantee no conflict
-    const otpEmail = `otp_${crypto.randomUUID()}@noemail.local`
+    // email is now nullable for OTP-only users
+    await ensureUserEmailOptional(sql)
     const dummyHash = await hashPassword(crypto.randomUUID())
     const [newUser] = await sql`
       INSERT INTO users (name, email, phone, address, password_hash)
-      VALUES (${name.trim()}, ${otpEmail}, ${normalized}, ${address.trim()}, ${dummyHash})
+      VALUES (${name.trim()}, NULL, ${normalized}, ${address.trim()}, ${dummyHash})
       RETURNING id, name, email, phone
     `
     const token = signToken({ id: newUser.id, role: 'customer', name: newUser.name, email: newUser.email })

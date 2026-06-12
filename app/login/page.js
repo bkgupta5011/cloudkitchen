@@ -82,12 +82,14 @@ export default function LoginPage() {
   const recaptchaVerifierRef  = useRef(null)
   const firebaseTokenRef      = useRef(null)
 
-  // ── Name modal (new user) ────────────────────────────────────────
+  // ── New user welcome modal ───────────────────────────────────────
   const [showNameModal, setShowNameModal] = useState(false)
   const [newUserName, setNewUserName] = useState('')
   const [newUserAddress, setNewUserAddress] = useState('')
   const [locationLoading, setLocationLoading] = useState(false)
+  const [newUserSaving, setNewUserSaving] = useState(false)
   const nameInputRef = useRef(null)
+  const pendingUserRef = useRef(null) // stores user object while modal is open
 
   // Countdown timer
   useEffect(() => {
@@ -284,13 +286,20 @@ export default function LoginPage() {
         setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
         return
       }
-      // Always get user directly — no needsName round-trip anymore
       const { user } = data
       if (!user) {
         setError('Login nahi hua. Dobara try karo.')
         setOtpStep('sent'); setOtpInput(['','','','','',''])
         return
       }
+      // New user — collect name + address before going to menu
+      if (data.newUser) {
+        pendingUserRef.current = user
+        setShowNameModal(true)
+        setTimeout(() => nameInputRef.current?.focus(), 350)
+        return
+      }
+      // Existing user — direct redirect
       if (user.role === 'admin') router.push('/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
@@ -305,28 +314,25 @@ export default function LoginPage() {
     }
   }
 
-  // ── Name Modal Submit (new user) ─────────────────────────────────
-  const handleNameSubmit = async (e) => {
-    e.preventDefault()
-    if (!newUserName.trim()) { setError('Please enter your name'); return }
-    setLoading(true); setError('')
+  // ── New User: Save name + address then redirect ──────────────────
+  const saveNewUserInfo = async () => {
+    if (!newUserName.trim()) { nameInputRef.current?.focus(); return }
+    setNewUserSaving(true)
     try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
+      await fetch('/api/profile', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'otp-signup',
-          phone: '+91' + phoneDigits,
           name: newUserName.trim(),
-          address: newUserAddress.trim(),
-          firebaseToken: firebaseTokenRef.current,
+          address: newUserAddress.trim() || undefined,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Could not create account. Please try again.'); return }
-      router.push('/menu')
-    } catch { setError('Something went wrong. Please try again.') }
-    finally { setLoading(false) }
+    } catch(e) { /* non-fatal — user can update from profile later */ }
+    setNewUserSaving(false)
+    const u = pendingUserRef.current
+    if (u?.role === 'admin') router.push('/admin')
+    else if (u?.role === 'delivery') router.push('/delivery')
+    else router.push('/menu')
   }
 
   // ── Password Login ───────────────────────────────────────────────
@@ -500,7 +506,144 @@ export default function LoginPage() {
         </div>
       )}
 
-      {/* Name modal removed — name is collected at checkout instead */}
+      {/* ── New User Welcome Modal ── */}
+      {showNameModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99998,
+          background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        }}>
+          <style>{`
+            @keyframes slideUp {
+              from { transform: translateY(100%); opacity: 0; }
+              to   { transform: translateY(0);    opacity: 1; }
+            }
+          `}</style>
+          <div style={{
+            background: '#fff', borderRadius: '24px 24px 0 0',
+            width: '100%', maxWidth: 480, padding: '28px 24px 44px',
+            animation: 'slideUp 0.38s cubic-bezier(0.34,1.1,0.64,1)',
+            boxShadow: '0 -8px 48px rgba(0,0,0,0.18)',
+          }}>
+            {/* Handle bar */}
+            <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
+
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ fontSize: 44, marginBottom: 8 }}>👋</div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>
+                FoodFi mein Welcome!
+              </h2>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>
+                Bas naam aur address batao — order karo!
+              </p>
+            </div>
+
+            {/* Name field */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Aapka Naam <span style={{ color: '#e85d04' }}>*</span>
+              </label>
+              <input
+                ref={nameInputRef}
+                type="text"
+                value={newUserName}
+                onChange={e => setNewUserName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveNewUserInfo()}
+                placeholder="Jaise: Rahul Kumar"
+                autoComplete="name"
+                style={{
+                  width: '100%', padding: '13px 14px', border: '1.5px solid',
+                  borderColor: newUserName.trim() ? '#e85d04' : '#e5e7eb',
+                  borderRadius: 12, fontSize: 15, fontWeight: 500,
+                  outline: 'none', boxSizing: 'border-box',
+                  background: newUserName.trim() ? '#fff7ed' : '#fff',
+                  transition: 'all 0.15s',
+                }}
+              />
+            </div>
+
+            {/* Address field */}
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Delivery Address
+                <span style={{ fontSize: 11, fontWeight: 500, color: '#9ca3af', marginLeft: 6 }}>(optional — baad mein bhi add kar sakte ho)</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <textarea
+                  value={newUserAddress}
+                  onChange={e => setNewUserAddress(e.target.value)}
+                  placeholder="Ghar / office ka address..."
+                  rows={2}
+                  style={{
+                    width: '100%', padding: '12px 14px', paddingRight: 130,
+                    border: '1.5px solid', borderColor: newUserAddress ? '#16a34a' : '#e5e7eb',
+                    borderRadius: 12, fontSize: 13, outline: 'none',
+                    boxSizing: 'border-box', resize: 'none', lineHeight: 1.5,
+                    background: newUserAddress ? '#f0fdf4' : '#fff',
+                    transition: 'all 0.15s',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={fetchLocation}
+                  disabled={locationLoading}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: locationLoading ? '#f1f5f9' : 'linear-gradient(135deg,#16a34a,#22c55e)',
+                    color: locationLoading ? '#94a3b8' : '#fff',
+                    border: 'none', borderRadius: 8, padding: '7px 10px',
+                    fontSize: 11, fontWeight: 700, cursor: locationLoading ? 'not-allowed' : 'pointer',
+                    whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {locationLoading
+                    ? <><span style={{ fontSize: 13 }}>⏳</span> Dhundh raha...</>
+                    : <><span style={{ fontSize: 13 }}>📍</span> GPS se lo</>
+                  }
+                </button>
+              </div>
+              {newUserAddress && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>
+                  ✅ Address mil gaya — edit bhi kar sakte ho
+                </div>
+              )}
+            </div>
+
+            {/* Submit button */}
+            <button
+              type="button"
+              onClick={saveNewUserInfo}
+              disabled={!newUserName.trim() || newUserSaving}
+              style={{
+                width: '100%', padding: '15px',
+                background: newUserName.trim()
+                  ? 'linear-gradient(135deg, #e85d04, #f97316)'
+                  : '#e5e7eb',
+                color: newUserName.trim() ? '#fff' : '#9ca3af',
+                border: 'none', borderRadius: 14,
+                fontSize: 16, fontWeight: 800,
+                cursor: newUserName.trim() ? 'pointer' : 'not-allowed',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                boxShadow: newUserName.trim() ? '0 4px 20px rgba(232,93,4,0.35)' : 'none',
+                transition: 'all 0.2s',
+              }}
+            >
+              {newUserSaving
+                ? <><span style={{ width: 18, height: 18, border: '2.5px solid rgba(255,255,255,0.4)', borderTop: '2.5px solid #fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} /> Saving...</>
+                : <>FoodFi pe Chalo! 🍛</>
+              }
+            </button>
+
+            {!newUserName.trim() && (
+              <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>
+                Naam zaroori hai — address baad mein bhi de sakte hain
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Invisible reCAPTCHA container (Firebase needs this) */}
       <div id="recaptcha-container" />

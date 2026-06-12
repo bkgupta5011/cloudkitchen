@@ -92,6 +92,8 @@ body {
 @keyframes slideUpSheet { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 /* OTP screen slide-in from right (Zomato-style screen transition) */
 @keyframes slideInRight { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+/* OTP cursor blink */
+@keyframes otpBlink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
 
 /* Veg/Non-veg dot */
 .veg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }

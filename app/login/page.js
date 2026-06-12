@@ -895,7 +895,6 @@ export default function LoginPage() {
                       )
                     })}
                   </div>
-                  <style>{`@keyframes otpBlink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
 
                   {/* Verifying indicator */}
                   {otpStep === 'verifying' && (

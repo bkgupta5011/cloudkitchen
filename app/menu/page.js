@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
@@ -369,7 +369,7 @@ const SPLASH_LINES = [
   { main: 'Khana nahi — khayaal hai yeh', sub: 'Aapki bhookh, hamari zimmedari 💝' },
 ]
 
-export default function MenuPage() {
+function MenuPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const isGuest = searchParams.get('guest') === 'true'
@@ -1335,5 +1335,13 @@ export default function MenuPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function MenuPage() {
+  return (
+    <Suspense fallback={null}>
+      <MenuPageContent />
+    </Suspense>
   )
 }

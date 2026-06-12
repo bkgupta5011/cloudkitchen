@@ -103,8 +103,7 @@ export default function LoginPage() {
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
-    // Async cleanup — fire-and-forget (no await in useEffect)
-    cleanupFirebase().catch(() => {})
+    cleanupFirebase()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
 
@@ -114,7 +113,7 @@ export default function LoginPage() {
     setOtpInput(['', '', '', '', '', ''])
     setOtpTimer(0)
     setError('')
-    cleanupFirebase().catch(() => {})
+    cleanupFirebase()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
@@ -182,37 +181,39 @@ export default function LoginPage() {
     e.preventDefault()
   }
 
-  // ── Cleanup Firebase + recaptcha container fully ─────────────────
-  const cleanupFirebase = async () => {
-    // 1. Clear our verifier
+  // ── Cleanup verifier + replace container div (NO auth.signOut) ───
+  // auth.signOut() triggers visible captcha — never call it before sendOtp
+  const cleanupFirebase = () => {
     if (recaptchaVerifierRef.current) {
       try { recaptchaVerifierRef.current.clear() } catch(e) {}
       recaptchaVerifierRef.current = null
     }
     confirmationResultRef.current = null
     firebaseTokenRef.current = null
-
-    // 2. Sign out from Firebase (clears stale phone auth session in browser)
+    // Replace the div entirely — most reliable way to reset reCAPTCHA widget
     try {
-      const { getFirebaseAuth } = await import('@/lib/firebase-client')
-      const auth = getFirebaseAuth()
-      if (auth) await auth.signOut()
-    } catch(e) {}
-
-    // 3. Wipe the recaptcha container DOM (removes stale widget)
-    try {
-      const el = document.getElementById('recaptcha-container')
-      if (el) el.innerHTML = ''
+      const old = document.getElementById('recaptcha-container')
+      if (old?.parentNode) {
+        const fresh = document.createElement('div')
+        fresh.id = 'recaptcha-container'
+        old.parentNode.replaceChild(fresh, old)
+      }
     } catch(e) {}
   }
+
+  // Cleanup on page unmount (client-side navigation)
+  useEffect(() => {
+    return () => { cleanupFirebase() }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Send OTP (Firebase — client-side, no server IP issues) ──────
   const sendOtp = async () => {
     if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
 
-    // Always do a full cleanup before each attempt
-    await cleanupFirebase()
+    // Clean up stale verifier + replace container before every attempt
+    cleanupFirebase()
 
     try {
       const { getFirebaseAuth } = await import('@/lib/firebase-client')
@@ -223,10 +224,7 @@ export default function LoginPage() {
       const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
         size: 'invisible',
         callback: () => {},
-        'expired-callback': async () => {
-          // Token expired — clean up so next attempt starts fresh
-          await cleanupFirebase()
-        }
+        'expired-callback': () => { cleanupFirebase() },
       })
       recaptchaVerifierRef.current = verifier
 
@@ -237,13 +235,13 @@ export default function LoginPage() {
       setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
     } catch (e) {
       console.error('Firebase OTP error:', e.code, e.message)
-      await cleanupFirebase()
+      cleanupFirebase()
       const msg = e.code === 'auth/too-many-requests'
-        ? 'Bahut zyada attempts. 10-15 min baad try karo.'
+        ? 'Is number pe bahut zyada OTP gaye. 10-15 min baad try karo.'
         : e.code === 'auth/invalid-phone-number'
         ? 'Invalid phone number. 10-digit Indian number daalo.'
-        : e.code === 'auth/captcha-check-failed' || e.code === 'auth/internal-error'
-        ? 'Dobara try karo — OTP bhej raha hoon...'   // auto-retry friendly message
+        : e.code === 'auth/captcha-check-failed'
+        ? 'reCAPTCHA fail hua. Page reload (F5) karke dobara try karo.'
         : e.code === 'auth/network-request-failed'
         ? 'Network error. Internet check karo.'
         : 'OTP nahi bheja ja saka. Dobara try karo.'

@@ -348,7 +348,13 @@ function MenuPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const isGuest = searchParams.get('guest') === 'true'
+  const isNew   = searchParams.get('new')   === '1'
   const [user, setUser] = useState(null)
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false)
+  const [welcomeName, setWelcomeName]           = useState('')
+  const [welcomeAddress, setWelcomeAddress]     = useState('')
+  const [welcomeSaving, setWelcomeSaving]       = useState(false)
+  const welcomeNameRef = useRef(null)
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
   const [kitchenOpen, setKitchenOpen] = useState(true)
@@ -403,7 +409,14 @@ function MenuPageContent() {
       if (!isGuest) {
         if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
       }
-      if (authData.user?.role === 'customer') setUser(authData.user)
+      if (authData.user?.role === 'customer') {
+        setUser(authData.user)
+        // New customer redirect from login — show welcome modal if no name set
+        if (isNew && !authData.user.name?.trim()) {
+          setShowWelcomeModal(true)
+          setTimeout(() => welcomeNameRef.current?.focus(), 300)
+        }
+      }
       // DB cart wins over localStorage (cross-device sync) — only for logged-in users
       if (!isGuest && cartData.cart && Object.keys(cartData.cart).length > 0) {
         setCart(cartData.cart)
@@ -535,8 +548,106 @@ function MenuPageContent() {
 
   if (loading) return <div className={styles.loading}><div className="spinner" /></div>
 
+  // ── Save welcome name + address ──────────────────────────────────
+  const saveWelcomeInfo = async () => {
+    if (!welcomeName.trim()) { welcomeNameRef.current?.focus(); return }
+    setWelcomeSaving(true)
+    try {
+      await fetch('/api/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: welcomeName.trim(), address: welcomeAddress.trim() || undefined }),
+      })
+      setUser(u => ({ ...u, name: welcomeName.trim() }))
+    } catch(e) { /* non-fatal */ }
+    setWelcomeSaving(false)
+    setShowWelcomeModal(false)
+    // Remove ?new=1 from URL cleanly
+    window.history.replaceState({}, '', '/menu')
+  }
+
   return (
     <div className={styles.page}>
+
+      {/* ── New Customer Welcome Modal ── */}
+      {showWelcomeModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 99999,
+          background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: '24px 24px 0 0',
+            width: '100%', maxWidth: 480, padding: '28px 24px 44px',
+            animation: 'slideUpSheet 0.38s cubic-bezier(0.34,1.1,0.64,1)',
+            boxShadow: '0 -8px 48px rgba(0,0,0,0.18)',
+          }}>
+            <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ fontSize: 44, marginBottom: 8 }}>👋</div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>FoodFi mein Welcome!</h2>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Bas naam batao — order karo! Address baad mein bhi de sakte ho.</p>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Aapka Naam <span style={{ color: '#e85d04' }}>*</span>
+              </label>
+              <input
+                ref={welcomeNameRef}
+                type="text"
+                value={welcomeName}
+                onChange={e => setWelcomeName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveWelcomeInfo()}
+                placeholder="Jaise: Rahul Kumar"
+                autoComplete="name"
+                style={{
+                  width: '100%', padding: '13px 14px',
+                  border: `1.5px solid ${welcomeName.trim() ? '#e85d04' : '#e5e7eb'}`,
+                  borderRadius: 12, fontSize: 15, fontWeight: 500,
+                  outline: 'none', boxSizing: 'border-box',
+                  background: welcomeName.trim() ? '#fff7ed' : '#fff',
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+                Delivery Address <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>(optional)</span>
+              </label>
+              <textarea
+                value={welcomeAddress}
+                onChange={e => setWelcomeAddress(e.target.value)}
+                placeholder="Ghar / office ka address..."
+                rows={2}
+                style={{
+                  width: '100%', padding: '12px 14px',
+                  border: `1.5px solid ${welcomeAddress ? '#16a34a' : '#e5e7eb'}`,
+                  borderRadius: 12, fontSize: 13, outline: 'none',
+                  boxSizing: 'border-box', resize: 'none', lineHeight: 1.5,
+                  background: welcomeAddress ? '#f0fdf4' : '#fff',
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={saveWelcomeInfo}
+              disabled={!welcomeName.trim() || welcomeSaving}
+              style={{
+                width: '100%', padding: '15px',
+                background: welcomeName.trim() ? 'linear-gradient(135deg,#e85d04,#f97316)' : '#e5e7eb',
+                color: welcomeName.trim() ? '#fff' : '#9ca3af',
+                border: 'none', borderRadius: 14, fontSize: 16, fontWeight: 800,
+                cursor: welcomeName.trim() ? 'pointer' : 'not-allowed',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                boxShadow: welcomeName.trim() ? '0 4px 20px rgba(232,93,4,0.35)' : 'none',
+              }}>
+              {welcomeSaving ? <><span className="spinner" /> Saving...</> : 'FoodFi pe Chalo! 🍛'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Navbar */}
       <nav className={styles.nav} style={isGuest ? { marginTop: 44 } : {}}>

@@ -297,17 +297,12 @@ export default function LoginPage() {
         return
       }
       if (data.newUser) {
-        pendingUserRef.current = user
+        // Save remember-me before redirect
         if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
         else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
-        // Clear OTP overlay before showing modal — prevents dual overlay conflict
-        setOtpStep('idle')
-        setOtpInput(['', '', '', '', '', ''])
-        // Small delay so OTP screen unmounts cleanly before modal mounts
-        setTimeout(() => {
-          setShowNameModal(true)
-          setTimeout(() => nameInputRef.current?.focus(), 200)
-        }, 80)
+        // Hard redirect — no React state updates that could crash the page
+        // New user will see a welcome prompt on the menu page
+        window.location.href = '/menu?new=1'
         return
       }
       if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }

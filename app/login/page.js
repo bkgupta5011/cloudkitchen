@@ -427,31 +427,6 @@ export default function LoginPage() {
           transition: splashPhase >= 5 ? 'opacity 0.85s ease' : 'none',
           pointerEvents: splashPhase >= 5 ? 'none' : 'all',
         }}>
-          <style>{`
-            @keyframes ckFloatUp {
-              0%   { transform: translateY(0) rotate(0deg);   opacity: 0.18; }
-              50%  { opacity: 0.35; }
-              100% { transform: translateY(-110vh) rotate(25deg); opacity: 0; }
-            }
-            @keyframes ckGlow {
-              0%,100% { box-shadow: 0 0 28px rgba(232,93,4,0.55), 0 0 60px rgba(232,93,4,0.18); }
-              50%      { box-shadow: 0 0 55px rgba(232,93,4,0.9), 0 0 110px rgba(232,93,4,0.4); }
-            }
-            @keyframes ckShimmer {
-              0%   { background-position: -300% center; }
-              100% { background-position:  300% center; }
-            }
-            @keyframes ckDot {
-              0%,100% { opacity: 0.35; transform: scale(1); }
-              50%      { opacity: 1;    transform: scale(1.5); }
-            }
-            @keyframes ckBar {
-              0%   { width: 0; opacity: 0; }
-              20%  { opacity: 1; }
-              100% { width: 64px; opacity: 1; }
-            }
-          `}</style>
-
           {['🍛','🍜','🥘','🍱','🌮','🍝','🍚','🫕','🥗','🍲'].map((em, i) => (
             <div key={i} style={{
               position: 'absolute', left: `${i * 10 + 4}%`, bottom: `-${6 + (i % 3) * 2}%`,

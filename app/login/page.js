@@ -89,6 +89,7 @@ export default function LoginPage() {
   const [otpTimer, setOtpTimer] = useState(0)
   const timerRef = useRef(null)
   const otpBoxRefs = useRef([])
+  const hiddenOtpRef = useRef(null)   // single real input for auto-fill
 
   // Firebase refs
   const confirmationResultRef = useRef(null)
@@ -137,21 +138,24 @@ export default function LoginPage() {
   }, [tab])
 
   // ── Web OTP API — auto-fill from SMS (Android Chrome) ───────────
-  // Requires SMS format: "... @foodfi.in #XXXXXX" (origin-bound)
-  // Fallback: autocomplete="one-time-code" on input handles iOS + Android
   useEffect(() => {
     if (otpStep !== 'sent') return
     if (typeof window === 'undefined' || !('OTPCredential' in window)) return
     const ac = new AbortController()
+    // Focus the hidden input so Chrome links the OTP dialog to our field
+    setTimeout(() => hiddenOtpRef.current?.focus(), 50)
     navigator.credentials.get({ otp: { transport: ['sms'] }, signal: ac.signal })
-      .then(otp => {
-        if (otp?.code?.length === 6) {
-          const arr = otp.code.split('')
-          setOtpInput(arr)
-          autoVerifyOtp(otp.code)
-        }
+      .then(otpCredential => {
+        if (!otpCredential?.code) return
+        const code = otpCredential.code.replace(/[^0-9]/g, '').slice(0, 6)
+        if (code.length !== 6) return
+        const arr = Array(6).fill('').map((_, i) => code[i] || '')
+        setOtpInput(arr)
+        autoVerifyOtp(code)
       })
-      .catch(() => {}) // user dismissed or not supported — silent
+      .catch(err => {
+        if (err?.name !== 'AbortError') console.log('Web OTP:', err?.name)
+      })
     return () => { try { ac.abort() } catch(e) {} }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otpStep])
@@ -285,7 +289,7 @@ export default function LoginPage() {
       confirmationResultRef.current = result
       setOtpStep('sent')
       setOtpTimer(60)
-      setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
+      setTimeout(() => hiddenOtpRef.current?.focus(), 100)
     } catch (e) {
       console.error('Firebase OTP error:', e.code, e.message)
       cleanupFirebase()
@@ -325,7 +329,7 @@ export default function LoginPage() {
         setError(data.error || 'Login fail hua. Dobara try karo.')
         setOtpStep('sent')
         setOtpInput(['', '', '', '', '', ''])
-        setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
+        setTimeout(() => hiddenOtpRef.current?.focus(), 100)
         return
       }
       const { user } = data
@@ -821,42 +825,77 @@ export default function LoginPage() {
                     <strong style={{ color: '#e85d04' }}>6-digit OTP</strong> enter karo — auto verify hoga ✨
                   </p>
 
-                  {/* 6 OTP Boxes */}
+                  {/* OTP Boxes — hidden real input + visual divs (most reliable auto-fill) */}
                   <div
-                    style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 28 }}
-                    onPaste={handleOtpPaste}
+                    style={{ position: 'relative', display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 28 }}
+                    onClick={() => hiddenOtpRef.current?.focus()}
                   >
-                    {otpInput.map((digit, i) => (
-                      <input key={i}
-                        ref={el => otpBoxRefs.current[i] = el}
-                        type="tel"
-                        inputMode="numeric"
-                        maxLength={i === 0 ? 6 : 1}
-                        // All boxes: one-time-code → Chrome fills sequentially
-                        // Box 0: maxLength 6 → catches full OTP from keyboard suggestion / Web OTP
-                        autoComplete="one-time-code"
-                        value={digit}
-                        onChange={e => handleOtpBox(i, e.target.value)}
-                        onInput={e => {
-                          // Some browsers fire onInput (not onChange) for auto-fill
-                          const val = e.target.value.replace(/[^0-9]/g, '')
-                          if (val.length > 1) handleOtpBox(i, val)
-                        }}
-                        onKeyDown={e => handleOtpKeyDown(i, e)}
-                        disabled={otpStep === 'verifying'}
-                        style={{
-                          width: 46, height: 58, textAlign: 'center',
-                          fontSize: 24, fontWeight: 800,
-                          border: digit ? '2.5px solid #f97316' : '2px solid #e5e7eb',
-                          borderRadius: 12, outline: 'none',
+                    {/* Hidden single input — receives ALL auto-fill (Web OTP, keyboard chip, paste) */}
+                    <input
+                      ref={hiddenOtpRef}
+                      type="tel"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={otpInput.join('')}
+                      disabled={otpStep === 'verifying'}
+                      onChange={e => {
+                        const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 6)
+                        const arr = Array(6).fill('').map((_, i) => val[i] || '')
+                        setOtpInput(arr)
+                        if (val.length === 6) autoVerifyOtp(val)
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Backspace') {
+                          const cur = otpInput.join('')
+                          const nxt = cur.slice(0, -1)
+                          setOtpInput(Array(6).fill('').map((_, i) => nxt[i] || ''))
+                        }
+                      }}
+                      onPaste={e => {
+                        const pasted = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6)
+                        if (pasted.length > 0) {
+                          const arr = Array(6).fill('').map((_, i) => pasted[i] || '')
+                          setOtpInput(arr)
+                          if (pasted.length === 6) autoVerifyOtp(pasted)
+                        }
+                        e.preventDefault()
+                      }}
+                      style={{
+                        position: 'absolute', inset: 0,
+                        width: '100%', height: '100%',
+                        opacity: 0, zIndex: 10,
+                        cursor: 'text', border: 'none',
+                        background: 'transparent',
+                      }}
+                    />
+
+                    {/* Visual digit boxes (divs) */}
+                    {otpInput.map((digit, i) => {
+                      const filledCount = otpInput.filter(d => d).length
+                      const isCursor = i === filledCount && otpStep !== 'verifying'
+                      return (
+                        <div key={i} style={{
+                          width: 46, height: 58,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 24, fontWeight: 800, color: '#1f2937',
+                          border: digit ? '2.5px solid #f97316' : isCursor ? '2px solid #f97316' : '2px solid #e5e7eb',
+                          borderRadius: 12, userSelect: 'none',
                           background: otpStep === 'verifying' ? '#f9fafb' : digit ? '#fff7ed' : '#fff',
-                          color: '#1f2937', transition: 'all 0.15s',
-                          boxShadow: digit ? '0 0 0 4px rgba(249,115,22,0.12)' : 'none',
+                          boxShadow: digit ? '0 0 0 4px rgba(249,115,22,0.12)' : isCursor ? '0 0 0 3px rgba(249,115,22,0.18)' : 'none',
                           opacity: otpStep === 'verifying' ? 0.7 : 1,
-                        }}
-                      />
-                    ))}
+                          transition: 'all 0.15s',
+                          position: 'relative', overflow: 'hidden',
+                        }}>
+                          {digit || (isCursor
+                            ? <span style={{ width: 2, height: 26, background: '#f97316', borderRadius: 2, animation: 'otpBlink 1s step-end infinite', display: 'block' }} />
+                            : ''
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
+                  <style>{`@keyframes otpBlink { 0%,100%{opacity:1} 50%{opacity:0} }`}</style>
 
                   {/* Verifying indicator */}
                   {otpStep === 'verifying' && (

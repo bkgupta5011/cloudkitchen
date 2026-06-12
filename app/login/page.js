@@ -122,6 +122,26 @@ export default function LoginPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
+  // ── Web OTP API — auto-fill from SMS (Android Chrome) ───────────
+  // Requires SMS format: "... @foodfi.in #XXXXXX" (origin-bound)
+  // Fallback: autocomplete="one-time-code" on input handles iOS + Android
+  useEffect(() => {
+    if (otpStep !== 'sent') return
+    if (typeof window === 'undefined' || !('OTPCredential' in window)) return
+    const ac = new AbortController()
+    navigator.credentials.get({ otp: { transport: ['sms'] }, signal: ac.signal })
+      .then(otp => {
+        if (otp?.code?.length === 6) {
+          const arr = otp.code.split('')
+          setOtpInput(arr)
+          autoVerifyOtp(otp.code)
+        }
+      })
+      .catch(() => {}) // user dismissed or not supported — silent
+    return () => { try { ac.abort() } catch(e) {} }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpStep])
+
   // Focus name input when modal opens
   useEffect(() => {
     if (showNameModal) setTimeout(() => nameInputRef.current?.focus(), 150)
@@ -703,240 +723,302 @@ export default function LoginPage() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════
-          BOTTOM SHEET FORM
+          BOTTOM SHEET
       ══════════════════════════════════════════════════════════ */}
       <div style={{
-        flex: 1,
-        background: '#fff',
-        borderRadius: '24px 24px 0 0',
-        padding: '28px 20px 36px',
+        flex: 1, background: '#fff', borderRadius: '24px 24px 0 0',
         boxShadow: '0 -12px 48px rgba(0,0,0,0.3)',
-        overflowY: 'auto',
+        overflow: 'hidden', position: 'relative',
       }}>
-        {/* Handle bar */}
-        <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
 
-        <h2 style={{ fontSize: 17, fontWeight: 800, color: '#111827', margin: '0 0 20px', textAlign: 'center' }}>
-          Log in or Sign up
-        </h2>
-
-        {/* Phone Number */}
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
-            Mobile Number
-          </label>
-          <div style={{ display: 'flex' }}>
-            <span style={{
-              padding: '12px 14px',
-              background: '#f9fafb',
-              border: '1.5px solid #e5e7eb', borderRight: 'none',
-              borderRadius: '10px 0 0 10px', fontSize: 14, color: '#374151',
-              fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
-            }}>🇮🇳 +91</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              maxLength={10}
-              value={phone}
-              onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
-              placeholder="10 digit mobile number"
-              autoComplete="tel"
-              disabled={otpStep === 'sent' || otpStep === 'verifying' || otpStep === 'sending'}
-              style={{
-                flex: 1, padding: '12px 14px',
-                border: '1.5px solid #e5e7eb', borderLeft: 'none',
-                borderRadius: '0 10px 10px 0',
-                fontSize: 16, fontWeight: 500,
-                outline: 'none',
-                opacity: (otpStep === 'sent' || otpStep === 'verifying') ? 0.6 : 1,
-                background: phoneReady ? '#fff7ed' : '#fff',
-                transition: 'background 0.2s',
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Tab Toggle */}
-        {phoneReady && (
-          <div style={{ display: 'flex', marginBottom: 18, background: '#f3f4f6', borderRadius: 10, padding: 4, gap: 4 }}>
-            <button type="button" onClick={() => setTab('password')}
-              style={{
-                flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
-                cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
-                background: tab === 'password' ? '#e85d04' : 'transparent',
-                color: tab === 'password' ? '#fff' : '#6b7280',
-                boxShadow: tab === 'password' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
-              }}>
-              🔑 Password
-            </button>
-            <button type="button" onClick={() => setTab('otp')}
-              style={{
-                flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
-                cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
-                background: tab === 'otp' ? '#e85d04' : 'transparent',
-                color: tab === 'otp' ? '#fff' : '#6b7280',
-                boxShadow: tab === 'otp' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
-              }}>
-              📱 OTP
-            </button>
-          </div>
-        )}
-
-        {/* ── OTP TAB ── */}
-        {tab === 'otp' && (
-          <div>
-            {!phoneReady && (
-              <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
-                👆 Upar apna mobile number daalo
-              </div>
-            )}
-
-            {phoneReady && otpStep === 'idle' && (
-              <button type="button" onClick={sendOtp}
+        {/* ════ OTP SCREEN (Zomato-style new page) ════ */}
+        {tab === 'otp' && otpStep !== 'idle' && (
+          <div style={{
+            position: 'absolute', inset: 0, background: '#fff',
+            display: 'flex', flexDirection: 'column',
+            padding: '0 0 32px', overflowY: 'auto',
+            animation: 'slideInRight 0.28s cubic-bezier(0.25,0.46,0.45,0.94)',
+          }}>
+            {/* Top bar with back button */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '20px 20px 0',
+              borderBottom: '1px solid #f3f4f6', paddingBottom: 16,
+            }}>
+              <button
+                onClick={() => { setOtpStep('idle'); setOtpInput(['','','','','','']); setError(''); cleanupFirebase() }}
                 style={{
-                  width: '100%', padding: '15px', marginBottom: 14,
-                  background: 'linear-gradient(135deg, #e85d04, #f97316)',
-                  color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
-                  borderRadius: 12, cursor: 'pointer',
-                  boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
-                  letterSpacing: 0.3,
+                  background: '#f9fafb', border: 'none', borderRadius: 10,
+                  width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', fontSize: 18, color: '#374151',
+                  flexShrink: 0,
                 }}>
-                Continue →
+                ←
               </button>
-            )}
-
-            {otpStep === 'sending' && (
-              <div style={{ textAlign: 'center', padding: '14px', fontSize: 14, color: '#9ca3af', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <span className="spinner" /> OTP bheja ja raha hai...
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#111827' }}>OTP Verify Karo</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>+91 {phoneDigits}</div>
               </div>
-            )}
+            </div>
 
-            {(otpStep === 'sent' || otpStep === 'verifying') && (
-              <div style={{ background: '#fff7ed', border: '1.5px solid #fed7aa', borderRadius: 14, padding: '18px 16px', marginBottom: 14 }}>
-                <p style={{ margin: '0 0 4px', fontSize: 13, color: '#92400e', fontWeight: 700, textAlign: 'center' }}>
-                  📲 OTP sent to +91{phoneDigits}
-                </p>
-                <p style={{ margin: '0 0 14px', fontSize: 11, color: '#b45309', textAlign: 'center' }}>
-                  {otpStep === 'verifying' ? '⏳ Verifying...' : '6 digits enter karo — auto-verify ho jayega ✨'}
-                </p>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 14 }} onPaste={handleOtpPaste}>
-                  {otpInput.map((digit, i) => (
-                    <input key={i}
-                      ref={el => otpBoxRefs.current[i] = el}
-                      type="text" inputMode="numeric" maxLength={1}
-                      value={digit}
-                      onChange={e => handleOtpBox(i, e.target.value)}
-                      onKeyDown={e => handleOtpKeyDown(i, e)}
-                      disabled={otpStep === 'verifying'}
-                      style={{
-                        width: 44, height: 54, textAlign: 'center', fontSize: 22, fontWeight: 700,
-                        border: digit ? '2px solid #f97316' : '2px solid #e5e7eb',
-                        borderRadius: 10, outline: 'none',
-                        background: otpStep === 'verifying' ? '#f9fafb' : digit ? '#fff7ed' : '#fff',
-                        color: '#1f2937', transition: 'all 0.15s',
-                        boxShadow: digit ? '0 0 0 3px rgba(249,115,22,0.12)' : 'none',
-                        opacity: otpStep === 'verifying' ? 0.7 : 1,
-                      }}
-                    />
-                  ))}
+            {/* OTP Content */}
+            <div style={{ padding: '32px 24px 0', flex: 1 }}>
+
+              {/* Sending state */}
+              {otpStep === 'sending' && (
+                <div style={{ textAlign: 'center', paddingTop: 40 }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>📲</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 15, color: '#6b7280' }}>
+                    <span className="spinner" /> OTP bheja ja raha hai...
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>OTP 10 min mein expire hoga</span>
-                  {otpTimer > 0
-                    ? <span style={{ fontSize: 12, color: '#9ca3af' }}>Resend in {otpTimer}s</span>
-                    : <button type="button" onClick={sendOtp}
-                        style={{ fontSize: 12, color: '#e85d04', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+              )}
+
+              {/* Sent / Verifying state */}
+              {(otpStep === 'sent' || otpStep === 'verifying') && (
+                <>
+                  <p style={{ fontSize: 14, color: '#374151', margin: '0 0 6px', fontWeight: 600, textAlign: 'center' }}>
+                    OTP bheja gaya 📲
+                  </p>
+                  <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 32px', textAlign: 'center', lineHeight: 1.5 }}>
+                    +91 {phoneDigits} par aaye SMS ka<br/>
+                    <strong style={{ color: '#e85d04' }}>6-digit OTP</strong> enter karo — auto verify hoga ✨
+                  </p>
+
+                  {/* 6 OTP Boxes */}
+                  <div
+                    style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 28 }}
+                    onPaste={handleOtpPaste}
+                  >
+                    {otpInput.map((digit, i) => (
+                      <input key={i}
+                        ref={el => otpBoxRefs.current[i] = el}
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={1}
+                        // autocomplete="one-time-code" on first box → browser/iOS shows OTP suggestion
+                        autoComplete={i === 0 ? 'one-time-code' : 'off'}
+                        value={digit}
+                        onChange={e => handleOtpBox(i, e.target.value)}
+                        onKeyDown={e => handleOtpKeyDown(i, e)}
+                        disabled={otpStep === 'verifying'}
+                        style={{
+                          width: 46, height: 58, textAlign: 'center',
+                          fontSize: 24, fontWeight: 800,
+                          border: digit ? '2.5px solid #f97316' : '2px solid #e5e7eb',
+                          borderRadius: 12, outline: 'none',
+                          background: otpStep === 'verifying' ? '#f9fafb' : digit ? '#fff7ed' : '#fff',
+                          color: '#1f2937', transition: 'all 0.15s',
+                          boxShadow: digit ? '0 0 0 4px rgba(249,115,22,0.12)' : 'none',
+                          opacity: otpStep === 'verifying' ? 0.7 : 1,
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Verifying indicator */}
+                  {otpStep === 'verifying' && (
+                    <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 20, padding: '8px 18px' }}>
+                        <span className="spinner" />
+                        <span style={{ fontSize: 13, color: '#92400e', fontWeight: 600 }}>Verify ho raha hai...</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {error && <div className={styles.error} style={{ marginBottom: 16 }}>{error}</div>}
+
+                  {/* Resend */}
+                  <div style={{ textAlign: 'center', marginTop: 8 }}>
+                    {otpTimer > 0 ? (
+                      <span style={{ fontSize: 13, color: '#9ca3af' }}>
+                        Resend OTP in <strong style={{ color: '#374151' }}>{otpTimer}s</strong>
+                      </span>
+                    ) : (
+                      <button type="button" onClick={sendOtp}
+                        style={{ fontSize: 14, color: '#e85d04', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
                         🔄 Resend OTP
-                      </button>}
-                </div>
-              </div>
-            )}
+                      </button>
+                    )}
+                  </div>
 
-            {error && <div className={styles.error}>{error}</div>}
+                  {/* Change number link */}
+                  <div style={{ textAlign: 'center', marginTop: 16 }}>
+                    <button type="button"
+                      onClick={() => { setOtpStep('idle'); setOtpInput(['','','','','','']); setError(''); cleanupFirebase() }}
+                      style={{ fontSize: 13, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                      Number change karna hai?
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
 
-        {/* ── PASSWORD TAB ── */}
-        {tab === 'password' && (
-          <form onSubmit={handlePasswordLogin}>
-            {!phoneReady && (
-              <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
-                👆 Upar apna mobile number daalo
-              </div>
-            )}
-            {phoneReady && (
-              <>
-                <div className="field" style={{ marginBottom: 8 }}>
-                  <label style={{ fontWeight: 700, color: '#374151', fontSize: 12 }}>Password</label>
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    minLength={6}
-                    autoComplete="current-password"
-                    style={{ borderRadius: 10, padding: '12px 14px', fontSize: 15 }}
-                  />
+        {/* ════ MAIN FORM (phone entry + tabs) ════ */}
+        <div style={{ padding: '22px 20px 32px', overflowY: 'auto', height: '100%' }}>
+          {/* Handle bar */}
+          <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 20px' }} />
+
+          <h2 style={{ fontSize: 17, fontWeight: 800, color: '#111827', margin: '0 0 20px', textAlign: 'center' }}>
+            Log in or Sign up
+          </h2>
+
+          {/* Phone Number */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
+              Mobile Number
+            </label>
+            <div style={{ display: 'flex' }}>
+              <span style={{
+                padding: '12px 14px', background: '#f9fafb',
+                border: '1.5px solid #e5e7eb', borderRight: 'none',
+                borderRadius: '10px 0 0 10px', fontSize: 14, color: '#374151',
+                fontWeight: 600, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+              }}>🇮🇳 +91</span>
+              <input
+                type="text" inputMode="numeric" maxLength={10}
+                value={phone}
+                onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
+                placeholder="10 digit mobile number"
+                autoComplete="tel"
+                style={{
+                  flex: 1, padding: '12px 14px',
+                  border: '1.5px solid #e5e7eb', borderLeft: 'none',
+                  borderRadius: '0 10px 10px 0', fontSize: 16, fontWeight: 500,
+                  outline: 'none',
+                  background: phoneReady ? '#fff7ed' : '#fff',
+                  transition: 'background 0.2s',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Tab Toggle */}
+          {phoneReady && (
+            <div style={{ display: 'flex', marginBottom: 18, background: '#f3f4f6', borderRadius: 10, padding: 4, gap: 4 }}>
+              <button type="button" onClick={() => setTab('password')}
+                style={{
+                  flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
+                  cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
+                  background: tab === 'password' ? '#e85d04' : 'transparent',
+                  color: tab === 'password' ? '#fff' : '#6b7280',
+                  boxShadow: tab === 'password' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
+                }}>🔑 Password</button>
+              <button type="button" onClick={() => setTab('otp')}
+                style={{
+                  flex: 1, padding: '9px', fontSize: 13, fontWeight: 700, border: 'none',
+                  cursor: 'pointer', transition: 'all 0.18s', borderRadius: 8,
+                  background: tab === 'otp' ? '#e85d04' : 'transparent',
+                  color: tab === 'otp' ? '#fff' : '#6b7280',
+                  boxShadow: tab === 'otp' ? '0 2px 8px rgba(232,93,4,0.35)' : 'none',
+                }}>📱 OTP</button>
+            </div>
+          )}
+
+          {/* ── OTP TAB — Continue button ── */}
+          {tab === 'otp' && (
+            <div>
+              {!phoneReady && (
+                <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
+                  👆 Upar apna mobile number daalo
                 </div>
-                <div style={{ textAlign: 'right', marginBottom: 14 }}>
-                  <button type="button" onClick={() => router.push('/forgot-password')}
-                    style={{ background: 'none', border: 'none', color: '#e85d04', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                    Forgot Password?
-                  </button>
-                </div>
-                {error && <div className={styles.error}>{error}</div>}
-                <button type="submit"
+              )}
+              {phoneReady && (
+                <button type="button" onClick={sendOtp}
                   style={{
-                    width: '100%', padding: '15px',
-                    background: loading ? '#f9a87a' : 'linear-gradient(135deg, #e85d04, #f97316)',
+                    width: '100%', padding: '15px', marginBottom: 14,
+                    background: 'linear-gradient(135deg, #e85d04, #f97316)',
                     color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
-                    borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer',
+                    borderRadius: 12, cursor: 'pointer',
                     boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  }}
-                  disabled={loading}>
-                  {loading ? <><span className="spinner" /> Logging in...</> : 'Login →'}
+                    letterSpacing: 0.3,
+                  }}>
+                  Continue →
                 </button>
-              </>
-            )}
-          </form>
-        )}
+              )}
+              {error && <div className={styles.error}>{error}</div>}
+            </div>
+          )}
 
-        {/* ── Divider ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
-          <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
-          <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>ya phir</span>
-          <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
-        </div>
+          {/* ── PASSWORD TAB ── */}
+          {tab === 'password' && (
+            <form onSubmit={handlePasswordLogin}>
+              {!phoneReady && (
+                <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
+                  👆 Upar apna mobile number daalo
+                </div>
+              )}
+              {phoneReady && (
+                <>
+                  <div className="field" style={{ marginBottom: 8 }}>
+                    <label style={{ fontWeight: 700, color: '#374151', fontSize: 12 }}>Password</label>
+                    <input type="password" required value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="••••••••" minLength={6} autoComplete="current-password"
+                      style={{ borderRadius: 10, padding: '12px 14px', fontSize: 15 }}
+                    />
+                  </div>
+                  <div style={{ textAlign: 'right', marginBottom: 14 }}>
+                    <button type="button" onClick={() => router.push('/forgot-password')}
+                      style={{ background: 'none', border: 'none', color: '#e85d04', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                      Forgot Password?
+                    </button>
+                  </div>
+                  {error && <div className={styles.error}>{error}</div>}
+                  <button type="submit" disabled={loading}
+                    style={{
+                      width: '100%', padding: '15px',
+                      background: loading ? '#f9a87a' : 'linear-gradient(135deg, #e85d04, #f97316)',
+                      color: '#fff', fontSize: 16, fontWeight: 800, border: 'none',
+                      borderRadius: 12, cursor: loading ? 'not-allowed' : 'pointer',
+                      boxShadow: '0 4px 20px rgba(232,93,4,0.4)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    }}>
+                    {loading ? <><span className="spinner" /> Logging in...</> : 'Login →'}
+                  </button>
+                </>
+              )}
+            </form>
+          )}
 
-        {/* ── Guest Button ── */}
-        <button type="button" onClick={() => router.push('/menu?guest=true')}
-          style={{
-            width: '100%', padding: '13px', fontSize: 14, fontWeight: 700,
-            background: 'transparent', color: '#6b7280',
-            border: '1.5px dashed #d1d5db', borderRadius: 10, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            transition: 'all 0.2s',
-          }}
-          onMouseOver={e => { e.currentTarget.style.borderColor = '#e85d04'; e.currentTarget.style.color = '#e85d04'; e.currentTarget.style.background = '#fff7ed' }}
-          onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.background = 'transparent' }}>
-          👀 Guest ke roop mein browse karo
-        </button>
-        <p style={{ margin: '6px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
-          Login ke bina menu dekho — checkout pe naam + address dena hoga
-        </p>
+          {/* Divider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
+            <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+            <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>ya phir</span>
+            <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
+          </div>
 
-        {/* ── Footer ── */}
-        <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 18, paddingTop: 14 }}>
-          <p style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: '0 0 10px' }}>
-            Admin aur Delivery Boy bhi yahan login kar sakte hain
+          {/* Guest Button */}
+          <button type="button" onClick={() => router.push('/menu?guest=true')}
+            style={{
+              width: '100%', padding: '13px', fontSize: 14, fontWeight: 700,
+              background: 'transparent', color: '#6b7280',
+              border: '1.5px dashed #d1d5db', borderRadius: 10, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              transition: 'all 0.2s',
+            }}
+            onMouseOver={e => { e.currentTarget.style.borderColor = '#e85d04'; e.currentTarget.style.color = '#e85d04'; e.currentTarget.style.background = '#fff7ed' }}
+            onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.background = 'transparent' }}>
+            👀 Guest ke roop mein browse karo
+          </button>
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+            Login ke bina menu dekho — checkout pe naam + address dena hoga
           </p>
-          <div style={{ textAlign: 'center' }}>
-            <button onClick={() => router.push('/delivery/apply')}
-              style={{ background: 'none', border: '1.5px solid #e85d04', color: '#e85d04', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              🛵 Delivery Partner Apply Karo
-            </button>
+
+          {/* Footer */}
+          <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 18, paddingTop: 14 }}>
+            <p style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: '0 0 10px' }}>
+              Admin aur Delivery Boy bhi yahan login kar sakte hain
+            </p>
+            <div style={{ textAlign: 'center' }}>
+              <button onClick={() => router.push('/delivery/apply')}
+                style={{ background: 'none', border: '1.5px solid #e85d04', color: '#e85d04', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                🛵 Delivery Partner Apply Karo
+              </button>
+            </div>
           </div>
         </div>
 

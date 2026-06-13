@@ -267,38 +267,12 @@ export default function LoginPage() {
     }
   }
 
-  // ── Send OTP — Fast2SMS primary, Firebase fallback ────────────────
+  // ── Send OTP — Firebase (DLT registration pending, will switch to Fast2SMS after) ──
   const sendOtp = async () => {
     if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
-
-    try {
-      const res = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send-otp', phone: '+91' + phoneDigits }),
-      })
-      const data = await res.json()
-
-      if (data.success && data.provider === 'fast2sms') {
-        // ✅ Fast2SMS sent successfully
-        setOtpProvider('fast2sms')
-        setOtpStep('sent')
-        setOtpTimer(60)
-        setTimeout(() => hiddenOtpRef.current?.focus(), 100)
-        return
-      }
-
-      // ⚠️ 2Factor failed — Firebase fallback temporarily paused for testing
-      console.warn('[OTP] 2Factor failed:', data.reason)
-      setError('OTP nahi bheja ja saka. Dobara try karo.')
-      setOtpStep('idle')
-    } catch (e) {
-      // Network error — Firebase fallback temporarily paused for testing
-      console.warn('[OTP] 2Factor network error:', e.message)
-      setError('OTP nahi bheja ja saka. Internet check karo.')
-      setOtpStep('idle')
-    }
+    setOtpProvider('firebase')
+    await sendFirebaseOtp()
   }
 
   // ── Auto-verify OTP ───────────────────────────────────────────────

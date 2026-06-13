@@ -553,7 +553,7 @@ export async function PATCH(request) {
   }
 
   // ── Branch Inventory ──────────────────────────────────────────────
-  if (data.type === 'branch_inventory') {
+  if (type === 'branch_inventory') {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     await ensureBranchInventoryTable(sql)
@@ -587,7 +587,7 @@ export async function PATCH(request) {
   }
 
   // ── Branch CRUD ───────────────────────────────────────────────────
-  if (data.type === 'branch') {
+  if (type === 'branch') {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     await ensureBranchesTable(sql)

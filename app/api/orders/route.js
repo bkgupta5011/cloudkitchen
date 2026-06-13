@@ -50,6 +50,9 @@ export async function GET(request) {
   const user = verifyToken(token)
   if (!user) return NextResponse.json({ error: 'Login required' }, { status: 401 })
 
+  // Ensure branch_id column exists on orders (safe, idempotent)
+  await ensureOrderBranchColumn(sql)
+
   // Auto open/close kitchen by schedule on every customer order page load
   if (user.role === 'customer') await checkAndUpdateKitchenSchedule()
 

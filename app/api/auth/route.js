@@ -300,8 +300,13 @@ export async function POST(request) {
     }
 
     clearRate(loginId)
-    const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
-    const res = NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: detectedRole } })
+    const tokenPayload = { id: user.id, role: detectedRole, name: user.name, email: user.email }
+    if (detectedRole === 'admin') {
+      tokenPayload.branch_id = user.branch_id || null
+      tokenPayload.is_super_admin = user.branch_id ? false : true
+    }
+    const token = signToken(tokenPayload)
+    const res = NextResponse.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: detectedRole, branch_id: tokenPayload.branch_id || null, is_super_admin: tokenPayload.is_super_admin } })
     res.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
     return res
   }
@@ -682,6 +687,34 @@ export async function POST(request) {
       .catch(err => console.error('[NewCustomerAlert]', err?.message))
 
     return r
+  }
+
+  // ── SET BRANCH ADMIN LOGIN (super admin only) ────────────────────
+  if (action === 'set-branch-login') {
+    const token = request.cookies.get('ck_token')?.value
+    const me = verifyToken(token)
+    if (!me || me.role !== 'admin' || !me.is_super_admin) {
+      return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
+    }
+    const { branch_id, phone: bPhone, password: bPassword, name: bName } = body
+    if (!branch_id || !bPhone || !bPassword) {
+      return NextResponse.json({ error: 'branch_id, phone, password required' }, { status: 400 })
+    }
+    if (bPassword.length < 6) return NextResponse.json({ error: 'Password kam se kam 6 characters ka hona chahiye' }, { status: 400 })
+
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
+
+    const passwordHash = await hashPassword(bPassword)
+    // Check if branch already has an admin
+    const [existing] = await sql`SELECT id FROM admins WHERE branch_id = ${branch_id}::uuid LIMIT 1`
+    if (existing) {
+      await sql`UPDATE admins SET phone = ${bPhone}, password_hash = ${passwordHash}, name = COALESCE(${bName || null}, name), is_super_admin = false WHERE id = ${existing.id}`
+    } else {
+      await sql`INSERT INTO admins (name, email, phone, password_hash, branch_id, is_super_admin) VALUES (${bName || 'Branch Admin'}, ${`branch_${branch_id}@foodfi.in`}, ${bPhone}, ${passwordHash}, ${branch_id}::uuid, false)`
+    }
+    return NextResponse.json({ success: true })
   }
 
   // ── LOGOUT ──────────────────────────────────────────────────────

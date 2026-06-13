@@ -148,49 +148,68 @@ export async function GET(request) {
       LIMIT 20
     `
   } else if (user.role === 'admin') {
-    // Date range filter — convert IST date to UTC range
+    // Branch admin: filter by their branch only; super admin: see all
+    const branchId = user.branch_id || null
     if (dateFrom && dateTo) {
-      orders = await sql`
-        SELECT o.*,
-          u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name,
-          b.name as branch_name
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
-        LEFT JOIN branches b ON o.branch_id = b.id
-        WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
-              BETWEEN ${dateFrom}::date AND ${dateTo}::date
-        ORDER BY o.created_at DESC
-        LIMIT 500
-      `
+      orders = branchId
+        ? await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN ${dateFrom}::date AND ${dateTo}::date
+              AND o.branch_id = ${branchId}::uuid
+            ORDER BY o.created_at DESC LIMIT 500`
+        : await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date BETWEEN ${dateFrom}::date AND ${dateTo}::date
+            ORDER BY o.created_at DESC LIMIT 500`
     } else if (status && status !== 'all') {
-      orders = await sql`
-        SELECT o.*,
-          u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name,
-          b.name as branch_name
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
-        LEFT JOIN branches b ON o.branch_id = b.id
-        WHERE o.status = ${status}
-        ORDER BY o.created_at DESC
-        LIMIT 100
-      `
+      orders = branchId
+        ? await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            WHERE o.status = ${status} AND o.branch_id = ${branchId}::uuid
+            ORDER BY o.created_at DESC LIMIT 100`
+        : await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            WHERE o.status = ${status}
+            ORDER BY o.created_at DESC LIMIT 100`
     } else {
-      orders = await sql`
-        SELECT o.*,
-          u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name,
-          b.name as branch_name
-        FROM orders o
-        LEFT JOIN users u ON o.user_id = u.id
-        LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
-        LEFT JOIN branches b ON o.branch_id = b.id
-        ORDER BY o.created_at DESC
-        LIMIT 100
-      `
+      orders = branchId
+        ? await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            WHERE o.branch_id = ${branchId}::uuid
+            ORDER BY o.created_at DESC LIMIT 100`
+        : await sql`
+            SELECT o.*, u.name as customer_name, u.phone as customer_phone,
+              d.name as delivery_boy_name, b.name as branch_name
+            FROM orders o
+            LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+            LEFT JOIN branches b ON o.branch_id = b.id
+            ORDER BY o.created_at DESC LIMIT 100`
     }
   } else if (user.role === 'delivery') {
     // Ensure schema

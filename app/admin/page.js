@@ -104,6 +104,12 @@ export default function AdminPage() {
   const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00' }
   const [newBranch, setNewBranch] = useState(emptyBranch)
   const [branchLocLoading, setBranchLocLoading] = useState(false)
+  // Branch Login
+  const [showBranchLogin, setShowBranchLogin] = useState(false)
+  const [branchLoginTarget, setBranchLoginTarget] = useState(null)
+  const [branchLoginPhone, setBranchLoginPhone] = useState('')
+  const [branchLoginPass, setBranchLoginPass] = useState('')
+  const [branchLoginSaving, setBranchLoginSaving] = useState(false)
   // Branch Inventory
   const [showInventory, setShowInventory] = useState(false)
   const [inventoryBranch, setInventoryBranch] = useState(null)
@@ -208,9 +214,16 @@ export default function AdminPage() {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3500) }
 
+  const [currentUser, setCurrentUser] = useState(null)
+
   useEffect(() => {
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
-      .then(r => r.json()).then(({ user }) => { if (!user || user.role !== 'admin') router.push('/login') })
+      .then(r => r.json()).then(({ user }) => {
+        if (!user || user.role !== 'admin') { router.push('/login'); return }
+        setCurrentUser(user)
+        // Branch admin → force to orders section
+        if (user.branch_id) setSection('orders')
+      })
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission()
     loadAll()
 
@@ -784,8 +797,18 @@ export default function AdminPage() {
 
       {/* Sidebar */}
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarLogo}>⚙️ Admin Panel</div>
-        {SECTIONS.map(s => (
+        <div className={styles.sidebarLogo}>
+          {currentUser?.branch_id ? '🏪 Branch Panel' : '⚙️ Admin Panel'}
+        </div>
+        {currentUser?.branch_id && (
+          <div style={{ fontSize:11, color:'#f97316', fontWeight:700, padding:'0 16px 10px', letterSpacing:0.3 }}>
+            {branches.find(b => b.id === currentUser.branch_id)?.name || 'Branch Admin'}
+          </div>
+        )}
+        {(currentUser?.branch_id
+          ? SECTIONS.filter(s => ['orders'].includes(s.id))
+          : SECTIONS
+        ).map(s => (
           <button key={s.id} className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`}
             onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads(); if(s.id==='analytics') fetch('/api/track-usage').then(r=>r.json()).then(d=>setApiUsage(d)).catch(()=>{}); if(s.id==='stock'){ setStockLoading(true); fetch('/api/admin?type=stock').then(r=>r.json()).then(d=>{ setStockItems(d.items||[]); setStockLoading(false) }).catch(()=>setStockLoading(false)) } }}>
             {s.label}
@@ -2414,6 +2437,10 @@ export default function AdminPage() {
                     }}>
                     📦 Inventory Manage Karo
                   </button>
+                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12, color:'#7c3aed', borderColor:'#7c3aed' }}
+                    onClick={() => { setBranchLoginTarget(b); setBranchLoginPhone(''); setBranchLoginPass(''); setShowBranchLogin(true) }}>
+                    🔐 Branch Login Set Karo
+                  </button>
                 </div>
               ))}
             </div>
@@ -2498,6 +2525,60 @@ export default function AdminPage() {
                       </div>
                     ))
                   })()}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Branch Login Modal ── */}
+          {showBranchLogin && branchLoginTarget && (
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+              onClick={e => { if (e.target === e.currentTarget) setShowBranchLogin(false) }}>
+              <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:480, padding:'28px 20px 48px' }}>
+                <div style={{ width:40, height:4, background:'var(--bd2)', borderRadius:4, margin:'0 auto 20px' }} />
+                <div style={{ fontSize:16, fontWeight:800, color:'var(--t1)', marginBottom:6 }}>🔐 Branch Login Set Karo</div>
+                <div style={{ fontSize:12, color:'var(--t2)', marginBottom:20 }}>
+                  <b>{branchLoginTarget.name}</b> ke liye executive login credentials set karo
+                </div>
+                <div className="field">
+                  <label>Phone Number (Login ID)</label>
+                  <input
+                    value={branchLoginPhone}
+                    onChange={e => setBranchLoginPhone(e.target.value)}
+                    placeholder="e.g. 9876543210"
+                    type="tel"
+                  />
+                </div>
+                <div className="field">
+                  <label>Password (min 6 characters)</label>
+                  <input
+                    value={branchLoginPass}
+                    onChange={e => setBranchLoginPass(e.target.value)}
+                    placeholder="Strong password set karo"
+                    type="password"
+                  />
+                </div>
+                <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', fontSize:12, color:'#92400e', marginBottom:16 }}>
+                  ⚠️ Is phone + password se branch executive login karega aur sirf <b>{branchLoginTarget.name}</b> ke orders dekhega
+                </div>
+                <div style={{ display:'flex', gap:10 }}>
+                  <button className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowBranchLogin(false)}>Cancel</button>
+                  <button className="btn btn-primary" style={{ flex:2, background:'#7c3aed' }}
+                    disabled={!branchLoginPhone.trim() || branchLoginPass.length < 6 || branchLoginSaving}
+                    onClick={async () => {
+                      setBranchLoginSaving(true)
+                      try {
+                        const res = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+                          body: JSON.stringify({ action:'set-branch-login', branch_id: branchLoginTarget.id, phone: branchLoginPhone.trim(), password: branchLoginPass, name: branchLoginTarget.name + ' Executive' }) })
+                        const d = await res.json()
+                        if (!res.ok) { showToast('❌ ' + (d.error || 'Error')); return }
+                        showToast('✅ Branch login set ho gaya!')
+                        setShowBranchLogin(false)
+                      } catch { showToast('❌ Kuch gadbad ho gayi') }
+                      finally { setBranchLoginSaving(false) }
+                    }}>
+                    {branchLoginSaving ? '⏳ Saving...' : '🔐 Set Login'}
+                  </button>
                 </div>
               </div>
             </div>

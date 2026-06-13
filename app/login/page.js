@@ -289,15 +289,15 @@ export default function LoginPage() {
         return
       }
 
-      // ⚠️ Fast2SMS failed — silently fallback to Firebase
-      console.warn('[OTP] Fast2SMS fallback:', data.reason)
-      setOtpProvider('firebase')
-      await sendFirebaseOtp()
+      // ⚠️ 2Factor failed — Firebase fallback temporarily paused for testing
+      console.warn('[OTP] 2Factor failed:', data.reason)
+      setError('OTP nahi bheja ja saka. Dobara try karo.')
+      setOtpStep('idle')
     } catch (e) {
-      // Network error — try Firebase
-      console.warn('[OTP] Fast2SMS network error, trying Firebase')
-      setOtpProvider('firebase')
-      await sendFirebaseOtp()
+      // Network error — Firebase fallback temporarily paused for testing
+      console.warn('[OTP] 2Factor network error:', e.message)
+      setError('OTP nahi bheja ja saka. Internet check karo.')
+      setOtpStep('idle')
     }
   }
 

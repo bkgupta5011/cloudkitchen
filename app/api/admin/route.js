@@ -12,6 +12,30 @@ function adminOnly(request) {
   return user
 }
 
+// ── Ensure branches table + admin branch columns ────────────────
+async function ensureBranchesTable(sql) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS branches (
+        id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        name          VARCHAR(255) NOT NULL,
+        address       TEXT NOT NULL DEFAULT '',
+        city          VARCHAR(100) DEFAULT '',
+        phone         VARCHAR(20)  DEFAULT '',
+        lat           DECIMAL(10,8),
+        lng           DECIMAL(11,8),
+        is_active     BOOLEAN DEFAULT true,
+        opening_time  VARCHAR(5)   DEFAULT '09:00',
+        closing_time  VARCHAR(5)   DEFAULT '22:00',
+        created_at    TIMESTAMP DEFAULT NOW()
+      )
+    `
+    // Safe: add branch columns to admins (existing admins unaffected — NULL = super admin)
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
+  } catch(e) {}
+}
+
 // Ensure kitchen_settings has all needed columns
 async function ensureKitchenColumns(sql) {
   try {
@@ -61,6 +85,14 @@ export async function GET(request) {
   const sql = getDb()
   const { searchParams } = new URL(request.url)
   const type = searchParams.get('type')
+
+  if (type === 'branches') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    await ensureBranchesTable(sql)
+    const branches = await sql`SELECT * FROM branches ORDER BY created_at ASC`
+    return NextResponse.json({ branches })
+  }
 
   if (type === 'offers') {
     const user = adminOnly(request)
@@ -471,6 +503,67 @@ export async function PATCH(request) {
       tag: `payment-${Date.now()}`,
     }, 'delivery').catch(() => {})
     return NextResponse.json({ success: true, boy })
+  }
+
+  // ── Branch CRUD ───────────────────────────────────────────────────
+  if (data.type === 'branch') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    await ensureBranchesTable(sql)
+
+    if (data.action === 'create') {
+      if (!data.name?.trim()) return NextResponse.json({ error: 'Branch name required' }, { status: 400 })
+      const [branch] = await sql`
+        INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time)
+        VALUES (
+          ${data.name.trim()},
+          ${data.address?.trim() || ''},
+          ${data.city?.trim() || ''},
+          ${data.phone?.trim() || ''},
+          ${data.lat ? parseFloat(data.lat) : null},
+          ${data.lng ? parseFloat(data.lng) : null},
+          ${data.opening_time || '09:00'},
+          ${data.closing_time || '22:00'}
+        )
+        RETURNING *
+      `
+      return NextResponse.json({ success: true, branch })
+    }
+
+    if (data.action === 'update') {
+      if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
+      const [branch] = await sql`
+        UPDATE branches SET
+          name         = ${data.name?.trim() || ''},
+          address      = ${data.address?.trim() || ''},
+          city         = ${data.city?.trim() || ''},
+          phone        = ${data.phone?.trim() || ''},
+          lat          = ${data.lat ? parseFloat(data.lat) : null},
+          lng          = ${data.lng ? parseFloat(data.lng) : null},
+          opening_time = ${data.opening_time || '09:00'},
+          closing_time = ${data.closing_time || '22:00'}
+        WHERE id = ${data.id}::uuid
+        RETURNING *
+      `
+      return NextResponse.json({ success: true, branch })
+    }
+
+    if (data.action === 'toggle') {
+      if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
+      const [branch] = await sql`
+        UPDATE branches SET is_active = NOT is_active
+        WHERE id = ${data.id}::uuid RETURNING *
+      `
+      return NextResponse.json({ success: true, branch })
+    }
+
+    if (data.action === 'delete') {
+      if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
+      await sql`DELETE FROM branches WHERE id = ${data.id}::uuid`
+      return NextResponse.json({ success: true })
+    }
+
+    return NextResponse.json({ error: 'Unknown branch action' }, { status: 400 })
   }
 
   return NextResponse.json({ error: 'Unknown type' }, { status: 400 })

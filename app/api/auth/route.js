@@ -414,6 +414,139 @@ export async function POST(request) {
     return loginRes
   }
 
+  // ── SEND OTP via Fast2SMS (primary) ────────────────────────────
+  if (action === 'send-otp') {
+    const { phone } = body
+    if (!phone) return NextResponse.json({ error: 'Phone required' }, { status: 400 })
+    const normalized = normalizePhone(phone)
+    const digits = normalized.replace('+91', '')
+    if (digits.length !== 10) return NextResponse.json({ error: 'Valid 10-digit number daalo' }, { status: 400 })
+
+    // Rate limit: 5 OTPs per phone per 15 min
+    const rateCheck = checkRate('f2s_' + digits)
+    if (rateCheck.locked) return NextResponse.json({ error: `Bahut zyada attempts. ${rateCheck.mins} min baad try karo.` }, { status: 429 })
+
+    // Generate 6-digit OTP
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 min TTL
+
+    // Store in reset_otps table (reuse existing, identifier = 'login_<digits>')
+    await ensureResetOtpsTable(sql)
+    await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
+    await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'login_' + digits}, ${otp}, ${expiresAt})`
+
+    // Send via Fast2SMS
+    try {
+      const smsRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
+        method: 'POST',
+        headers: { 'authorization': process.env.FAST2SMS_API_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route: 'otp', variables_values: otp, flash: 0, numbers: digits }),
+      })
+      const smsData = await smsRes.json()
+      if (smsData.return === true) {
+        return NextResponse.json({ success: true, provider: 'fast2sms' })
+      }
+      // Fast2SMS returned error — clean up and signal Firebase fallback
+      await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
+      console.error('[Fast2SMS] Send failed:', smsData.message)
+      return NextResponse.json({ success: false, fallback: 'firebase', reason: smsData.message || 'api_error' })
+    } catch (e) {
+      await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
+      console.error('[Fast2SMS] Network error:', e.message)
+      return NextResponse.json({ success: false, fallback: 'firebase', reason: 'network_error' })
+    }
+  }
+
+  // ── VERIFY OTP (Fast2SMS path) → find/create user → set cookie ──
+  if (action === 'verify-otp') {
+    const { phone, otp } = body
+    if (!phone || !otp) return NextResponse.json({ error: 'Phone aur OTP required' }, { status: 400 })
+    const normalized = normalizePhone(phone)
+    const digits = normalized.replace('+91', '')
+
+    await ensureResetOtpsTable(sql)
+    const [otpRow] = await sql`
+      SELECT * FROM reset_otps
+      WHERE identifier = ${'login_' + digits} AND used = false AND expires_at > NOW()
+      LIMIT 1
+    `.catch(() => [])
+
+    if (!otpRow) {
+      recordFail('f2s_' + digits)
+      return NextResponse.json({ error: 'OTP expire ho gaya ya invalid hai. Resend karo.' }, { status: 400 })
+    }
+    if (otpRow.otp !== otp) {
+      recordFail('f2s_' + digits)
+      return NextResponse.json({ error: 'Galat OTP. Dobara check karo.' }, { status: 400 })
+    }
+
+    // OTP valid — delete and proceed
+    await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
+    clearRate('f2s_' + digits)
+
+    // ── Find or create user (same logic as login-otp) ──────────────
+    await ensureUserEmailOptional(sql)
+    let isNewUser = false
+    let user = null; let detectedRole = null
+    const phoneVariants = [normalized, '91' + digits, digits]
+
+    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
+    for (const p of phoneVariants) {
+      const [a] = await sql`SELECT * FROM admins WHERE phone = ${p} LIMIT 1`
+      if (a) { user = a; detectedRole = 'admin'; break }
+    }
+    if (!user) {
+      await ensureDeliveryBoyColumns(sql)
+      for (const p of phoneVariants) {
+        const [b] = await sql`SELECT * FROM delivery_boys WHERE phone = ${p} LIMIT 1`
+        if (b) { user = b; detectedRole = 'delivery'; break }
+      }
+    }
+    if (!user) {
+      for (const p of phoneVariants) {
+        const [c] = await sql`SELECT * FROM users WHERE phone = ${p} LIMIT 1`
+        if (c) { user = c; detectedRole = 'customer'; break }
+      }
+    }
+    if (!user) {
+      // New customer
+      try {
+        const [existing] = await sql`SELECT id FROM users WHERE phone = ${normalized} LIMIT 1`
+        if (existing) {
+          const [u] = await sql`SELECT * FROM users WHERE id = ${existing.id}`
+          user = u; detectedRole = 'customer'
+        } else {
+          const dummyHash = await hashPassword(crypto.randomUUID())
+          const [newU] = await sql`
+            INSERT INTO users (name, email, phone, address, password_hash)
+            VALUES ('', NULL, ${normalized}, '', ${dummyHash})
+            RETURNING id, name, email, phone
+          `
+          user = newU; detectedRole = 'customer'; isNewUser = true
+          sendNewCustomerAlert({ customerName: '', email: '', phone: normalized, address: '' }).catch(() => {})
+        }
+      } catch (dbErr) {
+        const [retry] = await sql`SELECT * FROM users WHERE phone = ${normalized} LIMIT 1`.catch(() => [])
+        if (retry) { user = retry; detectedRole = 'customer' }
+        else return NextResponse.json({ error: 'Account nahi ban saka. Dobara try karein.' }, { status: 500 })
+      }
+    }
+
+    if (detectedRole === 'delivery') {
+      if (user.status === 'pending')   return NextResponse.json({ error: '⏳ Application pending hai. Approve hone ka wait karein.' }, { status: 403 })
+      if (user.status === 'suspended') return NextResponse.json({ error: '🚫 Account suspend hai. Admin se contact karein.' }, { status: 403 })
+    }
+
+    const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
+    const loginRes = NextResponse.json({
+      success: true,
+      user: { id: user.id, name: user.name, email: user.email, role: detectedRole },
+      ...(isNewUser ? { newUser: true } : {}),
+    })
+    loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
+    return loginRes
+  }
+
   // ── SEND LOGIN OTP (Twilio Verify) ─────────────────────────────
   if (action === 'send-login-otp') {
     const { phone } = body

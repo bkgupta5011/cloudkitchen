@@ -43,6 +43,7 @@ export default function LoginPage() {
 
   // ── OTP state ────────────────────────────────────────────────────
   const [otpStep, setOtpStep] = useState('idle')
+  const [otpProvider, setOtpProvider] = useState('fast2sms') // 'fast2sms' | 'firebase'
   const [otpInput, setOtpInput] = useState(['', '', '', '', '', ''])
   const [otpTimer, setOtpTimer] = useState(0)
   const timerRef = useRef(null)
@@ -53,7 +54,8 @@ export default function LoginPage() {
   const confirmationResultRef = useRef(null)
   const recaptchaVerifierRef  = useRef(null)
   const firebaseTokenRef      = useRef(null)
-  const otpStepRef            = useRef('idle')   // always-fresh otpStep for async callbacks
+  const otpStepRef            = useRef('idle')        // always-fresh otpStep for async callbacks
+  const otpProviderRef        = useRef('fast2sms')   // always-fresh otpProvider for async callbacks
 
   // ── New user welcome modal ───────────────────────────────────────
   const [showNameModal, setShowNameModal] = useState(false)
@@ -64,8 +66,9 @@ export default function LoginPage() {
   const nameInputRef = useRef(null)
   const pendingUserRef = useRef(null)
 
-  // Keep ref in sync so async callbacks (Web OTP, auto-verify) always see fresh value
+  // Keep refs in sync so async callbacks (Web OTP, auto-verify) always see fresh values
   useEffect(() => { otpStepRef.current = otpStep }, [otpStep])
+  useEffect(() => { otpProviderRef.current = otpProvider }, [otpProvider])
 
   // Countdown timer
   useEffect(() => {
@@ -77,20 +80,16 @@ export default function LoginPage() {
 
   // Reset OTP + Firebase when phone changes
   useEffect(() => {
-    setOtpStep('idle')
-    setOtpInput(['', '', '', '', '', ''])
-    setOtpTimer(0)
-    setError('')
+    setOtpStep('idle'); setOtpInput(['', '', '', '', '', ''])
+    setOtpTimer(0); setError(''); setOtpProvider('fast2sms')
     cleanupFirebase()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phone])
 
   // Reset OTP + Firebase when tab changes
   useEffect(() => {
-    setOtpStep('idle')
-    setOtpInput(['', '', '', '', '', ''])
-    setOtpTimer(0)
-    setError('')
+    setOtpStep('idle'); setOtpInput(['', '', '', '', '', ''])
+    setOtpTimer(0); setError(''); setOtpProvider('fast2sms')
     cleanupFirebase()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
@@ -227,10 +226,19 @@ export default function LoginPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Send OTP ─────────────────────────────────────────────────────
-  const sendOtp = async () => {
-    if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
-    setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
+  // ── Shared: handle successful login response ──────────────────────
+  const handleLoginSuccess = (data) => {
+    const { user, newUser } = data
+    if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
+    else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
+    if (newUser) { window.location.href = '/menu?new=1'; return }
+    if (user.role === 'admin') router.push('/admin')
+    else if (user.role === 'delivery') router.push('/delivery')
+    else router.push('/menu')
+  }
+
+  // ── Firebase fallback: send OTP via Firebase ──────────────────────
+  const sendFirebaseOtp = async () => {
     cleanupFirebase()
     try {
       const { getFirebaseAuth } = await import('@/lib/firebase-client')
@@ -238,41 +246,100 @@ export default function LoginPage() {
       const auth = getFirebaseAuth()
       if (!auth) throw new Error('Firebase auth init failed')
       const verifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-        callback: () => {},
-        'expired-callback': () => { cleanupFirebase() },
+        size: 'invisible', callback: () => {}, 'expired-callback': () => { cleanupFirebase() },
       })
       recaptchaVerifierRef.current = verifier
       const result = await signInWithPhoneNumber(auth, '+91' + phoneDigits, verifier)
       confirmationResultRef.current = result
+      setOtpProvider('firebase')
       setOtpStep('sent')
       setOtpTimer(60)
       setTimeout(() => hiddenOtpRef.current?.focus(), 100)
     } catch (e) {
       console.error('Firebase OTP error:', e.code, e.message)
       cleanupFirebase()
-      const msg = e.code === 'auth/too-many-requests'
-        ? 'Is number pe bahut zyada OTP gaye. 10-15 min baad try karo.'
-        : e.code === 'auth/invalid-phone-number'
-        ? 'Invalid phone number. 10-digit Indian number daalo.'
-        : e.code === 'auth/captcha-check-failed'
-        ? 'reCAPTCHA fail hua. Page reload karke dobara try karo.'
-        : e.code === 'auth/network-request-failed'
-        ? 'Network error. Internet check karo.'
+      const msg = e.code === 'auth/too-many-requests' ? 'Is number pe bahut zyada OTP gaye. 10-15 min baad try karo.'
+        : e.code === 'auth/invalid-phone-number' ? 'Invalid phone number. 10-digit Indian number daalo.'
+        : e.code === 'auth/captcha-check-failed' ? 'reCAPTCHA fail hua. Page reload karke dobara try karo.'
+        : e.code === 'auth/network-request-failed' ? 'Network error. Internet check karo.'
         : 'OTP nahi bheja ja saka. Dobara try karo.'
-      setError(msg)
-      setOtpStep('idle')
+      setError(msg); setOtpStep('idle')
+    }
+  }
+
+  // ── Send OTP — Fast2SMS primary, Firebase fallback ────────────────
+  const sendOtp = async () => {
+    if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
+    setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send-otp', phone: '+91' + phoneDigits }),
+      })
+      const data = await res.json()
+
+      if (data.success && data.provider === 'fast2sms') {
+        // ✅ Fast2SMS sent successfully
+        setOtpProvider('fast2sms')
+        setOtpStep('sent')
+        setOtpTimer(60)
+        setTimeout(() => hiddenOtpRef.current?.focus(), 100)
+        return
+      }
+
+      // ⚠️ Fast2SMS failed — silently fallback to Firebase
+      console.warn('[OTP] Fast2SMS fallback:', data.reason)
+      setOtpProvider('firebase')
+      await sendFirebaseOtp()
+    } catch (e) {
+      // Network error — try Firebase
+      console.warn('[OTP] Fast2SMS network error, trying Firebase')
+      setOtpProvider('firebase')
+      await sendFirebaseOtp()
     }
   }
 
   // ── Auto-verify OTP ───────────────────────────────────────────────
   const autoVerifyOtp = async (otp) => {
     if (otpStepRef.current === 'verifying') return   // use ref — never stale
-    if (!confirmationResultRef.current) {
-      setError('OTP bhejne ke baad fill karo. Pehle Send OTP dabaao.')
+    setOtpStep('verifying'); setError('')
+
+    const provider = otpProviderRef.current   // always-fresh — avoids stale closure
+
+    // ── Fast2SMS path ─────────────────────────────────────────────
+    if (provider === 'fast2sms') {
+      try {
+        const res = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify-otp', phone: '+91' + phoneDigits, otp }),
+        })
+        const data = await res.json()
+        if (!res.ok || !data.success) {
+          setError(data.error || 'Galat OTP. Dobara check karo.')
+          setOtpStep('sent')
+          setOtpInput(['', '', '', '', '', ''])
+          setTimeout(() => hiddenOtpRef.current?.focus(), 100)
+          return
+        }
+        handleLoginSuccess(data)
+      } catch (e) {
+        setError('OTP verify nahi hua. Dobara try karo.')
+        setOtpStep('sent')
+        setOtpInput(['', '', '', '', '', ''])
+        setTimeout(() => hiddenOtpRef.current?.focus(), 100)
+      }
       return
     }
-    setOtpStep('verifying'); setError('')
+
+    // ── Firebase path ─────────────────────────────────────────────
+    if (!confirmationResultRef.current) {
+      setError('OTP bhejne ke baad fill karo. Pehle Send OTP dabaao.')
+      setOtpStep('sent')
+      return
+    }
     try {
       const result = await confirmationResultRef.current.confirm(otp)
       const idToken = await result.user.getIdToken()
@@ -290,26 +357,12 @@ export default function LoginPage() {
         setTimeout(() => hiddenOtpRef.current?.focus(), 100)
         return
       }
-      const { user } = data
-      if (!user) {
+      if (!data.user) {
         setError('Login nahi hua. Dobara try karo.')
         setOtpStep('sent'); setOtpInput(['','','','','',''])
         return
       }
-      if (data.newUser) {
-        // Save remember-me before redirect
-        if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
-        else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
-        // Hard redirect — no React state updates that could crash the page
-        // New user will see a welcome prompt on the menu page
-        window.location.href = '/menu?new=1'
-        return
-      }
-      if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
-      else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
-      if (user.role === 'admin') router.push('/admin')
-      else if (user.role === 'delivery') router.push('/delivery')
-      else router.push('/menu')
+      handleLoginSuccess(data)
     } catch (e) {
       const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
         : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Resend karo.'
@@ -317,7 +370,7 @@ export default function LoginPage() {
       setError(msg)
       setOtpStep('sent')
       setOtpInput(['', '', '', '', '', ''])
-      setTimeout(() => otpBoxRefs.current[0]?.focus(), 100)
+      setTimeout(() => hiddenOtpRef.current?.focus(), 100)
     }
   }
 

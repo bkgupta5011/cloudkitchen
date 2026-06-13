@@ -14,6 +14,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const category = searchParams.get('category')
   const adminAll = searchParams.get('admin') === 'true'
+  const branchId = searchParams.get('branch_id') // Phase 2: branch-specific menu
 
   // Check if admin request
   const token = request.cookies.get('ck_token')?.value
@@ -22,7 +23,31 @@ export async function GET(request) {
 
   let items
   if (adminAll && isAdmin) {
+    // Admin: full menu, no branch filter
     items = await sql`SELECT * FROM menu_items ORDER BY sort_order, created_at`
+  } else if (branchId) {
+    // Branch-specific menu: item must be globally available AND not disabled for this branch
+    // NULL in branch_inventory = available by default (not yet configured)
+    if (category && category !== 'All') {
+      items = await sql`
+        SELECT m.* FROM menu_items m
+        LEFT JOIN branch_inventory bi
+          ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
+        WHERE m.is_available = true
+          AND m.category = ${category}
+          AND COALESCE(bi.is_available, true) = true
+        ORDER BY m.sort_order, m.name
+      `
+    } else {
+      items = await sql`
+        SELECT m.* FROM menu_items m
+        LEFT JOIN branch_inventory bi
+          ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
+        WHERE m.is_available = true
+          AND COALESCE(bi.is_available, true) = true
+        ORDER BY m.sort_order, m.name
+      `
+    }
   } else if (category && category !== 'All') {
     items = await sql`
       SELECT * FROM menu_items
@@ -61,6 +86,16 @@ export async function POST(request) {
     VALUES (${name}, ${description || ''}, ${price}, ${discount_percent || 0}, ${category}, ${is_veg ?? true}, ${image_url || null}, ${sort_order || 0})
     RETURNING *
   `
+
+  // Auto-add new item to all existing branches as available (Phase 2)
+  try {
+    await sql`
+      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
+      SELECT id, ${item.id}::uuid, true FROM branches
+      ON CONFLICT (branch_id, menu_item_id) DO NOTHING
+    `
+  } catch(e) {} // Safe: branch_inventory table might not exist yet
+
   return NextResponse.json({ item })
 }
 

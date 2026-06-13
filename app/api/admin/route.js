@@ -36,6 +36,32 @@ async function ensureBranchesTable(sql) {
   } catch(e) {}
 }
 
+// ── Ensure branch_inventory table ───────────────────────────────
+async function ensureBranchInventoryTable(sql) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS branch_inventory (
+        id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        branch_id    UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+        is_available BOOLEAN DEFAULT true,
+        UNIQUE(branch_id, menu_item_id)
+      )
+    `
+  } catch(e) {}
+}
+
+// ── Auto-populate branch inventory with all existing menu items ─
+async function populateBranchInventory(sql, branchId) {
+  try {
+    await sql`
+      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
+      SELECT ${branchId}::uuid, id, true FROM menu_items
+      ON CONFLICT (branch_id, menu_item_id) DO NOTHING
+    `
+  } catch(e) {}
+}
+
 // Ensure kitchen_settings has all needed columns
 async function ensureKitchenColumns(sql) {
   try {
@@ -92,6 +118,27 @@ export async function GET(request) {
     await ensureBranchesTable(sql)
     const branches = await sql`SELECT * FROM branches ORDER BY created_at ASC`
     return NextResponse.json({ branches })
+  }
+
+  if (type === 'branch_inventory') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    const branchId = searchParams.get('branch_id')
+    if (!branchId) return NextResponse.json({ error: 'branch_id required' }, { status: 400 })
+    await ensureBranchInventoryTable(sql)
+    // Auto-populate if empty (first time for this branch)
+    await populateBranchInventory(sql, branchId)
+    // Return all menu items with their availability for this branch
+    const items = await sql`
+      SELECT
+        m.id, m.name, m.category, m.price, m.is_veg, m.image_url, m.is_available AS global_available,
+        COALESCE(bi.is_available, true) AS branch_available
+      FROM menu_items m
+      LEFT JOIN branch_inventory bi
+        ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
+      ORDER BY m.category, m.name
+    `
+    return NextResponse.json({ items })
   }
 
   if (type === 'offers') {
@@ -505,6 +552,40 @@ export async function PATCH(request) {
     return NextResponse.json({ success: true, boy })
   }
 
+  // ── Branch Inventory ──────────────────────────────────────────────
+  if (data.type === 'branch_inventory') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    await ensureBranchInventoryTable(sql)
+
+    // Toggle single item availability for a branch
+    if (data.action === 'toggle') {
+      const { branch_id, item_id, is_available } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, ${is_available})
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET is_available = ${is_available}
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    // Bulk enable/disable all items for a branch
+    if (data.action === 'bulk') {
+      const { branch_id, is_available } = data
+      if (!branch_id) return NextResponse.json({ error: 'branch_id required' }, { status: 400 })
+      await populateBranchInventory(sql, branch_id) // ensure all items exist
+      await sql`
+        UPDATE branch_inventory SET is_available = ${is_available}
+        WHERE branch_id = ${branch_id}::uuid
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  }
+
   // ── Branch CRUD ───────────────────────────────────────────────────
   if (data.type === 'branch') {
     const user = adminOnly(request)
@@ -527,6 +608,9 @@ export async function PATCH(request) {
         )
         RETURNING *
       `
+      // Auto-populate inventory with all existing menu items
+      await ensureBranchInventoryTable(sql)
+      await populateBranchInventory(sql, branch.id)
       return NextResponse.json({ success: true, branch })
     }
 

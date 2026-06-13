@@ -99,11 +99,17 @@ export default function AdminPage() {
   // ── Branches ──────────────────────────────────────────────────────
   const [branches, setBranches] = useState([])
   const [showAddBranch, setShowAddBranch] = useState(false)
-  const [editBranch, setEditBranch] = useState(null)  // branch object being edited
+  const [editBranch, setEditBranch] = useState(null)
   const [branchSaving, setBranchSaving] = useState(false)
   const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00' }
   const [newBranch, setNewBranch] = useState(emptyBranch)
   const [branchLocLoading, setBranchLocLoading] = useState(false)
+  // Branch Inventory
+  const [showInventory, setShowInventory] = useState(false)
+  const [inventoryBranch, setInventoryBranch] = useState(null)
+  const [inventoryItems, setInventoryItems] = useState([])
+  const [inventoryLoading, setInventoryLoading] = useState(false)
+  const [inventorySearch, setInventorySearch] = useState('')
 
   // Recipe Book
   const [recipeCat, setRecipeCat] = useState('Sab Recipes')
@@ -2776,8 +2782,103 @@ export default function AdminPage() {
                       {b.is_active ? '🔴 Deactivate' : '✅ Activate'}
                     </button>
                   </div>
+                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12 }}
+                    onClick={async () => {
+                      setInventoryBranch(b); setShowInventory(true); setInventorySearch('')
+                      setInventoryLoading(true)
+                      const res = await fetch(`/api/admin?type=branch_inventory&branch_id=${b.id}`)
+                      const d = await res.json()
+                      setInventoryItems(d.items || [])
+                      setInventoryLoading(false)
+                    }}>
+                    📦 Inventory Manage Karo
+                  </button>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* ── Branch Inventory Modal ── */}
+          {showInventory && inventoryBranch && (
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
+              onClick={e => { if (e.target === e.currentTarget) setShowInventory(false) }}>
+              <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:560, maxHeight:'92vh', display:'flex', flexDirection:'column' }}>
+                {/* Header */}
+                <div style={{ padding:'20px 20px 14px', borderBottom:'1px solid var(--bd)', flexShrink:0 }}>
+                  <div style={{ width:40, height:4, background:'var(--bd2)', borderRadius:4, margin:'0 auto 16px' }} />
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:16, fontWeight:800, color:'var(--t1)' }}>📦 {inventoryBranch.name}</div>
+                      <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>Items toggle karo — OFF = is branch pe available nahi</div>
+                    </div>
+                    <button className="btn btn-secondary" style={{ fontSize:11 }} onClick={() => setShowInventory(false)}>✕ Close</button>
+                  </div>
+                  {/* Search */}
+                  <input
+                    value={inventorySearch} onChange={e => setInventorySearch(e.target.value)}
+                    placeholder="🔍 Item search karo..."
+                    style={{ width:'100%', padding:'9px 12px', border:'0.5px solid var(--bd2)', borderRadius:8, background:'var(--bg)', color:'var(--t1)', fontSize:13, outline:'none', boxSizing:'border-box' }}
+                  />
+                  {/* Bulk actions */}
+                  <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                    <button className="btn btn-secondary" style={{ flex:1, fontSize:11 }}
+                      onClick={async () => {
+                        await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ type:'branch_inventory', action:'bulk', branch_id:inventoryBranch.id, is_available:true }) })
+                        setInventoryItems(prev => prev.map(x => ({...x, branch_available:true})))
+                        showToast('✅ Sab items enable kar diye')
+                      }}>✅ Sab Enable</button>
+                    <button className="btn btn-secondary" style={{ flex:1, fontSize:11 }}
+                      onClick={async () => {
+                        await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ type:'branch_inventory', action:'bulk', branch_id:inventoryBranch.id, is_available:false }) })
+                        setInventoryItems(prev => prev.map(x => ({...x, branch_available:false})))
+                        showToast('🔴 Sab items disable kar diye')
+                      }}>🔴 Sab Disable</button>
+                  </div>
+                </div>
+
+                {/* Items list */}
+                <div style={{ overflowY:'auto', flex:1, padding:'12px 20px 32px' }}>
+                  {inventoryLoading ? (
+                    <div style={{ textAlign:'center', padding:40 }}><span className="spinner" /></div>
+                  ) : (() => {
+                    const filtered = inventoryItems.filter(it =>
+                      !inventorySearch || it.name.toLowerCase().includes(inventorySearch.toLowerCase()) || it.category.toLowerCase().includes(inventorySearch.toLowerCase())
+                    )
+                    const categories = [...new Set(filtered.map(it => it.category))]
+                    if (filtered.length === 0) return <div style={{ textAlign:'center', padding:40, color:'var(--t3)' }}>Koi item nahi mila</div>
+                    return categories.map(cat => (
+                      <div key={cat} style={{ marginBottom:20 }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:0.8, marginBottom:8, paddingBottom:6, borderBottom:'1px solid var(--bd)' }}>
+                          {cat} ({filtered.filter(x => x.category===cat).length})
+                        </div>
+                        {filtered.filter(x => x.category===cat).map(item => (
+                          <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--bd)' }}>
+                            {item.image_url && <img src={item.image_url} alt="" style={{ width:40, height:40, borderRadius:8, objectFit:'cover', flexShrink:0 }} />}
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:13, fontWeight:600, color: item.branch_available ? 'var(--t1)' : 'var(--t3)', display:'flex', alignItems:'center', gap:6 }}>
+                                <span style={{ width:7, height:7, borderRadius:'50%', background: item.is_veg ? 'var(--gr)' : 'var(--rd)', flexShrink:0, display:'inline-block' }} />
+                                {item.name}
+                              </div>
+                              <div style={{ fontSize:11, color:'var(--t2)' }}>₹{item.price}</div>
+                            </div>
+                            {/* Toggle switch */}
+                            <div
+                              onClick={async () => {
+                                const newVal = !item.branch_available
+                                setInventoryItems(prev => prev.map(x => x.id===item.id ? {...x, branch_available:newVal} : x))
+                                await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'},
+                                  body:JSON.stringify({ type:'branch_inventory', action:'toggle', branch_id:inventoryBranch.id, item_id:item.id, is_available:newVal }) })
+                              }}
+                              style={{ width:44, height:26, borderRadius:13, background: item.branch_available ? 'var(--gr)' : 'var(--bd2)', cursor:'pointer', position:'relative', flexShrink:0, transition:'background 0.2s' }}>
+                              <div style={{ position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', top:3, left: item.branch_available ? 21 : 3, transition:'left 0.2s', boxShadow:'0 1px 4px rgba(0,0,0,0.25)' }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))
+                  })()}
+                </div>
+              </div>
             </div>
           )}
 

@@ -9,6 +9,40 @@ import { sendOrderConfirmedSms, sendOrderDeliveredSms } from '@/lib/sms'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 import { checkAndResetDailyStock, notifyLowStock } from '@/lib/stock'
 
+// ── Haversine distance (km) between two lat/lng points ───────────
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLng/2)**2
+  return R * 2 * Math.asin(Math.sqrt(a))
+}
+
+// ── Find nearest active branch; fallback to first active branch ──
+async function findNearestBranch(sql, lat, lng) {
+  try {
+    const branches = await sql`SELECT id, lat, lng FROM branches WHERE is_active = true ORDER BY created_at ASC`
+    if (!branches.length) return null
+    if (lat && lng) {
+      let nearest = null, minDist = Infinity
+      for (const b of branches) {
+        if (!b.lat || !b.lng) continue
+        const d = haversineKm(parseFloat(lat), parseFloat(lng), parseFloat(b.lat), parseFloat(b.lng))
+        if (d < minDist) { minDist = d; nearest = b }
+      }
+      if (nearest) return nearest.id
+    }
+    // No GPS or no branch with coords → first active branch
+    return branches[0].id
+  } catch { return null }
+}
+
+// ── Ensure branch_id column on orders ───────────────────────────
+async function ensureOrderBranchColumn(sql) {
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
+}
+
 // GET - orders (customer: own orders, admin: all, delivery: assigned)
 export async function GET(request) {
   const sql = getDb()
@@ -28,10 +62,12 @@ export async function GET(request) {
     const [order] = await sql`
       SELECT o.*,
         u.name as customer_name, u.phone as customer_phone,
-        d.name as delivery_boy_name, d.phone as delivery_boy_phone
+        d.name as delivery_boy_name, d.phone as delivery_boy_phone,
+        b.name as branch_name
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+      LEFT JOIN branches b ON o.branch_id = b.id
       WHERE o.id = ${orderId}
     `
     if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -117,10 +153,12 @@ export async function GET(request) {
       orders = await sql`
         SELECT o.*,
           u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name
+          d.name as delivery_boy_name,
+          b.name as branch_name
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+        LEFT JOIN branches b ON o.branch_id = b.id
         WHERE (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
               BETWEEN ${dateFrom}::date AND ${dateTo}::date
         ORDER BY o.created_at DESC
@@ -130,10 +168,12 @@ export async function GET(request) {
       orders = await sql`
         SELECT o.*,
           u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name
+          d.name as delivery_boy_name,
+          b.name as branch_name
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+        LEFT JOIN branches b ON o.branch_id = b.id
         WHERE o.status = ${status}
         ORDER BY o.created_at DESC
         LIMIT 100
@@ -142,10 +182,12 @@ export async function GET(request) {
       orders = await sql`
         SELECT o.*,
           u.name as customer_name, u.phone as customer_phone,
-          d.name as delivery_boy_name
+          d.name as delivery_boy_name,
+          b.name as branch_name
         FROM orders o
         LEFT JOIN users u ON o.user_id = u.id
         LEFT JOIN delivery_boys d ON o.delivery_boy_id = d.id
+        LEFT JOIN branches b ON o.branch_id = b.id
         ORDER BY o.created_at DESC
         LIMIT 100
       `
@@ -358,21 +400,25 @@ export async function POST(request) {
   const finalDelivery = freeDelivery ? 0 : deliveryCharge
   const total = Math.max(0, subtotal - discountAmount) + finalDelivery
 
-  // Ensure boy_payout column exists
+  // Ensure columns exist
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+  await ensureOrderBranchColumn(sql)
+
+  // Auto-detect nearest branch
+  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
 
   // Create order
   const [order] = await sql`
     INSERT INTO orders (
       user_id, offer_id, status, subtotal, discount_amount,
       delivery_charge, total, delivery_address, delivery_lat,
-      delivery_lng, distance_km, notes
+      delivery_lng, distance_km, notes, branch_id
     )
     VALUES (
       ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount},
       ${finalDelivery}, ${total}, ${deliveryAddress},
       ${deliveryLat || null}, ${deliveryLng || null},
-      ${distanceKm || null}, ${notes || null}
+      ${distanceKm || null}, ${notes || null}, ${branchId || null}
     )
     RETURNING *
   `

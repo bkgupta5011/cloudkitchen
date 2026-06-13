@@ -3,6 +3,13 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 
+async function getDefaultBranch(sql) {
+  try {
+    const [b] = await sql`SELECT id FROM branches WHERE is_active = true ORDER BY created_at ASC LIMIT 1`
+    return b?.id || null
+  } catch { return null }
+}
+
 export async function POST(request) {
   const sql = getDb()
   const token = request.cookies.get('ck_token')?.value
@@ -44,9 +51,12 @@ export async function POST(request) {
   const total = subtotal + charge
   const orderNotes = `[📞 Phone Order] Customer: ${customerName}, Phone: ${customerPhone || 'N/A'}${notes ? '. ' + notes : ''}`
 
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
+  const branchId = await getDefaultBranch(sql)
+
   const [order] = await sql`
-    INSERT INTO orders (status, subtotal, discount_amount, delivery_charge, total, delivery_address, notes)
-    VALUES ('confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${orderNotes})
+    INSERT INTO orders (status, subtotal, discount_amount, delivery_charge, total, delivery_address, notes, branch_id)
+    VALUES ('confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${orderNotes}, ${branchId || null})
     RETURNING *
   `
 

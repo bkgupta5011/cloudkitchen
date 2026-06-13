@@ -711,8 +711,15 @@ export default function AdminPage() {
               <div style={{ padding: '18px 22px 22px' }}>
                 {/* Order number + amount */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: '#64748b', letterSpacing: 0.5 }}>
-                    ORDER #{o.order_number}
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#64748b', letterSpacing: 0.5 }}>
+                      ORDER #{o.order_number}
+                    </div>
+                    {o.branch_name && (
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '2px 7px', marginTop: 4, display: 'inline-block' }}>
+                        🏪 {o.branch_name}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: 26, fontWeight: 900, color: '#d97706' }}>
                     ₹{Math.round(o.total)}
@@ -2649,6 +2656,9 @@ export default function AdminPage() {
               <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Delivery Charge</span><span>₹{Math.round(orderDetail.delivery_charge)}</span></div>
               <div style={{ display:'flex', justifyContent:'space-between', fontSize:15, fontWeight:700, marginTop:8, paddingTop:8, borderTop:'1px solid var(--bdr)' }}><span>💵 Total (COD)</span><span style={{ color:'var(--or)' }}>₹{Math.round(orderDetail.total)}</span></div>
             </div>
+            {orderDetail.branch_name && (
+              <div style={{ marginTop:10, fontSize:12, color:'#7c3aed', fontWeight:600, background:'#ede9fe', borderRadius:8, padding:'6px 10px', display:'inline-block' }}>🏪 Branch: {orderDetail.branch_name}</div>
+            )}
             {orderDetail.delivery_boy_name && (
               <div style={{ marginTop:10, fontSize:12, color:'var(--gr-d)', fontWeight:600 }}>🛵 {orderDetail.delivery_boy_name} · {orderDetail.delivery_boy_phone}</div>
             )}

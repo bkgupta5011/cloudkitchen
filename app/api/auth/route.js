@@ -34,6 +34,8 @@ async function ensureResetOtpsTable(sql) {
       created_at TIMESTAMP DEFAULT NOW()
     )
   `
+  // Extend otp column to store 2Factor session IDs (UUIDs)
+  try { await sql`ALTER TABLE reset_otps ALTER COLUMN otp TYPE VARCHAR(255)` } catch(e) {}
 }
 
 // ── Twilio Verify OTP helpers ────────────────────────────────────
@@ -414,7 +416,7 @@ export async function POST(request) {
     return loginRes
   }
 
-  // ── SEND OTP via Fast2SMS (primary) ────────────────────────────
+  // ── SEND OTP via 2Factor.in (primary) ─────────────────────────
   if (action === 'send-otp') {
     const { phone } = body
     if (!phone) return NextResponse.json({ error: 'Phone required' }, { status: 400 })
@@ -423,36 +425,29 @@ export async function POST(request) {
     if (digits.length !== 10) return NextResponse.json({ error: 'Valid 10-digit number daalo' }, { status: 400 })
 
     // Rate limit: 5 OTPs per phone per 15 min
-    const rateCheck = checkRate('f2s_' + digits)
+    const rateCheck = checkRate('2f_' + digits)
     if (rateCheck.locked) return NextResponse.json({ error: `Bahut zyada attempts. ${rateCheck.mins} min baad try karo.` }, { status: 429 })
 
-    // Generate 6-digit OTP
-    const otp = String(Math.floor(100000 + Math.random() * 900000))
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString() // 10 min TTL
-
-    // Store in reset_otps table (reuse existing, identifier = 'login_<digits>')
     await ensureResetOtpsTable(sql)
-    await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
-    await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'login_' + digits}, ${otp}, ${expiresAt})`
 
-    // Send via Fast2SMS
+    // Send via 2Factor.in — auto-generates OTP, returns session_id
     try {
-      const smsRes = await fetch('https://www.fast2sms.com/dev/bulkV2', {
-        method: 'POST',
-        headers: { 'authorization': process.env.FAST2SMS_API_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route: 'otp', variables_values: otp, flash: 0, numbers: digits }),
-      })
+      const apiKey = process.env.TWOFACTOR_API_KEY
+      const smsRes = await fetch(`https://2factor.in/API/V1/${apiKey}/SMS/${digits}/AUTOGEN`)
       const smsData = await smsRes.json()
-      if (smsData.return === true) {
+      if (smsData.Status === 'Success') {
+        const sessionId = smsData.Details  // session_id for verification
+        // Store session_id (we verify via 2Factor API, not locally)
+        await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
+        await sql`INSERT INTO reset_otps (identifier, otp, expires_at) VALUES (${'login_' + digits}, ${sessionId}, ${expiresAt})`
         return NextResponse.json({ success: true, provider: 'fast2sms' })
       }
-      // Fast2SMS returned error — clean up and signal Firebase fallback
-      await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
-      console.error('[Fast2SMS] Send failed:', smsData.message)
-      return NextResponse.json({ success: false, fallback: 'firebase', reason: smsData.message || 'api_error' })
+      // 2Factor failed — signal Firebase fallback
+      console.error('[2Factor] Send failed:', smsData.Details)
+      return NextResponse.json({ success: false, fallback: 'firebase', reason: smsData.Details || 'api_error' })
     } catch (e) {
-      await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
-      console.error('[Fast2SMS] Network error:', e.message)
+      console.error('[2Factor] Network error:', e.message)
       return NextResponse.json({ success: false, fallback: 'firebase', reason: 'network_error' })
     }
   }
@@ -472,17 +467,31 @@ export async function POST(request) {
     `.catch(() => [])
 
     if (!otpRow) {
-      recordFail('f2s_' + digits)
+      recordFail('2f_' + digits)
       return NextResponse.json({ error: 'OTP expire ho gaya ya invalid hai. Resend karo.' }, { status: 400 })
     }
-    if (otpRow.otp !== otp) {
-      recordFail('f2s_' + digits)
-      return NextResponse.json({ error: 'Galat OTP. Dobara check karo.' }, { status: 400 })
+
+    // Verify OTP via 2Factor API using stored session_id
+    const sessionId = otpRow.otp
+    try {
+      const apiKey = process.env.TWOFACTOR_API_KEY
+      const verifyRes = await fetch(`https://2factor.in/API/V1/${apiKey}/SMS/VERIFY/${sessionId}/${otp}`)
+      const verifyData = await verifyRes.json()
+      if (verifyData.Status !== 'Success' || verifyData.Details !== 'OTP Matched') {
+        recordFail('2f_' + digits)
+        const msg = verifyData.Details === 'OTP Mismatch' ? 'Galat OTP. Dobara check karo.'
+          : verifyData.Details === 'OTP Expired' ? 'OTP expire ho gaya. Resend karo.'
+          : 'OTP verify nahi hua. Dobara try karo.'
+        return NextResponse.json({ error: msg }, { status: 400 })
+      }
+    } catch (e) {
+      console.error('[2Factor] Verify error:', e.message)
+      return NextResponse.json({ error: 'OTP verify nahi ho saka. Dobara try karo.' }, { status: 500 })
     }
 
     // OTP valid — delete and proceed
     await sql`DELETE FROM reset_otps WHERE identifier = ${'login_' + digits}`
-    clearRate('f2s_' + digits)
+    clearRate('2f_' + digits)
 
     // ── Find or create user (same logic as login-otp) ──────────────
     await ensureUserEmailOptional(sql)

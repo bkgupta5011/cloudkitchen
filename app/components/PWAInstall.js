@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export default function PWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState(null)
@@ -9,20 +9,28 @@ export default function PWAInstall() {
   const [isIos, setIsIos] = useState(false)
   const [showIosTip, setShowIosTip] = useState(false)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false) // wait for auth before showing anything
+  const timerRef = useRef(null)
 
-  // Check login status — hide install prompts for logged-in users
+  // Step 1: Check login status FIRST — only after confirmed set authChecked=true
   useEffect(() => {
     fetch('/api/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'me' })
-    }).then(r => r.json()).then(d => {
-      if (d.user) setIsLoggedIn(true)
-    }).catch(() => {})
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.user) setIsLoggedIn(true)
+      })
+      .catch(() => {})
+      .finally(() => setAuthChecked(true)) // always mark as checked, even on error
   }, [])
 
+  // Step 2: Setup install prompts ONLY after auth is confirmed and user is NOT logged in
   useEffect(() => {
-    if (isLoggedIn) return // logged-in users — skip all install prompts
+    if (!authChecked) return   // still checking — do nothing
+    if (isLoggedIn) return     // logged in — never show install prompts
 
     // Already installed as standalone app?
     const standalone =
@@ -39,9 +47,8 @@ export default function PWAInstall() {
     const recentlyDismissed = dismissed && (Date.now() - parseInt(dismissed)) < 3 * 24 * 60 * 60 * 1000
 
     if (ios) {
-      // iOS pe browser dismiss nahi check karna hai, differently handle karenge
       if (!recentlyDismissed) {
-        setTimeout(() => setShowBanner(true), 3000)
+        timerRef.current = setTimeout(() => setShowBanner(true), 3000)
       } else {
         setShowFloat(true)
       }
@@ -53,7 +60,7 @@ export default function PWAInstall() {
       e.preventDefault()
       setDeferredPrompt(e)
       if (!recentlyDismissed) {
-        setTimeout(() => setShowBanner(true), 3000)
+        timerRef.current = setTimeout(() => setShowBanner(true), 3000)
       } else {
         setShowFloat(true)
       }
@@ -70,8 +77,9 @@ export default function PWAInstall() {
     return () => {
       window.removeEventListener('beforeinstallprompt', handler)
       window.removeEventListener('appinstalled', installedHandler)
+      if (timerRef.current) clearTimeout(timerRef.current)
     }
-  }, [])
+  }, [authChecked, isLoggedIn]) // re-run when auth status is known
 
   const handleInstall = async () => {
     if (isIos) {
@@ -104,6 +112,8 @@ export default function PWAInstall() {
     localStorage.removeItem('pwa_banner_dismissed')
   }
 
+  // Don't render anything until auth status is confirmed
+  if (!authChecked) return null
   if (isInstalled || isLoggedIn) return null
 
   return (

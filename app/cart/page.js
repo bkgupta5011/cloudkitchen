@@ -416,6 +416,7 @@ export default function CartPage() {
   const [estimatedTime, setEstimatedTime] = useState(45)
   const [outOfRange, setOutOfRange] = useState(false)
   const [nearestBranchRadius, setNearestBranchRadius] = useState(null) // radius of nearest branch for error msg
+  const [branchesReady, setBranchesReady] = useState(false) // true once branches API has responded
   const [branches, setBranches] = useState([])          // active branches with lat/lng
   const [savedAddresses, setSavedAddresses] = useState([])
   const [showAddressModal, setShowAddressModal] = useState(false)
@@ -483,6 +484,7 @@ export default function CartPage() {
       // Set branches FIRST so delivery useEffect has them when lat/lng is set below
       const loadedBranches = branchesData.branches || []
       setBranches(loadedBranches)
+      setBranchesReady(true)
 
       const addrs = addrData.addresses || []
       setSavedAddresses(addrs)
@@ -513,6 +515,7 @@ export default function CartPage() {
   // Auto-recalculate delivery charge when lat/lng changes
   // Uses nearest SERVING branch distance (respects per-branch radius)
   useEffect(() => {
+    if (!branchesReady) return // wait for branches API before deciding anything
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       const branchesWithCoords = branches.filter(b => b.lat && b.lng)
       const serving = findNearestServingBranch(branches, lat, lng, maxKm)
@@ -558,7 +561,7 @@ export default function CartPage() {
     } else {
       setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false)
     }
-  }, [lat, lng, kitchenLat, kitchenLng, maxKm, branches])
+  }, [lat, lng, kitchenLat, kitchenLng, maxKm, branches, branchesReady])
 
   // Debounced DB sync — fires 800ms after last change
   const syncCartToDB = (cartData) => {

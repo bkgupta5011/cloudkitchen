@@ -15,7 +15,7 @@ export default function LoginPage() {
     fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) })
       .then(r => r.json())
       .then(({ user }) => {
-        if (user?.role === 'admin') router.push('/admin')
+        if (user?.role === 'admin') router.push(user.branch_id ? '/branch' : '/admin')
         else if (user?.role === 'delivery') router.push('/delivery')
         else if (user?.role === 'customer') router.push('/menu')
       })
@@ -232,7 +232,7 @@ export default function LoginPage() {
     if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
     else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
     if (newUser) { window.location.href = '/menu?new=1'; return }
-    if (user.role === 'admin') router.push('/admin')
+    if (user.role === 'admin') router.push(user.branch_id ? '/branch' : '/admin')
     else if (user.role === 'delivery') router.push('/delivery')
     else router.push('/menu')
   }
@@ -390,7 +390,7 @@ export default function LoginPage() {
       const { user } = data
       if (rememberMe) { try { localStorage.setItem('ck_saved_phone', phoneDigits) } catch(e) {} }
       else { try { localStorage.removeItem('ck_saved_phone') } catch(e) {} }
-      if (user.role === 'admin') router.push('/admin')
+      if (user.role === 'admin') router.push(user.branch_id ? '/branch' : '/admin')
       else if (user.role === 'delivery') router.push('/delivery')
       else router.push('/menu')
     } catch { setError('Something went wrong. Please try again.') }

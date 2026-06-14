@@ -70,7 +70,7 @@ export async function PATCH(request) {
   if (!user || user.role !== 'customer') return NextResponse.json({ error: 'Customer login required' }, { status: 401 })
   await ensureTable(sql)
 
-  const { id, label, address_text, is_default } = await request.json()
+  const { id, label, address_text, lat, lng, is_default } = await request.json()
   if (!id) return NextResponse.json({ error: 'Address ID required' }, { status: 400 })
 
   if (is_default) {
@@ -81,6 +81,8 @@ export async function PATCH(request) {
     UPDATE customer_addresses SET
       label        = COALESCE(${label ?? null}, label),
       address_text = COALESCE(${address_text ?? null}, address_text),
+      lat          = COALESCE(${lat ?? null}, lat),
+      lng          = COALESCE(${lng ?? null}, lng),
       is_default   = COALESCE(${is_default ?? null}, is_default)
     WHERE id = ${id} AND user_id = ${user.id}
     RETURNING *

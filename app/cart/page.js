@@ -22,6 +22,19 @@ function loadGoogleMaps() {
   })
 }
 
+// Google forward geocoding — address text → lat/lng
+async function forwardGeocode(addressText) {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressText)}&key=${GMAPS_KEY}&region=IN`
+    )
+    const data = await res.json()
+    const loc = data.results?.[0]?.geometry?.location
+    if (loc) return { lat: loc.lat, lng: loc.lng }
+  } catch {}
+  return null
+}
+
 // Google reverse geocoding — GPS coords → detailed address
 async function reverseGeocode(lat, lng) {
   try {
@@ -404,8 +417,19 @@ export default function CartPage() {
       const def = addrs.find(a => a.is_default)
       if (def) {
         setAddress(def.address_text)
-        const la = pf(def.lat, null), ln = pf(def.lng, null)
-        if (la !== null && ln !== null) {
+        let la = pf(def.lat, null), ln = pf(def.lng, null)
+        // If saved address has no coords, silently geocode in background
+        if (la === null || ln === null) {
+          forwardGeocode(def.address_text).then(geo => {
+            if (!geo) return
+            setLat(geo.lat); setLng(geo.lng)
+            // Also patch this address in DB so next time coords are available
+            fetch('/api/addresses', {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: def.id, lat: geo.lat, lng: geo.lng })
+            }).catch(() => {})
+          }).catch(() => {})
+        } else {
           setLat(la); setLng(ln)
           const dist = calcDist(la, ln, kLat, kLng)
           if (dist !== null) {
@@ -508,15 +532,24 @@ export default function CartPage() {
     if (addr.lat && addr.lng) {
       setLat(parseFloat(addr.lat)); setLng(parseFloat(addr.lng))
     } else {
+      // No GPS coords — open map picker so user can pin exact location
+      // (required for correct branch assignment and delivery charge)
       setLat(null); setLng(null); setDistanceKm(null); setDeliveryCharge(null)
+      setShowMapPicker(true)
     }
   }
 
   const saveCurrentAddress = async () => {
     if (!address.trim()) return
+    // If no lat/lng in state (e.g. address typed manually), try geocoding before saving
+    let saveLat = lat, saveLng = lng
+    if (!Number.isFinite(saveLat) || !Number.isFinite(saveLng)) {
+      const geo = await forwardGeocode(address)
+      if (geo) { saveLat = geo.lat; saveLng = geo.lng }
+    }
     await fetch('/api/addresses', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: newAddrLabel, address_text: address, lat, lng })
+      body: JSON.stringify({ label: newAddrLabel, address_text: address, lat: saveLat, lng: saveLng })
     })
     const d = await fetch('/api/addresses').then(r => r.json())
     setSavedAddresses(d.addresses || [])
@@ -550,6 +583,12 @@ export default function CartPage() {
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
     if (outOfRange) { setError(`Sorry, we only deliver within ${maxKm} km of our kitchen`); return }
+    // If no GPS coords, open map picker to confirm location (needed for branch & delivery charge)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('📍 Pehle map pe apni location confirm karo')
+      setShowMapPicker(true)
+      return
+    }
     setLoading(true); setError('')
     try {
       const res = await fetch('/api/orders', {

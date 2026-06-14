@@ -23,6 +23,18 @@ function loadGoogleMaps() {
   })
 }
 
+async function forwardGeocodeGoogle(addressText) {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressText)}&key=${GMAPS_KEY}&region=IN`
+    )
+    const data = await res.json()
+    const loc = data.results?.[0]?.geometry?.location
+    if (loc) return { lat: loc.lat, lng: loc.lng }
+  } catch {}
+  return null
+}
+
 async function reverseGeocodeGoogle(lat, lng) {
   try {
     fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'geocoding'}) }).catch(()=>{})
@@ -232,7 +244,16 @@ export default function ProfilePage() {
     e.preventDefault()
     if (!newAddr.building.trim()) { showMsg('❌ Flat/Building number zaroori hai', 'err'); return }
     const fullAddr = [newAddr.building, newAddr.area, newAddr.landmark ? `Near ${newAddr.landmark}` : '', newAddr.pincode].filter(Boolean).join(', ')
-    const payload = { ...newAddr, address_text: newAddr.address_text || fullAddr, recipient_name: newAddr.recipient_name || profile?.name, recipient_phone: newAddr.recipient_phone || profile?.phone }
+    const addrText = newAddr.address_text || fullAddr
+
+    // Auto-fetch lat/lng from address text if not already set via map
+    let finalLat = newAddr.lat, finalLng = newAddr.lng
+    if (!finalLat || !finalLng) {
+      const geo = await forwardGeocodeGoogle(addrText)
+      if (geo) { finalLat = geo.lat; finalLng = geo.lng }
+    }
+
+    const payload = { ...newAddr, address_text: addrText, lat: finalLat, lng: finalLng, recipient_name: newAddr.recipient_name || profile?.name, recipient_phone: newAddr.recipient_phone || profile?.phone }
     const res = await fetch('/api/addresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
     const data = await res.json()
     if (data.address) {

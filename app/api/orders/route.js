@@ -235,13 +235,16 @@ export async function GET(request) {
     // Any delivery boy's poll triggers this (not filtered by user.id),
     // so it works even if the assigned boy's page is closed.
     const timedOut = await sql`
-      SELECT id, delivery_boy_id AS prev_boy_id,
-             order_number, total, distance_km, delivery_address
-      FROM orders
-      WHERE boy_accepted_at IS NULL
-        AND delivery_boy_id IS NOT NULL
-        AND status = 'pending'
-        AND COALESCE(boy_assigned_at, created_at) < NOW() - INTERVAL '5 minutes'
+      SELECT o.id, o.delivery_boy_id AS prev_boy_id,
+             o.order_number, o.total, o.distance_km, o.delivery_address,
+             o.branch_id,
+             b.lat AS branch_lat, b.lng AS branch_lng
+      FROM orders o
+      LEFT JOIN branches b ON o.branch_id = b.id
+      WHERE o.boy_accepted_at IS NULL
+        AND o.delivery_boy_id IS NOT NULL
+        AND o.status = 'pending'
+        AND COALESCE(o.boy_assigned_at, o.created_at) < NOW() - INTERVAL '5 minutes'
     `.catch(() => [])
 
     for (const order of timedOut) {
@@ -253,8 +256,8 @@ export async function GET(request) {
         ON CONFLICT DO NOTHING
       `.catch(() => {})
 
-      const eligible = await sql`
-        SELECT db.id, db.name, db.per_km_earning,
+      const eligibleRaw = await sql`
+        SELECT db.id, db.name, db.per_km_earning, db.current_lat, db.current_lng,
           COUNT(o2.id) FILTER (WHERE o2.status IN ('confirmed','preparing')) AS active_orders
         FROM delivery_boys db
         LEFT JOIN orders o2 ON o2.delivery_boy_id = db.id
@@ -263,10 +266,29 @@ export async function GET(request) {
           AND db.status = 'approved'
           AND NOT EXISTS (SELECT 1 FROM orders WHERE delivery_boy_id = db.id AND status = 'out_for_delivery')
           AND NOT EXISTS (SELECT 1 FROM order_rejections r WHERE r.order_id = ${order.id} AND r.delivery_boy_id = db.id)
-        GROUP BY db.id, db.name, db.per_km_earning
-        ORDER BY active_orders ASC, RANDOM()
-        LIMIT 1
+        GROUP BY db.id, db.name, db.per_km_earning, db.current_lat, db.current_lng
       `.catch(() => [])
+
+      // Proximity sort: nearest to branch first, then least busy
+      let eligible = eligibleRaw
+      const bLat = order.branch_lat ? parseFloat(order.branch_lat) : null
+      const bLng = order.branch_lng ? parseFloat(order.branch_lng) : null
+      if (bLat && bLng && eligibleRaw.length > 0) {
+        const withDist = eligibleRaw.map(b => ({
+          ...b,
+          dist: (b.current_lat && b.current_lng)
+            ? haversineKm(bLat, bLng, parseFloat(b.current_lat), parseFloat(b.current_lng))
+            : Infinity
+        }))
+        withDist.sort((a, b) =>
+          a.dist !== b.dist
+            ? a.dist - b.dist
+            : parseInt(a.active_orders) - parseInt(b.active_orders)
+        )
+        eligible = withDist
+      } else {
+        eligible = eligibleRaw.sort((a, b) => parseInt(a.active_orders) - parseInt(b.active_orders))
+      }
 
       if (!eligible.length) {
         // No other boy available — undo rejection + reset 5-min window so prev boy
@@ -487,8 +509,19 @@ export async function POST(request) {
   // ── AUTO-ASSIGN TO NEAREST AVAILABLE ONLINE DELIVERY BOY ────────
   let assignedBoy = null
   try {
+    // Get branch lat/lng for proximity calculation
+    let branchLat = null, branchLng = null
+    if (branchId) {
+      try {
+        const [br] = await sql`SELECT lat, lng FROM branches WHERE id = ${branchId}::uuid`
+        branchLat = br?.lat ? parseFloat(br.lat) : null
+        branchLng = br?.lng ? parseFloat(br.lng) : null
+      } catch {}
+    }
+
+    // Fetch all eligible delivery boys WITH their current GPS location
     const availableBoys = await sql`
-      SELECT db.id, db.name, db.phone,
+      SELECT db.id, db.name, db.phone, db.current_lat, db.current_lng,
         COUNT(o.id) FILTER (WHERE o.status IN ('confirmed','preparing')) AS active_orders
       FROM delivery_boys db
       LEFT JOIN orders o ON o.delivery_boy_id = db.id
@@ -499,12 +532,35 @@ export async function POST(request) {
           SELECT 1 FROM orders
           WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
         )
-      GROUP BY db.id, db.name, db.phone
-      ORDER BY active_orders ASC, RANDOM()
-      LIMIT 1
+      GROUP BY db.id, db.name, db.phone, db.current_lat, db.current_lng
     `
+
     if (availableBoys.length > 0) {
-      assignedBoy = availableBoys[0]
+      let selectedBoy = null
+
+      if (branchLat && branchLng) {
+        // Sort by distance from branch → nearest boy first
+        const boysWithDist = availableBoys.map(b => ({
+          ...b,
+          dist: (b.current_lat && b.current_lng)
+            ? haversineKm(branchLat, branchLng, parseFloat(b.current_lat), parseFloat(b.current_lng))
+            : Infinity   // no GPS → put at end
+        }))
+        boysWithDist.sort((a, b) =>
+          a.dist !== b.dist
+            ? a.dist - b.dist                              // nearest first
+            : parseInt(a.active_orders) - parseInt(b.active_orders)  // tie → least busy
+        )
+        selectedBoy = boysWithDist[0]
+      } else {
+        // No branch location → fallback: least active + random tiebreak
+        availableBoys.sort((a, b) => parseInt(a.active_orders) - parseInt(b.active_orders))
+        const minActive = parseInt(availableBoys[0].active_orders)
+        const leastBusy = availableBoys.filter(b => parseInt(b.active_orders) === minActive)
+        selectedBoy = leastBusy[Math.floor(Math.random() * leastBusy.length)]
+      }
+
+      assignedBoy = selectedBoy
       const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${assignedBoy.id}`
       const perKm  = parseFloat(boyRate?.per_km_earning || 0)
       const distKm = distanceKm ? parseFloat(distanceKm) : null

@@ -1,9 +1,38 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './admin.module.css'
 import { usePushNotifications } from '@/lib/usePush'
 import { RECIPES, RECIPE_CATEGORIES, COMBO_GUIDE, KITCHEN_STANDARDS, printRecipeBook } from '@/lib/recipes'
+
+const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
+
+function loadGoogleMaps() {
+  return new Promise((resolve, reject) => {
+    if (window.google?.maps) { resolve(window.google.maps); return }
+    const existing = document.getElementById('gmaps-script')
+    if (existing) {
+      const wait = setInterval(() => { if (window.google?.maps) { clearInterval(wait); resolve(window.google.maps) } }, 100)
+      return
+    }
+    const script = document.createElement('script')
+    script.id = 'gmaps-script'
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`
+    script.async = true; script.defer = true
+    script.onload = () => resolve(window.google.maps)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+async function reverseGeocodeAdmin(lat, lng) {
+  try {
+    const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}&language=en&region=IN`)
+    const data = await res.json()
+    if (data.results?.[0]) return data.results[0].formatted_address
+  } catch {}
+  return ''
+}
 
 const SECTIONS = [
   { id: 'orders',    label: '📋 Orders',           badge: 'orders' },
@@ -109,6 +138,11 @@ export default function AdminPage() {
   const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00', max_delivery_km:'' }
   const [newBranch, setNewBranch] = useState(emptyBranch)
   const [branchLocLoading, setBranchLocLoading] = useState(false)
+  const [showBranchMap, setShowBranchMap] = useState(false)
+  const branchMapRef    = useRef(null)
+  const branchMarkerRef = useRef(null)
+  const branchSearchRef = useRef(null)
+  const branchMapInstRef = useRef(null)
   // Branch Login
   const [showBranchLogin, setShowBranchLogin] = useState(false)
   const [branchLoginTarget, setBranchLoginTarget] = useState(null)
@@ -2854,19 +2888,28 @@ export default function AdminPage() {
                     <input value={newBranch.lat} onChange={e => setNewBranch(p => ({...p, lat:e.target.value}))} placeholder="Latitude" style={{ flex:1, padding:'10px 12px', border:'0.5px solid var(--bd2)', borderRadius:8, background:'var(--bg)', color:'var(--t1)', fontSize:13, outline:'none' }} />
                     <input value={newBranch.lng} onChange={e => setNewBranch(p => ({...p, lng:e.target.value}))} placeholder="Longitude" style={{ flex:1, padding:'10px 12px', border:'0.5px solid var(--bd2)', borderRadius:8, background:'var(--bg)', color:'var(--t1)', fontSize:13, outline:'none' }} />
                   </div>
-                  <button type="button" className="btn btn-secondary" style={{ width:'100%', fontSize:12 }}
-                    disabled={branchLocLoading}
-                    onClick={() => {
-                      if (!navigator.geolocation) { showToast('GPS supported nahi hai'); return }
-                      setBranchLocLoading(true)
-                      navigator.geolocation.getCurrentPosition(
-                        pos => { setNewBranch(p => ({...p, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6)})); setBranchLocLoading(false); showToast('📍 Location set!') },
-                        () => { setBranchLocLoading(false); showToast('GPS error. Manual enter karo.') },
-                        { enableHighAccuracy:true, timeout:10000 }
-                      )
-                    }}>
-                    {branchLocLoading ? '⏳ Getting location...' : '📍 Current Location Use Karo'}
-                  </button>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button type="button" className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
+                      onClick={() => setShowBranchMap(true)}>
+                      🗺️ Map se Dhundho
+                    </button>
+                    <button type="button" className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
+                      disabled={branchLocLoading}
+                      onClick={() => {
+                        if (!navigator.geolocation) { showToast('GPS supported nahi hai'); return }
+                        setBranchLocLoading(true)
+                        navigator.geolocation.getCurrentPosition(
+                          pos => { setNewBranch(p => ({...p, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6)})); setBranchLocLoading(false); showToast('📍 Location set!') },
+                          () => { setBranchLocLoading(false); showToast('GPS error. Manual enter karo.') },
+                          { enableHighAccuracy:true, timeout:10000 }
+                        )
+                      }}>
+                      {branchLocLoading ? '⏳...' : '📍 Current Location'}
+                    </button>
+                  </div>
+                  {newBranch.lat && newBranch.lng && (
+                    <div style={{ fontSize:11, color:'var(--gr)', marginTop:6 }}>✅ {newBranch.lat}, {newBranch.lng}</div>
+                  )}
                 </div>
 
                 <div style={{ display:'flex', gap:10, marginTop:4 }}>
@@ -3293,6 +3336,141 @@ export default function AdminPage() {
         </div>
       )}
 
+
+      {/* ── Branch Map Picker Modal ───────────────────────────── */}
+      {showBranchMap && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:10001, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
+          <div style={{ background:'var(--card)', borderRadius:20, width:'100%', maxWidth:560, maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px #0008' }}>
+            {/* Header */}
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:15 }}>🗺️ Branch Location Select Karo</div>
+                <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Map pe click karo, pin drag karo ya address search karo</div>
+              </div>
+              <button onClick={() => { setShowBranchMap(false); branchMapInstRef.current = null }} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'var(--t2)' }}>✕</button>
+            </div>
+
+            {/* Search + GPS */}
+            <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:8 }}>
+              <input
+                ref={branchSearchRef}
+                placeholder="🔍 Branch ka address search karo..."
+                style={{ flex:1, padding:'9px 12px', border:'1.5px solid var(--bd2)', borderRadius:10, fontSize:13, outline:'none', background:'var(--bg)', color:'var(--t1)' }}
+              />
+              <button
+                onClick={() => {
+                  if (!navigator.geolocation) return
+                  navigator.geolocation.getCurrentPosition(pos => {
+                    const { latitude: la, longitude: ln } = pos.coords
+                    const map = branchMapInstRef.current
+                    const marker = branchMarkerRef.current
+                    if (map && marker) {
+                      const p = new window.google.maps.LatLng(la, ln)
+                      map.setCenter(p); map.setZoom(17)
+                      marker.setPosition(p); marker.setVisible(true)
+                    }
+                    setNewBranch(p => ({ ...p, lat: la.toFixed(8), lng: ln.toFixed(8) }))
+                    reverseGeocodeAdmin(la, ln).then(addr => { if (addr) setNewBranch(p => ({ ...p, address: addr })) })
+                  }, () => showToast('GPS error'), { enableHighAccuracy:true, timeout:10000 })
+                }}
+                style={{ padding:'8px 14px', background:'var(--bl-l)', color:'var(--bl)', border:'1.5px solid var(--bl)', borderRadius:10, fontSize:12, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap' }}>
+                📍 GPS
+              </button>
+            </div>
+
+            {/* Map */}
+            <div
+              ref={branchMapRef}
+              style={{ flex:1, minHeight:320 }}
+              // Initialize map when this div mounts
+              ref={(el) => {
+                branchMapRef.current = el
+                if (!el || branchMapInstRef.current) return
+                loadGoogleMaps().then(gmaps => {
+                  if (!branchMapRef.current) return
+                  const initLat = parseFloat(newBranch.lat) || 25.5943
+                  const initLng = parseFloat(newBranch.lng) || 85.1376
+                  const map = new gmaps.Map(branchMapRef.current, {
+                    center: { lat: initLat, lng: initLng },
+                    zoom: newBranch.lat ? 16 : 13,
+                    mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+                    zoomControlOptions: { position: gmaps.ControlPosition.RIGHT_CENTER }
+                  })
+                  branchMapInstRef.current = map
+
+                  const marker = new gmaps.Marker({
+                    position: { lat: initLat, lng: initLng },
+                    map, draggable: true, title: 'Branch location',
+                    animation: gmaps.Animation.DROP,
+                    visible: !!newBranch.lat
+                  })
+                  branchMarkerRef.current = marker
+
+                  const onPick = (lat, lng) => {
+                    marker.setVisible(true)
+                    setNewBranch(p => ({ ...p, lat: lat.toFixed(8), lng: lng.toFixed(8) }))
+                    reverseGeocodeAdmin(lat, lng).then(addr => { if (addr) setNewBranch(p => ({ ...p, address: addr })) })
+                  }
+
+                  marker.addListener('dragend', () => {
+                    const pos = marker.getPosition()
+                    onPick(pos.lat(), pos.lng())
+                  })
+                  map.addListener('click', e => {
+                    marker.setPosition(e.latLng)
+                    onPick(e.latLng.lat(), e.latLng.lng())
+                  })
+
+                  // Search autocomplete
+                  if (branchSearchRef.current) {
+                    const ac = new gmaps.places.Autocomplete(branchSearchRef.current, {
+                      componentRestrictions: { country: 'in' },
+                      fields: ['formatted_address', 'geometry']
+                    })
+                    ac.addListener('place_changed', () => {
+                      const place = ac.getPlace()
+                      if (!place.geometry) return
+                      const loc = place.geometry.location
+                      map.setCenter(loc); map.setZoom(17)
+                      marker.setPosition(loc); marker.setVisible(true)
+                      setNewBranch(p => ({
+                        ...p,
+                        lat: loc.lat().toFixed(8),
+                        lng: loc.lng().toFixed(8),
+                        address: place.formatted_address || p.address
+                      }))
+                    })
+                  }
+                })
+              }}
+            />
+
+            {/* Footer */}
+            <div style={{ padding:'12px 14px', borderTop:'1px solid var(--bd)', background:'var(--card)' }}>
+              {newBranch.lat && newBranch.lng ? (
+                <div style={{ fontSize:12, color:'var(--gr)', marginBottom:10 }}>
+                  ✅ {parseFloat(newBranch.lat).toFixed(6)}, {parseFloat(newBranch.lng).toFixed(6)}
+                  {newBranch.address && <span style={{ color:'var(--t2)', marginLeft:6 }}>· {newBranch.address.slice(0, 50)}</span>}
+                </div>
+              ) : (
+                <div style={{ fontSize:12, color:'var(--t3)', marginBottom:10 }}>📍 Map pe click karo ya address search karo</div>
+              )}
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={() => setShowBranchMap(false)}
+                  style={{ flex:1, padding:'10px', background:'var(--bg)', border:'1px solid var(--bd2)', borderRadius:10, fontSize:13, cursor:'pointer' }}>
+                  Cancel
+                </button>
+                <button
+                  disabled={!newBranch.lat || !newBranch.lng}
+                  onClick={() => { setShowBranchMap(false); branchMapInstRef.current = null; showToast('📍 Location set ho gaya!') }}
+                  style={{ flex:2, padding:'10px', background: (!newBranch.lat || !newBranch.lng) ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: (!newBranch.lat || !newBranch.lng) ? 'not-allowed' : 'pointer' }}>
+                  ✅ Ye Location Use Karo
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className={styles.toast}>{toast}</div>}
     </div>

@@ -124,6 +124,16 @@ export default function BranchPage() {
     router.push('/login')
   }
 
+  // ── Order detail modal ────────────────────────────────────────────
+  const [showOrderDetail, setShowOrderDetail] = useState(false)
+  const [orderDetail,     setOrderDetail]     = useState(null)
+
+  const openOrderDetail = async (orderId) => {
+    const res = await fetch(`/api/orders?id=${orderId}`).then(r => r.json())
+    setOrderDetail(res.order)
+    setShowOrderDetail(true)
+  }
+
   const pendingCount = orders.filter(o => o.status === 'pending').length
 
   const filteredOrders = statusFilter === 'all'
@@ -250,7 +260,7 @@ export default function BranchPage() {
                     }[o.status] || 'transparent'
                     return (
                       <div key={o.id} className={`${styles.tRow} ${styles.ordCols}`} style={{ background: rowBg }}>
-                        <span className={styles.orderId}>#{o.order_number}</span>
+                        <span className={styles.orderId} style={{ cursor:'pointer', textDecoration:'underline', color:'var(--bl)' }} onClick={() => openOrderDetail(o.id)}>#{o.order_number}</span>
                         <div>
                           <div style={{ fontWeight:500, fontSize:12 }}>{o.customer_name}</div>
                           <div style={{ fontSize:11, color:'var(--t2)' }}>{o.customer_phone}</div>
@@ -333,6 +343,102 @@ export default function BranchPage() {
           </>
         )}
       </main>
+
+      {/* ── Order Detail Modal ── */}
+      {showOrderDetail && orderDetail && (
+        <div className={styles.modalBg} onClick={e => e.target === e.currentTarget && setShowOrderDetail(false)}>
+          <div className={styles.modal} style={{ maxWidth:500, maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+              <h3 style={{ margin:0 }}>Order #{orderDetail.order_number}</h3>
+              <button onClick={() => setShowOrderDetail(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
+            </div>
+
+            {/* Customer */}
+            <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px', marginBottom:12 }}>
+              <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t2)' }}>👤 CUSTOMER</div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600 }}>{orderDetail.customer_name}</div>
+                  <div style={{ fontSize:12, color:'var(--t2)' }}>{orderDetail.customer_phone}</div>
+                  <div style={{ fontSize:12, color:'var(--t3)', marginTop:4 }}>📍 {orderDetail.delivery_address}</div>
+                  {orderDetail.distance_km && <div style={{ fontSize:11, color:'var(--t3)' }}>{parseFloat(orderDetail.distance_km).toFixed(1)} km</div>}
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  <a href={`tel:${orderDetail.customer_phone}`}
+                    style={{ display:'flex', alignItems:'center', gap:4, background:'#dcfce7', color:'#16a34a', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+                    📞 Call
+                  </a>
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderDetail.delivery_address)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ display:'flex', alignItems:'center', gap:4, background:'#dbeafe', color:'#1d4ed8', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
+                    🗺️ Map
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Items */}
+            <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px', marginBottom:12 }}>
+              <div style={{ fontSize:12, fontWeight:700, marginBottom:8, color:'var(--t2)' }}>📦 ITEMS</div>
+              {(orderDetail.items || []).map((item, i) => (
+                <div key={i} style={{ display:'flex', justifyContent:'space-between', fontSize:13, marginBottom:6 }}>
+                  <span>{item.name} <span style={{ color:'var(--t2)' }}>×{item.quantity}</span></span>
+                  <span style={{ fontWeight:600 }}>₹{Math.round(item.price * item.quantity)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Notes */}
+            {orderDetail.notes && (
+              <div style={{ background:'#fef3c7', borderRadius:10, padding:'10px 14px', marginBottom:12, fontSize:12, color:'#92400e' }}>
+                📝 <strong>Customer Remarks:</strong> {orderDetail.notes}
+              </div>
+            )}
+
+            {/* Bill */}
+            <div style={{ background:'var(--bg)', borderRadius:10, padding:'12px 14px' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Subtotal</span><span>₹{Math.round(orderDetail.subtotal)}</span></div>
+              {orderDetail.discount_amount > 0 && <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4, color:'var(--gr-d)' }}><span>Discount</span><span>−₹{Math.round(orderDetail.discount_amount)}</span></div>}
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, marginBottom:4 }}><span>Delivery Charge</span><span>₹{Math.round(orderDetail.delivery_charge)}</span></div>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:15, fontWeight:700, marginTop:8, paddingTop:8, borderTop:'1px solid var(--bd)' }}>
+                <span>💵 Total (COD)</span><span style={{ color:'var(--or)' }}>₹{Math.round(orderDetail.total)}</span>
+              </div>
+            </div>
+
+            {orderDetail.delivery_boy_name && (
+              <div style={{ marginTop:10, fontSize:12, color:'var(--gr-d)', fontWeight:600 }}>🛵 {orderDetail.delivery_boy_name} · {orderDetail.delivery_boy_phone}</div>
+            )}
+
+            {/* Print Bill */}
+            <button onClick={() => {
+              const w = window.open('', '_blank', 'width=380,height=600')
+              const rows = (orderDetail.items || []).map(i => `<tr><td>${i.name}</td><td style="text-align:center">${i.quantity}</td><td style="text-align:right">₹${Math.round(i.price * i.quantity)}</td></tr>`).join('')
+              w.document.write(`<html><head><title>Receipt #${orderDetail.order_number}</title>
+                <style>body{font-family:monospace;max-width:340px;margin:20px auto;font-size:13px}
+                h2{text-align:center;margin:0}p{text-align:center;color:#666;margin:4px 0}
+                table{width:100%;border-collapse:collapse;margin:12px 0}td{padding:4px 2px}hr{border:1px dashed #ccc}
+                .total{font-size:16px;font-weight:bold}@media print{button{display:none}}</style></head>
+                <body>
+                <h2>🍽️ FoodFi Cloud Kitchen</h2>
+                <p>${new Date(orderDetail.created_at).toLocaleString('en-IN')}</p>
+                <p>Order #${orderDetail.order_number}</p><hr/>
+                <p style="text-align:left"><b>Customer:</b> ${orderDetail.customer_name}<br/>${orderDetail.customer_phone}<br/>📍 ${orderDetail.delivery_address}</p><hr/>
+                <table><thead><tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Amt</th></tr></thead>
+                <tbody>${rows}</tbody></table><hr/>
+                <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>₹${Math.round(orderDetail.subtotal)}</span></div>
+                ${orderDetail.discount_amount > 0 ? `<div style="display:flex;justify-content:space-between;color:green"><span>Discount</span><span>-₹${Math.round(orderDetail.discount_amount)}</span></div>` : ''}
+                <div style="display:flex;justify-content:space-between"><span>Delivery</span><span>₹${Math.round(orderDetail.delivery_charge)}</span></div><hr/>
+                <div class="total" style="display:flex;justify-content:space-between"><span>TOTAL (COD)</span><span>₹${Math.round(orderDetail.total)}</span></div>
+                <p style="margin-top:20px">Shukriya! 🙏 FoodFi Cloud Kitchen</p>
+                <button onclick="window.print()" style="margin-top:12px;width:100%;padding:10px;background:#e85d04;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer">🖨️ Print</button>
+                </body></html>`)
+              w.document.close()
+            }} style={{ marginTop:14, width:'100%', padding:'10px', background:'#1e293b', color:'#fff', border:'none', borderRadius:10, fontSize:14, fontWeight:600, cursor:'pointer' }}>
+              🖨️ Print Bill / Receipt
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

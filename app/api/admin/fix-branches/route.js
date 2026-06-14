@@ -20,13 +20,25 @@ export async function GET(request) {
   const checkOnly = searchParams.get('check') === '1'
 
   // Always include DB identity so we can verify which Neon instance is being hit
-  const [dbInfo] = await sql`SELECT current_database() AS db, inet_server_addr()::text AS server`
-  const dbTag = { db: dbInfo?.db, server: dbInfo?.server, url_tail: (process.env.DATABASE_URL || '').slice(-30) }
+  const [dbInfo] = await sql`SELECT current_database() AS db, current_schema() AS schema, inet_server_addr()::text AS server`
+  const allBranchesTables = await sql`
+    SELECT table_schema, table_type FROM information_schema.tables
+    WHERE table_name = 'branches'
+    ORDER BY table_schema
+  `
+  const dbTag = {
+    db: dbInfo?.db,
+    schema: dbInfo?.schema,
+    server: dbInfo?.server,
+    url_tail: (process.env.DATABASE_URL || '').slice(-40),
+    branches_tables: allBranchesTables
+  }
 
   try {
     if (checkOnly) {
       const rows = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
-      return NextResponse.json({ mode: 'check', dbTag, branches: rows })
+      const rows2 = await sql`SELECT id, name, is_active, max_delivery_km FROM public.branches ORDER BY created_at ASC`
+      return NextResponse.json({ mode: 'check', dbTag, branches: rows, public_branches: rows2 })
     }
 
     const [k] = await sql`

@@ -3394,8 +3394,19 @@ export default function AdminPage() {
                   })
                   branchMarkerRef.current = marker
 
+                  // Delivery radius circle — updates when pin moves
+                  const radiusKm = parseFloat(newBranch.max_delivery_km) || 0
+                  let deliveryCircle = radiusKm > 0 ? new gmaps.Circle({
+                    map, center: { lat: initLat, lng: initLng },
+                    radius: radiusKm * 1000,
+                    strokeColor: '#e85d04', strokeOpacity: 0.5, strokeWeight: 2,
+                    fillColor: '#e85d04', fillOpacity: 0.08,
+                    visible: !!newBranch.lat
+                  }) : null
+
                   const onPick = (lat, lng) => {
                     marker.setVisible(true)
+                    if (deliveryCircle) { deliveryCircle.setCenter({ lat, lng }); deliveryCircle.setVisible(true) }
                     setNewBranch(p => ({ ...p, lat: lat.toFixed(8), lng: lng.toFixed(8) }))
                     reverseGeocodeAdmin(lat, lng).then(addr => { if (addr) setNewBranch(p => ({ ...p, address: addr })) })
                   }

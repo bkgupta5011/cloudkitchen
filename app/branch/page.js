@@ -15,6 +15,7 @@ export default function BranchPage() {
   const [branchInfo, setBranchInfo] = useState(null)
   const [orders,     setOrders]     = useState([])
   const [items,      setItems]      = useState([])
+  const [boys,       setBoys]       = useState([])
   const [statusFilter, setStatusFilter] = useState('all')
   const [loading,    setLoading]    = useState(true)
   const [toast,      setToast]      = useState('')
@@ -41,6 +42,9 @@ export default function BranchPage() {
     fetch('/api/admin?type=branch')
       .then(r => r.json())
       .then(({ branches }) => setBranchInfo((branches||[]).find(b => b.id === user.branch_id) || null))
+    fetch('/api/admin?type=delivery_boys')
+      .then(r => r.json())
+      .then(({ boys }) => setBoys(boys || []))
     fetchItems()
   }, [user])
 
@@ -122,6 +126,14 @@ export default function BranchPage() {
   const logout = async () => {
     await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'logout' }) })
     router.push('/login')
+  }
+
+  // ── Assign delivery boy ───────────────────────────────────────────
+  const assignBoy = async (orderId, boyId) => {
+    await fetch('/api/orders', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ orderId, deliveryBoyId: boyId }) })
+    const boy = boys.find(b => b.id === boyId)
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_boy_id: boyId, delivery_boy_name: boy?.name } : o))
+    showToast('✅ Delivery boy assign ho gaya!')
   }
 
   // ── Order detail modal ────────────────────────────────────────────
@@ -248,7 +260,7 @@ export default function BranchPage() {
                     <span>Amount</span>
                     <span>Time</span>
                     <span>Status</span>
-                    <span>Items</span>
+                    <span>Delivery Boy</span>
                   </div>
                   {filteredOrders.map(o => {
                     const rowBg = {
@@ -275,10 +287,20 @@ export default function BranchPage() {
                             <option key={s} value={s}>{s.replace(/_/g,' ')}</option>
                           ))}
                         </select>
-                        <div style={{ fontSize:11, color:'var(--t2)' }}>
-                          {(o.items || []).map((it, i) => (
-                            <div key={i}>{it.quantity}× {it.name}</div>
-                          ))}
+                        <div>
+                          {o.delivery_boy_name && (
+                            <div style={{ fontSize:11, color:'var(--bl)', fontWeight:600, marginBottom:4 }}>✅ {o.delivery_boy_name}</div>
+                          )}
+                          {(() => {
+                            const onlineBoys = boys.filter(b => b.is_online)
+                            if (!onlineBoys.length) return <span style={{ fontSize:11, color:'var(--rd)' }}>⚫ Koi Online Nahi</span>
+                            return (
+                              <select className={styles.statSel} value="" onChange={e => e.target.value && assignBoy(o.id, e.target.value)}>
+                                <option value="">{o.delivery_boy_name ? '↺ Change' : 'Assign'}</option>
+                                {onlineBoys.map(b => <option key={b.id} value={b.id}>🟢 {b.name}</option>)}
+                              </select>
+                            )
+                          })()}
                         </div>
                       </div>
                     )

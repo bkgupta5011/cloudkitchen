@@ -2669,9 +2669,13 @@ export default function AdminPage() {
                     </button>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
                       onClick={async () => {
-                        await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'branch', action:'toggle', id:b.id }) })
-                        setBranches(prev => prev.map(x => x.id === b.id ? { ...x, is_active: !x.is_active } : x))
-                        showToast(b.is_active ? '🔴 Branch deactivate ki' : '✅ Branch activate ki')
+                        try {
+                          const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'branch', action:'toggle', id:b.id }) })
+                          const d = await res.json()
+                          if (!res.ok) { showToast('❌ ' + (d.error || 'Error hua')); return }
+                          setBranches(prev => prev.map(x => x.id === b.id ? { ...x, is_active: d.branch?.is_active ?? !x.is_active } : x))
+                          showToast(d.branch?.is_active ? '✅ Branch activate ki' : '🔴 Branch deactivate ki')
+                        } catch { showToast('❌ Network error') }
                       }}>
                       {b.is_active ? '🔴 Deactivate' : '✅ Activate'}
                     </button>

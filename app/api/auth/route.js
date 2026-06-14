@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { hashPassword, verifyPassword, signToken } from '@/lib/auth'
+import { hashPassword, verifyPassword, signToken, verifyToken } from '@/lib/auth'
 import crypto from 'crypto'
 import { sendPasswordResetOtp, sendPasswordResetLink, sendNewCustomerAlert } from '@/lib/email'
 
@@ -693,7 +693,8 @@ export async function POST(request) {
   if (action === 'set-branch-login') {
     const token = request.cookies.get('ck_token')?.value
     const me = verifyToken(token)
-    if (!me || me.role !== 'admin' || !me.is_super_admin) {
+    // Allow if: admin role AND (no branch_id = super admin, OR is_super_admin explicitly true)
+    if (!me || me.role !== 'admin' || me.branch_id) {
       return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     }
     const { branch_id, phone: bPhone, password: bPassword, name: bName } = body

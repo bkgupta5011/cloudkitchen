@@ -534,6 +534,22 @@ export async function POST(request) {
     requireInteraction: true,
   }).catch(() => {})
 
+  // Notify branch admin specifically (if order assigned to a branch)
+  if (branchId) {
+    try {
+      const [branchAdmin] = await sql`SELECT id, name FROM admins WHERE branch_id = ${branchId}::uuid AND is_super_admin = false LIMIT 1`
+      if (branchAdmin) {
+        sendPushToUser(String(branchAdmin.id), {
+          title: `🏪 Naya Order #${order.order_number}!`,
+          body: `₹${Math.round(order.total)} · ${deliveryAddress?.slice(0, 50) || ''}`,
+          url: '/admin',
+          tag: `branch-order-${order.id}`,
+          requireInteraction: true,
+        }, 'admin').catch(() => {})
+      }
+    } catch {}
+  }
+
   return NextResponse.json({
     order: { ...order, delivery_boy_id: assignedBoy?.id || null },
     orderNumber: order.order_number,

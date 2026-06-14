@@ -74,6 +74,7 @@ export default function AdminPage() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [branchFilter, setBranchFilter] = useState('all')
 
   // Date range for order history — default: today (IST)
   const todayIST = () => {
@@ -658,7 +659,9 @@ export default function AdminPage() {
     localStorage.setItem('ck_theme', nd ? 'dark' : 'light')
   }
 
-  const filteredOrders = statusFilter === 'all' ? orders : orders.filter(o => o.status === statusFilter)
+  const filteredOrders = orders
+    .filter(o => statusFilter === 'all' || o.status === statusFilter)
+    .filter(o => branchFilter === 'all' || o.branch_name === branchFilter)
   // Also add cancelled row styling
 
   const pendingCount = orders.filter(o => !['delivered','cancelled'].includes(o.status)).length
@@ -908,6 +911,32 @@ export default function AdminPage() {
               ))}
             </div>
 
+            {/* Branch-wise order summary — super admin only */}
+            {!currentUser?.branch_id && branches.length > 0 && (() => {
+              const branchStats = branches.map(b => ({
+                name: b.name,
+                total: orders.filter(o => o.branch_name === b.name).length,
+                pending: orders.filter(o => o.branch_name === b.name && !['delivered','cancelled'].includes(o.status)).length,
+                revenue: orders.filter(o => o.branch_name === b.name && o.status === 'delivered').reduce((s,o) => s + parseFloat(o.total||0), 0),
+              }))
+              return (
+                <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:16 }}>
+                  {branchStats.map(b => (
+                    <div key={b.name}
+                      onClick={() => setBranchFilter(branchFilter === b.name ? 'all' : b.name)}
+                      style={{ flex:'1 1 160px', background: branchFilter === b.name ? '#ede9fe' : 'var(--card)', border:`1px solid ${branchFilter === b.name ? '#7c3aed' : 'var(--bd)'}`, borderRadius:12, padding:'10px 14px', cursor:'pointer' }}>
+                      <div style={{ fontSize:12, fontWeight:700, color: branchFilter === b.name ? '#7c3aed' : 'var(--t1)', marginBottom:6 }}>🏪 {b.name}</div>
+                      <div style={{ display:'flex', gap:12 }}>
+                        <div><div style={{ fontSize:18, fontWeight:800, color:'var(--t1)' }}>{b.total}</div><div style={{ fontSize:10, color:'var(--t2)' }}>Orders</div></div>
+                        {b.pending > 0 && <div><div style={{ fontSize:18, fontWeight:800, color:'#f59e0b' }}>{b.pending}</div><div style={{ fontSize:10, color:'var(--t2)' }}>Active</div></div>}
+                        <div><div style={{ fontSize:14, fontWeight:700, color:'#16a34a' }}>₹{Math.round(b.revenue)}</div><div style={{ fontSize:10, color:'var(--t2)' }}>Revenue</div></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
             {/* Date range + action bar */}
             <div className={styles.sectionHead} style={{ flexWrap:'wrap', gap:10 }}>
               <h2>{isToday ? 'Live Orders' : `Orders: ${dateFrom === dateTo ? dateFrom : dateFrom + ' → ' + dateTo}`}</h2>
@@ -938,6 +967,19 @@ export default function AdminPage() {
                 <button className="btn btn-secondary" style={{ fontSize:12 }}
                   onClick={() => window.open(`/api/orders?format=csv&date_from=${dateFrom}&date_to=${dateTo}`)}>⬇️ Excel/CSV</button>
                 <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={printOrders}>🖨️ Print</button>
+
+                {/* Branch filter — super admin only */}
+                {!currentUser?.branch_id && branches.length > 0 && (
+                  <select
+                    value={branchFilter}
+                    onChange={e => setBranchFilter(e.target.value)}
+                    style={{ border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 10px', fontSize:12, color:'var(--t1)', background:'var(--card)', cursor:'pointer' }}>
+                    <option value="all">🏪 All Branches</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.name}>{b.name}</option>
+                    ))}
+                  </select>
+                )}
 
                 {/* Status filter */}
                 <div className={styles.filters}>

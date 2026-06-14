@@ -459,17 +459,15 @@ export default function CartPage() {
         if (d.user && !d.user.name) setNeedsName(true)  // new user — no name yet
       }).catch(() => {})
 
-    // Fetch active branches for map + distance calculation
-    fetch('/api/public/branches').then(r => r.json()).then(d => {
-      setBranches(d.branches || [])
-    }).catch(() => {})
-
-    // Load settings + pricing + addresses together so delivery charge can be computed immediately
+    // Load settings + pricing + addresses + branches TOGETHER
+    // so that when we set lat/lng from default address, branches are already in state
+    // and the delivery charge useEffect can correctly use branch-aware mode immediately
     Promise.all([
       fetch('/api/admin').then(r => r.json()),
       fetch('/api/admin?type=pricing').then(r => r.json()),
       fetch('/api/addresses').then(r => r.json()).catch(() => ({ addresses: [] })),
-    ]).then(([settingsData, pricingData, addrData]) => {
+      fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
+    ]).then(([settingsData, pricingData, addrData, branchesData]) => {
       const s = settingsData.settings
       // pf() never returns NaN — falls back to React state defaults if DB value is missing/bad
       const kLat = pf(s?.lat, kitchenLat)
@@ -481,6 +479,10 @@ export default function CartPage() {
       }
       const pricing = pricingData.pricing || []
       pricingRef.current = pricing
+
+      // Set branches FIRST so delivery useEffect has them when lat/lng is set below
+      const loadedBranches = branchesData.branches || []
+      setBranches(loadedBranches)
 
       const addrs = addrData.addresses || []
       setSavedAddresses(addrs)
@@ -500,12 +502,9 @@ export default function CartPage() {
             }).catch(() => {})
           }).catch(() => {})
         } else {
+          // Just set lat/lng — the useEffect([lat,lng,...,branches]) will handle
+          // distance + outOfRange correctly using branch-aware mode (branches already set above)
           setLat(la); setLng(ln)
-          const dist = calcDist(la, ln, kLat, kLng)
-          if (dist !== null) {
-            setDistanceKm(dist); setOutOfRange(dist > km)
-            if (pricing.length > 0) setDeliveryCharge(getCharge(dist, pricing))
-          }
         }
       }
     })

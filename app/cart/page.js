@@ -74,27 +74,25 @@ function getCharge(km, pricing) {
   return pf(row.base_charge) + Math.max(0, km - pf(row.min_km)) * pf(row.per_km_charge)
 }
 
-// ── Find nearest branch that can serve this location ─────────────
-// Returns nearest branch within its own radius (or global maxKm as fallback)
-// If no branch can serve → returns null (out of range)
-function findNearestServingBranch(branches, lat, lng, globalMaxKm) {
+// ── Dominos model: each branch has its own radius, no global fallback ──
+// Returns nearest branch that can serve (customer within branch's max_delivery_km)
+// If branch has no max_delivery_km set → it doesn't serve (radius = 0)
+function findNearestServingBranch(branches, lat, lng) {
   if (!branches?.length || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
   const candidates = []
   for (const b of branches) {
-    if (!b.lat || !b.lng) continue
+    if (!b.lat || !b.lng || !b.max_delivery_km) continue // skip branches without radius set
     const d = calcDist(parseFloat(b.lat), parseFloat(b.lng), lat, lng)
     if (d === null) continue
-    const radius = b.max_delivery_km ? parseFloat(b.max_delivery_km) : globalMaxKm
+    const radius = parseFloat(b.max_delivery_km)
     candidates.push({ ...b, dist: d, radius })
   }
-  // Sort by distance — nearest first
   candidates.sort((a, b) => a.dist - b.dist)
-  // Return nearest branch that is within its own radius
   return candidates.find(b => b.dist <= b.radius) || null
 }
 
-// Also return nearest branch regardless of range (for map display / distance info)
-function findNearestBranchClient(branches, lat, lng, globalMaxKm) {
+// Returns nearest branch regardless of range (for showing distance/name in UI)
+function findNearestBranchClient(branches, lat, lng) {
   if (!branches?.length || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
   let nearest = null, minDist = Infinity
   for (const b of branches) {
@@ -102,7 +100,7 @@ function findNearestBranchClient(branches, lat, lng, globalMaxKm) {
     const d = calcDist(parseFloat(b.lat), parseFloat(b.lng), lat, lng)
     if (d !== null && d < minDist) {
       minDist = d
-      const radius = b.max_delivery_km ? parseFloat(b.max_delivery_km) : (globalMaxKm || 5)
+      const radius = b.max_delivery_km ? parseFloat(b.max_delivery_km) : null
       nearest = { ...b, dist: d, radius }
     }
   }
@@ -275,17 +273,12 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     )
   }
 
-  // Use modal's own branches for range check (always fresh)
-  const servingBranch = findNearestServingBranch(modalBranches, pickedLat, pickedLng, modalMaxKm)
-  const nearestBranch = findNearestBranchClient(modalBranches, pickedLat, pickedLng, modalMaxKm)
-  const dist = nearestBranch
-    ? nearestBranch.dist
-    : calcDist(pickedLat, pickedLng, kitchenLat, kitchenLng)
-  const hasBranchCoords = modalBranches.filter(b => b.lat && b.lng).length > 0
-  // Show "calculating" until branches are loaded — never show false outOfRange
-  const outOfRange = branchesLoaded && userSelected && (
-    hasBranchCoords ? servingBranch === null : dist !== null && dist > modalMaxKm
-  )
+  // Dominos model — per-branch radius only, no global fallback
+  const servingBranch = findNearestServingBranch(modalBranches, pickedLat, pickedLng)
+  const nearestBranch = findNearestBranchClient(modalBranches, pickedLat, pickedLng)
+  const dist = nearestBranch ? nearestBranch.dist : null
+  // outOfRange only after branches confirmed loaded — never false positive
+  const outOfRange = branchesLoaded && userSelected && modalBranches.filter(b => b.lat && b.lng && b.max_delivery_km).length > 0 && servingBranch === null
 
   return (
     <div style={{ position:'fixed', inset:0, background:'#000a', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
@@ -327,9 +320,11 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
                 </div>
               ) : (
                 <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
-                  {outOfRange
-                    ? `⚠️ Ye location delivery zone se bahar hai (${dist !== null ? dist.toFixed(1) : '?'} km — max ${nearestBranch?.radius ?? modalMaxKm} km)`
-                    : `✅ ${dist !== null ? dist.toFixed(1) : '?'} km ${nearestBranch ? nearestBranch.name + ' branch' : 'kitchen'} se · ${pickedAddress || 'Location selected'}`
+                  {!branchesLoaded
+                    ? '⏳ Branch info load ho rahi hai...'
+                    : outOfRange
+                    ? `⚠️ Ye location delivery zone se bahar hai — nearest branch (${nearestBranch?.name || ''}) sirf ${nearestBranch?.radius ?? '?'} km tak deliver karta hai, aap ${dist?.toFixed(1) ?? '?'} km door hain`
+                    : `✅ ${dist !== null ? dist.toFixed(1) : '?'} km ${nearestBranch ? nearestBranch.name + ' branch' : ''} se · ${pickedAddress || 'Location selected'}`
                   }
                 </div>
               )}
@@ -536,56 +531,41 @@ export default function CartPage() {
     })
   }, [])
 
-  // Auto-recalculate delivery charge when lat/lng changes
-  // Uses nearest SERVING branch distance (respects per-branch radius)
+  // Delivery range check — Dominos model: per-branch radius only, no global fallback
   useEffect(() => {
-    if (!branchesReady) return // wait for branches API before deciding anything
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      const branchesWithCoords = branches.filter(b => b.lat && b.lng)
-      const serving = findNearestServingBranch(branches, lat, lng, maxKm)
-      const nearest = findNearestBranchClient(branches, lat, lng, maxKm)
+    if (!branchesReady) return // wait — never show outOfRange before branches confirmed loaded
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false); return
+    }
 
-      if (branchesWithCoords.length > 0) {
-        // Branch-aware mode: use serving branch distance
-        const dist = serving ? serving.dist : (nearest ? nearest.dist : null)
-        if (dist === null) { setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(true); return }
-        setDistanceKm(dist)
-        setOutOfRange(serving === null) // out of range if no branch can serve
-        // Store nearest branch radius for error message display
-        setNearestBranchRadius(nearest ? nearest.radius : null)
-        if (serving) {
-          const pricing = pricingRef.current
-          if (pricing.length > 0) {
-            setDeliveryCharge(getCharge(dist, pricing))
-          } else {
-            fetch('/api/admin?type=pricing').then(r => r.json()).then(pd => {
-              pricingRef.current = pd.pricing || []
-              setDeliveryCharge(getCharge(dist, pd.pricing || []))
-            })
-          }
-        } else {
-          setDeliveryCharge(null)
-        }
+    const serving = findNearestServingBranch(branches, lat, lng)
+    const nearest = findNearestBranchClient(branches, lat, lng)
+
+    if (serving) {
+      // ✅ Customer is within a branch's delivery radius
+      setDistanceKm(serving.dist)
+      setOutOfRange(false)
+      setNearestBranchRadius(serving.radius)
+      const pricing = pricingRef.current
+      if (pricing.length > 0) {
+        setDeliveryCharge(getCharge(serving.dist, pricing))
       } else {
-        // Fallback: no branch coords — use kitchen distance + global maxKm
-        const dist = calcDist(lat, lng, kitchenLat, kitchenLng)
-        if (dist === null) return
-        setDistanceKm(dist)
-        setOutOfRange(dist > maxKm)
-        const pricing = pricingRef.current
-        if (pricing.length > 0) {
-          setDeliveryCharge(getCharge(dist, pricing))
-        } else {
-          fetch('/api/admin?type=pricing').then(r => r.json()).then(pd => {
-            pricingRef.current = pd.pricing || []
-            setDeliveryCharge(getCharge(dist, pd.pricing || []))
-          })
-        }
+        fetch('/api/admin?type=pricing').then(r => r.json()).then(pd => {
+          pricingRef.current = pd.pricing || []
+          setDeliveryCharge(getCharge(serving.dist, pd.pricing || []))
+        })
       }
+    } else if (nearest) {
+      // ❌ No branch can serve — show nearest branch distance for error message
+      setDistanceKm(nearest.dist)
+      setOutOfRange(true)
+      setNearestBranchRadius(nearest.radius)
+      setDeliveryCharge(null)
     } else {
+      // No branches at all with GPS — don't block order
       setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false)
     }
-  }, [lat, lng, kitchenLat, kitchenLng, maxKm, branches, branchesReady])
+  }, [lat, lng, branches, branchesReady])
 
   // Debounced DB sync — fires 800ms after last change
   const syncCartToDB = (cartData) => {
@@ -626,33 +606,30 @@ export default function CartPage() {
   const effectiveDelivery = freeDelivery ? 0 : safeDelivery
   const total = Math.max(0, subtotal - discount) + effectiveDelivery
 
-  // Map picker confirm — calculate charge immediately without relying on useEffect timing
+  // Map picker confirm — Dominos model: per-branch radius only
   const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
     const la2 = pf(la, null), ln2 = pf(ln, null)
     setAddress(addr)
     if (la2 === null || ln2 === null) { setShowMapPicker(false); return }
     setLat(la2); setLng(ln2)
-    // Use nearest SERVING branch distance (per-branch radius)
-    const serving = findNearestServingBranch(branches, la2, ln2, maxKm)
-    const nearest = findNearestBranchClient(branches, la2, ln2, maxKm)
-    const hasBranchCoords = branches.filter(b => b.lat && b.lng).length > 0
-    const dist = serving ? serving.dist : (nearest ? nearest.dist : calcDist(la2, ln2, kitchenLat, kitchenLng))
-    if (dist === null) { setShowMapPicker(false); return }
-    setDistanceKm(dist)
-    const oor = hasBranchCoords ? serving === null : dist > maxKm
-    setOutOfRange(oor)
-    if (nearest) setNearestBranchRadius(nearest.radius)
-    if (!oor) {
+    const serving = findNearestServingBranch(branches, la2, ln2)
+    const nearest = findNearestBranchClient(branches, la2, ln2)
+    if (serving) {
+      setDistanceKm(serving.dist)
+      setOutOfRange(false)
+      setNearestBranchRadius(serving.radius)
       let pricing = pricingRef.current
       if (!pricing.length) {
-        try {
-          const pd = await fetch('/api/admin?type=pricing').then(r => r.json())
-          pricing = pd.pricing || []; pricingRef.current = pricing
-        } catch {}
+        try { const pd = await fetch('/api/admin?type=pricing').then(r => r.json()); pricing = pd.pricing || []; pricingRef.current = pricing } catch {}
       }
-      setDeliveryCharge(getCharge(dist, pricing))
-    } else {
+      setDeliveryCharge(getCharge(serving.dist, pricing))
+    } else if (nearest) {
+      setDistanceKm(nearest.dist)
+      setOutOfRange(true)
+      setNearestBranchRadius(nearest.radius)
       setDeliveryCharge(null)
+    } else {
+      setOutOfRange(false); setDeliveryCharge(null)
     }
     setShowMapPicker(false)
   }
@@ -874,14 +851,14 @@ export default function CartPage() {
               </button>
 
               {/* Location status */}
-              {Number.isFinite(lat) && !outOfRange && (
+              {Number.isFinite(lat) && !outOfRange && Number.isFinite(distanceKm) && (
                 <div className={styles.gpsDetected}>
-                  ✅ Location set · {Number.isFinite(distanceKm) ? distanceKm.toFixed(1) : '...'} km kitchen se · Delivery: ₹{Number.isFinite(deliveryCharge) ? Math.round(deliveryCharge) : '...'}
+                  ✅ Location set · {distanceKm.toFixed(1)} km · Delivery: ₹{Number.isFinite(deliveryCharge) ? Math.round(deliveryCharge) : '...'}
                 </div>
               )}
               {lat && outOfRange && (
                 <div className={styles.outOfRange}>
-                  ⚠️ Aap {distanceKm?.toFixed(1)} km door ho — hum sirf {nearestBranchRadius ?? maxKm} km tak deliver karte hain
+                  ⚠️ Aap {distanceKm?.toFixed(1)} km door ho — nearest branch sirf {nearestBranchRadius ? nearestBranchRadius + ' km' : '?? km'} tak deliver karta hai
                 </div>
               )}
 

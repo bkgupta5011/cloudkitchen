@@ -82,8 +82,8 @@ body {
 .spinner { width: 20px; height: 20px; border: 2px solid var(--bd2); border-top-color: var(--or); border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Google Maps autocomplete dropdown — must be above all modals (z-index 9999+) */
-.pac-container { z-index: 10000 !important; }
+/* Google Maps autocomplete dropdown — must be above ALL modals */
+.pac-container { z-index: 10100 !important; }
 
 /* Toast */
 .toast-wrap { position: fixed; bottom: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }

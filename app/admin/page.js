@@ -2853,8 +2853,18 @@ export default function AdminPage() {
                   <input value={newBranch.city} onChange={e => setNewBranch(p => ({...p, city:e.target.value}))} placeholder="e.g. Patna" />
                 </div>
                 <div className="field">
-                  <label>Full Address</label>
-                  <textarea value={newBranch.address} onChange={e => setNewBranch(p => ({...p, address:e.target.value}))} placeholder="Branch ka poora address..." rows={2} />
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                    <label style={{ margin:0 }}>Full Address</label>
+                    <button type="button"
+                      onClick={() => setShowBranchMap(true)}
+                      style={{ fontSize:11, fontWeight:700, color:'var(--or)', background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:8, padding:'3px 10px', cursor:'pointer' }}>
+                      🗺️ Map se Select Karo
+                    </button>
+                  </div>
+                  <textarea value={newBranch.address} onChange={e => setNewBranch(p => ({...p, address:e.target.value}))} placeholder="Map se select karo ya manually type karo..." rows={2} />
+                  {newBranch.lat && newBranch.lng && (
+                    <div style={{ fontSize:11, color:'var(--gr)', marginTop:4 }}>📍 {parseFloat(newBranch.lat).toFixed(6)}, {parseFloat(newBranch.lng).toFixed(6)}</div>
+                  )}
                 </div>
                 <div className="field">
                   <label>Phone</label>
@@ -2883,33 +2893,11 @@ export default function AdminPage() {
 
                 {/* GPS Location */}
                 <div style={{ marginBottom:14 }}>
-                  <label style={{ fontSize:11, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>GPS Location</label>
-                  <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                  <label style={{ fontSize:11, fontWeight:600, color:'var(--t2)', display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:0.5 }}>GPS Coordinates (auto-fill from map)</label>
+                  <div style={{ display:'flex', gap:8 }}>
                     <input value={newBranch.lat} onChange={e => setNewBranch(p => ({...p, lat:e.target.value}))} placeholder="Latitude" style={{ flex:1, padding:'10px 12px', border:'0.5px solid var(--bd2)', borderRadius:8, background:'var(--bg)', color:'var(--t1)', fontSize:13, outline:'none' }} />
                     <input value={newBranch.lng} onChange={e => setNewBranch(p => ({...p, lng:e.target.value}))} placeholder="Longitude" style={{ flex:1, padding:'10px 12px', border:'0.5px solid var(--bd2)', borderRadius:8, background:'var(--bg)', color:'var(--t1)', fontSize:13, outline:'none' }} />
                   </div>
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button type="button" className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={() => setShowBranchMap(true)}>
-                      🗺️ Map se Dhundho
-                    </button>
-                    <button type="button" className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      disabled={branchLocLoading}
-                      onClick={() => {
-                        if (!navigator.geolocation) { showToast('GPS supported nahi hai'); return }
-                        setBranchLocLoading(true)
-                        navigator.geolocation.getCurrentPosition(
-                          pos => { setNewBranch(p => ({...p, lat: pos.coords.latitude.toFixed(6), lng: pos.coords.longitude.toFixed(6)})); setBranchLocLoading(false); showToast('📍 Location set!') },
-                          () => { setBranchLocLoading(false); showToast('GPS error. Manual enter karo.') },
-                          { enableHighAccuracy:true, timeout:10000 }
-                        )
-                      }}>
-                      {branchLocLoading ? '⏳...' : '📍 Current Location'}
-                    </button>
-                  </div>
-                  {newBranch.lat && newBranch.lng && (
-                    <div style={{ fontSize:11, color:'var(--gr)', marginTop:6 }}>✅ {newBranch.lat}, {newBranch.lng}</div>
-                  )}
                 </div>
 
                 <div style={{ display:'flex', gap:10, marginTop:4 }}>

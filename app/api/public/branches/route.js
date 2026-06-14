@@ -12,7 +12,9 @@ export async function GET() {
       WHERE is_active = true
       ORDER BY created_at ASC
     `
-    return NextResponse.json({ branches })
+    const [dbInfo] = await sql`SELECT current_database() AS db, inet_server_addr()::text AS server`
+    const dbTag = { db: dbInfo?.db, server: dbInfo?.server, url_tail: (process.env.DATABASE_URL || '').slice(-30) }
+    return NextResponse.json({ branches, _dbTag: dbTag })
   } catch {
     return NextResponse.json({ branches: [] })
   }

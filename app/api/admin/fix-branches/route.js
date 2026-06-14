@@ -19,10 +19,14 @@ export async function GET(request) {
   // ?check=1 → read-only, just SELECT current state
   const checkOnly = searchParams.get('check') === '1'
 
+  // Always include DB identity so we can verify which Neon instance is being hit
+  const [dbInfo] = await sql`SELECT current_database() AS db, inet_server_addr()::text AS server`
+  const dbTag = { db: dbInfo?.db, server: dbInfo?.server, url_tail: (process.env.DATABASE_URL || '').slice(-30) }
+
   try {
     if (checkOnly) {
       const rows = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
-      return NextResponse.json({ mode: 'check', branches: rows })
+      return NextResponse.json({ mode: 'check', dbTag, branches: rows })
     }
 
     const [k] = await sql`

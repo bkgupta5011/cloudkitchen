@@ -695,7 +695,7 @@ export async function PATCH(request) {
           ${data.lng ? parseFloat(data.lng) : null},
           ${data.opening_time || '09:00'},
           ${data.closing_time || '22:00'},
-          ${data.max_delivery_km ? parseFloat(data.max_delivery_km) : null}
+          ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null}
         )
         RETURNING *
       `
@@ -717,7 +717,7 @@ export async function PATCH(request) {
           lng             = ${data.lng ? parseFloat(data.lng) : null},
           opening_time    = ${data.opening_time || '09:00'},
           closing_time    = ${data.closing_time || '22:00'},
-          max_delivery_km = ${data.max_delivery_km ? parseFloat(data.max_delivery_km) : null}
+          max_delivery_km = ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null}
         WHERE id = ${data.id}::uuid
         RETURNING *
       `

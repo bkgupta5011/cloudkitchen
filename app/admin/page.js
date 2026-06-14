@@ -2664,7 +2664,7 @@ export default function AdminPage() {
                   )}
                   <div style={{ display:'flex', gap:8 }}>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km:b.max_delivery_km||'' }); setShowAddBranch(true) }}>
+                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km: parseFloat(b.max_delivery_km) > 0 ? parseFloat(b.max_delivery_km) : '' }); setShowAddBranch(true) }}>
                       ✏️ Edit
                     </button>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}

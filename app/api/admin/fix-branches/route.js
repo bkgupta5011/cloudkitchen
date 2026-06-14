@@ -19,20 +19,22 @@ export async function GET(request) {
   // ?check=1 → read-only, just SELECT current state
   const checkOnly = searchParams.get('check') === '1'
 
-  // Always include DB identity so we can verify which Neon instance is being hit
-  const [dbInfo] = await sql`SELECT current_database() AS db, current_schema() AS schema, inet_server_addr()::text AS server`
-  const allBranchesTables = await sql`
-    SELECT table_schema, table_type FROM information_schema.tables
-    WHERE table_name = 'branches'
-    ORDER BY table_schema
+  // Schema / trigger diagnostics
+  const columns = await sql`
+    SELECT column_name, data_type, column_default, is_nullable, is_generated
+    FROM information_schema.columns
+    WHERE table_name = 'branches' AND table_schema = 'public'
+    ORDER BY ordinal_position
   `
-  const dbTag = {
-    db: dbInfo?.db,
-    schema: dbInfo?.schema,
-    server: dbInfo?.server,
-    url_tail: (process.env.DATABASE_URL || '').slice(-40),
-    branches_tables: allBranchesTables
-  }
+  const triggers = await sql`
+    SELECT trigger_name, event_manipulation, action_timing, action_statement
+    FROM information_schema.triggers
+    WHERE event_object_table = 'branches'
+  `
+  const rls = await sql`
+    SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = 'branches'
+  `
+  const dbTag = { columns, triggers, rls, url_tail: (process.env.DATABASE_URL || '').slice(-40) }
 
   try {
     if (checkOnly) {

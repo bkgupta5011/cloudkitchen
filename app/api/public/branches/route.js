@@ -7,7 +7,7 @@ export async function GET() {
   const sql = getDb()
   try {
     const branches = await sql`
-      SELECT id, name, lat, lng, address
+      SELECT id, name, lat, lng, address, max_delivery_km
       FROM branches
       WHERE is_active = true
       ORDER BY created_at ASC

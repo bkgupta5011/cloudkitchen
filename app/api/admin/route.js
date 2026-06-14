@@ -17,20 +17,22 @@ async function ensureBranchesTable(sql) {
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS branches (
-        id            UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-        name          VARCHAR(255) NOT NULL,
-        address       TEXT NOT NULL DEFAULT '',
-        city          VARCHAR(100) DEFAULT '',
-        phone         VARCHAR(20)  DEFAULT '',
-        lat           DECIMAL(10,8),
-        lng           DECIMAL(11,8),
-        is_active     BOOLEAN DEFAULT true,
-        opening_time  VARCHAR(5)   DEFAULT '09:00',
-        closing_time  VARCHAR(5)   DEFAULT '22:00',
-        created_at    TIMESTAMP DEFAULT NOW()
+        id               UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        name             VARCHAR(255) NOT NULL,
+        address          TEXT NOT NULL DEFAULT '',
+        city             VARCHAR(100) DEFAULT '',
+        phone            VARCHAR(20)  DEFAULT '',
+        lat              DECIMAL(10,8),
+        lng              DECIMAL(11,8),
+        is_active        BOOLEAN DEFAULT true,
+        opening_time     VARCHAR(5)   DEFAULT '09:00',
+        closing_time     VARCHAR(5)   DEFAULT '22:00',
+        max_delivery_km  DECIMAL(5,2) DEFAULT NULL,
+        created_at       TIMESTAMP DEFAULT NOW()
       )
     `
-    // Safe: add branch columns to admins (existing admins unaffected — NULL = super admin)
+    // Safe column additions
+    await sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS max_delivery_km DECIMAL(5,2) DEFAULT NULL`
     await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
     await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
   } catch(e) {}
@@ -683,7 +685,7 @@ export async function PATCH(request) {
     if (data.action === 'create') {
       if (!data.name?.trim()) return NextResponse.json({ error: 'Branch name required' }, { status: 400 })
       const [branch] = await sql`
-        INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time)
+        INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time, max_delivery_km)
         VALUES (
           ${data.name.trim()},
           ${data.address?.trim() || ''},
@@ -692,7 +694,8 @@ export async function PATCH(request) {
           ${data.lat ? parseFloat(data.lat) : null},
           ${data.lng ? parseFloat(data.lng) : null},
           ${data.opening_time || '09:00'},
-          ${data.closing_time || '22:00'}
+          ${data.closing_time || '22:00'},
+          ${data.max_delivery_km ? parseFloat(data.max_delivery_km) : null}
         )
         RETURNING *
       `
@@ -706,14 +709,15 @@ export async function PATCH(request) {
       if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
       const [branch] = await sql`
         UPDATE branches SET
-          name         = ${data.name?.trim() || ''},
-          address      = ${data.address?.trim() || ''},
-          city         = ${data.city?.trim() || ''},
-          phone        = ${data.phone?.trim() || ''},
-          lat          = ${data.lat ? parseFloat(data.lat) : null},
-          lng          = ${data.lng ? parseFloat(data.lng) : null},
-          opening_time = ${data.opening_time || '09:00'},
-          closing_time = ${data.closing_time || '22:00'}
+          name            = ${data.name?.trim() || ''},
+          address         = ${data.address?.trim() || ''},
+          city            = ${data.city?.trim() || ''},
+          phone           = ${data.phone?.trim() || ''},
+          lat             = ${data.lat ? parseFloat(data.lat) : null},
+          lng             = ${data.lng ? parseFloat(data.lng) : null},
+          opening_time    = ${data.opening_time || '09:00'},
+          closing_time    = ${data.closing_time || '22:00'},
+          max_delivery_km = ${data.max_delivery_km ? parseFloat(data.max_delivery_km) : null}
         WHERE id = ${data.id}::uuid
         RETURNING *
       `

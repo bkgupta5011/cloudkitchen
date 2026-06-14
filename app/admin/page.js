@@ -106,7 +106,7 @@ export default function AdminPage() {
   const [showAddBranch, setShowAddBranch] = useState(false)
   const [editBranch, setEditBranch] = useState(null)
   const [branchSaving, setBranchSaving] = useState(false)
-  const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00' }
+  const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00', max_delivery_km:'' }
   const [newBranch, setNewBranch] = useState(emptyBranch)
   const [branchLocLoading, setBranchLocLoading] = useState(false)
   // Branch Login
@@ -2620,7 +2620,8 @@ export default function AdminPage() {
                   </div>
                   {b.address && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6, lineHeight:1.5 }}>🏠 {b.address}</div>}
                   {b.phone && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6 }}>📞 {b.phone}</div>}
-                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:12 }}>🕐 {b.opening_time} – {b.closing_time}</div>
+                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:4 }}>🕐 {b.opening_time} – {b.closing_time}</div>
+                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:12 }}>📦 Delivery Radius: <strong>{b.max_delivery_km ? `${b.max_delivery_km} km` : 'Global setting'}</strong></div>
                   {b.lat && b.lng && (
                     <div style={{ marginBottom:12 }}>
                       <a href={`https://maps.google.com/?q=${b.lat},${b.lng}`} target="_blank" rel="noreferrer"
@@ -2629,7 +2630,7 @@ export default function AdminPage() {
                   )}
                   <div style={{ display:'flex', gap:8 }}>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00' }); setShowAddBranch(true) }}>
+                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km:b.max_delivery_km||'' }); setShowAddBranch(true) }}>
                       ✏️ Edit
                     </button>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
@@ -2834,6 +2835,16 @@ export default function AdminPage() {
                     <label>Closing Time</label>
                     <input type="time" value={newBranch.closing_time} onChange={e => setNewBranch(p => ({...p, closing_time:e.target.value}))} />
                   </div>
+                </div>
+                <div className="field">
+                  <label>Max Delivery Radius (KM)</label>
+                  <input
+                    type="number" min="0.5" max="50" step="0.5"
+                    value={newBranch.max_delivery_km}
+                    onChange={e => setNewBranch(p => ({...p, max_delivery_km:e.target.value}))}
+                    placeholder={`Default: Kitchen Settings se (global)`}
+                  />
+                  <div style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Khali chodo to Kitchen Settings wala global radius use hoga</div>
                 </div>
 
                 {/* GPS Location */}

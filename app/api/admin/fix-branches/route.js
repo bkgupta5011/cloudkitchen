@@ -16,7 +16,15 @@ export async function GET(request) {
   const maxKm = parseFloat(searchParams.get('km') || '1')
   const kankarbaghActive = searchParams.get('kankarbagh') !== 'inactive'
 
+  // ?check=1 → read-only, just SELECT current state
+  const checkOnly = searchParams.get('check') === '1'
+
   try {
+    if (checkOnly) {
+      const rows = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
+      return NextResponse.json({ mode: 'check', branches: rows })
+    }
+
     const [k] = await sql`
       UPDATE branches SET is_active = ${kankarbaghActive}, max_delivery_km = ${maxKm}
       WHERE id = ${kankarbaghId}::uuid RETURNING name, is_active, max_delivery_km
@@ -25,7 +33,9 @@ export async function GET(request) {
       UPDATE branches SET is_active = true, max_delivery_km = ${maxKm}
       WHERE id = ${jaganpuraId}::uuid RETURNING name, is_active, max_delivery_km
     `
-    return NextResponse.json({ success: true, kankarbagh: k, jaganpura: j })
+    // Verify immediately after update
+    const verify = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
+    return NextResponse.json({ success: true, kankarbagh: k, jaganpura: j, verify })
   } catch(e) {
     return NextResponse.json({ error: e.message }, { status: 500 })
   }

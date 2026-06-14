@@ -377,14 +377,14 @@ function MenuPageContent() {
 
   const { installPrompt, isInstalled, install, isIOS } = usePWAInstall()
 
-  // Show install banner after 4s if not already installed
+  // Show install banner after 4s — only for guests (not logged-in customers)
   useEffect(() => {
-    if (isInstalled) return
+    if (isInstalled || user) return   // hide for logged-in users
     const t = setTimeout(() => {
       if (installPrompt || isIOS) setShowInstallBanner(true)
     }, 4000)
     return () => clearTimeout(t)
-  }, [installPrompt, isInstalled, isIOS])
+  }, [installPrompt, isInstalled, isIOS, user])
 
   const handleInstall = async () => {
     if (isIOS) { setShowIOSModal(true); return }
@@ -680,8 +680,8 @@ function MenuPageContent() {
               )}
             </button>
           )}
-          {/* Install button — Android: native prompt, iOS: step-by-step modal */}
-          {!isInstalled && (installPrompt || isIOS) && (
+          {/* Install button — only for guests (not logged-in customers) */}
+          {!isInstalled && !user && (installPrompt || isIOS) && (
             <button
               onClick={handleInstall}
               style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}

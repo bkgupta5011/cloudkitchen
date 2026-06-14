@@ -8,8 +8,22 @@ export default function PWAInstall() {
   const [isInstalled, setIsInstalled] = useState(false)
   const [isIos, setIsIos] = useState(false)
   const [showIosTip, setShowIosTip] = useState(false)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+
+  // Check login status — hide install prompts for logged-in users
+  useEffect(() => {
+    fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'me' })
+    }).then(r => r.json()).then(d => {
+      if (d.user) setIsLoggedIn(true)
+    }).catch(() => {})
+  }, [])
 
   useEffect(() => {
+    if (isLoggedIn) return // logged-in users — skip all install prompts
+
     // Already installed as standalone app?
     const standalone =
       window.matchMedia('(display-mode: standalone)').matches ||
@@ -90,7 +104,7 @@ export default function PWAInstall() {
     localStorage.removeItem('pwa_banner_dismissed')
   }
 
-  if (isInstalled) return null
+  if (isInstalled || isLoggedIn) return null
 
   return (
     <>

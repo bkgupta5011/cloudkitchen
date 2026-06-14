@@ -21,7 +21,7 @@ export async function GET(request) {
   try {
     // Raw catalog checks — pg_trigger and pg_rules are more complete than information_schema
     const pgTriggers = await sql`SELECT tgname, tgtype, tgenabled, tgisinternal FROM pg_trigger WHERE tgrelid = 'public.branches'::regclass`
-    const pgRules    = await sql`SELECT rulename, ev_type, is_instead FROM pg_rules WHERE tablename = 'branches'`
+    const pgRules    = await sql`SELECT rulename, definition FROM pg_rules WHERE tablename = 'branches'`
     const colPerms   = await sql`SELECT column_name, is_updatable FROM information_schema.columns WHERE table_name = 'branches' AND table_schema = 'public' ORDER BY ordinal_position`
 
     if (checkOnly) {

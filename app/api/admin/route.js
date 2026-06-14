@@ -678,8 +678,7 @@ export async function PATCH(request) {
 
   // ── Branch CRUD ───────────────────────────────────────────────────
   if (type === 'branch') {
-    const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    // Note: top-level adminOnly already passed — no need for second check
     await ensureBranchesTable(sql)
 
     if (data.action === 'create') {

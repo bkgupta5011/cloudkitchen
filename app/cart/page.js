@@ -110,23 +110,40 @@ function findNearestBranchClient(branches, lat, lng, globalMaxKm) {
 }
 
 // ── Map Picker Modal ──────────────────────────────────────────────
-function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm, branches, onConfirm, onClose }) {
+function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm, onConfirm, onClose }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markerRef = useRef(null)
   const searchRef = useRef(null)
+  const branchMarkersRef = useRef([]) // track drawn markers/circles for cleanup
   const [pickedAddress, setPickedAddress] = useState('')
   const hasInitial = Number.isFinite(initialLat) && Number.isFinite(initialLng)
-  // Default map center: nearest branch with coords, else kitchen
-  const branchesWithCoords = (branches || []).filter(b => b.lat && b.lng)
-  const defaultCenter = branchesWithCoords.length > 0
-    ? { lat: parseFloat(branchesWithCoords[0].lat), lng: parseFloat(branchesWithCoords[0].lng) }
+
+  // Modal fetches its OWN branches — never depends on parent timing
+  const [modalBranches, setModalBranches] = useState([])
+  const [modalMaxKm, setModalMaxKm] = useState(maxKm || 10)
+  const [branchesLoaded, setBranchesLoaded] = useState(false)
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
+      fetch('/api/admin').then(r => r.json()).catch(() => ({ settings: null })),
+    ]).then(([bd, sd]) => {
+      const b = bd.branches || []
+      setModalBranches(b)
+      if (sd.settings?.max_delivery_km) setModalMaxKm(parseFloat(sd.settings.max_delivery_km))
+      setBranchesLoaded(true)
+    })
+  }, [])
+
+  const defaultCenter = hasInitial
+    ? { lat: initialLat, lng: initialLng }
     : { lat: kitchenLat, lng: kitchenLng }
-  const [pickedLat, setPickedLat] = useState(hasInitial ? initialLat : defaultCenter.lat)
-  const [pickedLng, setPickedLng] = useState(hasInitial ? initialLng : defaultCenter.lng)
+
+  const [pickedLat, setPickedLat] = useState(defaultCenter.lat)
+  const [pickedLng, setPickedLng] = useState(defaultCenter.lng)
   const [loading, setLoading] = useState(true)
   const [gpsLoading, setGpsLoading] = useState(false)
-  // Track if customer has manually selected a location (not just initial pin)
   const [userSelected, setUserSelected] = useState(hasInitial)
 
   const updatePin = useCallback(async (lat, lng, byUser = false) => {
@@ -136,12 +153,13 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     setPickedAddress(addr)
   }, [])
 
+  // Step 1: Initialize map (no branch markers yet)
   useEffect(() => {
     let cancelled = false
     loadGoogleMaps().then(gmaps => {
       if (cancelled || !mapRef.current) return
       fetch('/api/track-usage', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type:'maps'}) }).catch(()=>{})
-      const center = { lat: pickedLat, lng: pickedLng }
+      const center = defaultCenter
       const map = new gmaps.Map(mapRef.current, {
         center, zoom: hasInitial ? 15 : 13,
         mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
@@ -149,39 +167,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
       })
       mapInstanceRef.current = map
 
-      // Branch markers + delivery radius circles — each branch uses its own radius
-      const activeBranches = (branches || []).filter(b => b.lat && b.lng)
-      if (activeBranches.length > 0) {
-        activeBranches.forEach(b => {
-          const branchRadius = b.max_delivery_km ? parseFloat(b.max_delivery_km) : maxKm
-          new gmaps.Marker({
-            position: { lat: parseFloat(b.lat), lng: parseFloat(b.lng) },
-            map, title: `🏪 ${b.name} (${branchRadius} km)`,
-            icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new gmaps.Size(32, 32) }
-          })
-          new gmaps.Circle({
-            map, center: { lat: parseFloat(b.lat), lng: parseFloat(b.lng) },
-            radius: branchRadius * 1000,
-            strokeColor: '#e85d04', strokeOpacity: 0.3, strokeWeight: 2,
-            fillColor: '#e85d04', fillOpacity: 0.04
-          })
-        })
-      } else {
-        // Fallback: show main kitchen if no branches have coords
-        new gmaps.Marker({
-          position: { lat: kitchenLat, lng: kitchenLng },
-          map, title: '🍽️ FoodFi Kitchen',
-          icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new gmaps.Size(32, 32) }
-        })
-        new gmaps.Circle({
-          map, center: { lat: kitchenLat, lng: kitchenLng },
-          radius: maxKm * 1000,
-          strokeColor: '#e85d04', strokeOpacity: 0.4, strokeWeight: 2,
-          fillColor: '#e85d04', fillOpacity: 0.05
-        })
-      }
-
-      // Draggable delivery marker — only show if user has a saved address
+      // Draggable delivery marker
       const marker = new gmaps.Marker({
         position: center, map, draggable: true, title: 'Drag to your location',
         animation: gmaps.Animation.DROP,
@@ -220,15 +206,53 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
         })
       }
 
-      // Initial reverse geocode only if customer has a saved address
       if (hasInitial) {
-        updatePin(pickedLat, pickedLng).then(() => setLoading(false))
+        updatePin(initialLat, initialLng).then(() => setLoading(false))
       } else {
         setLoading(false)
       }
     })
     return () => { cancelled = true }
   }, [])
+
+  // Step 2: Add branch markers AFTER both map AND branches are ready
+  useEffect(() => {
+    if (!branchesLoaded || !mapInstanceRef.current || !window.google) return
+    const gmaps = window.google.maps
+    const map = mapInstanceRef.current
+
+    // Clear previous markers/circles
+    branchMarkersRef.current.forEach(obj => obj.setMap(null))
+    branchMarkersRef.current = []
+
+    const activeBranches = modalBranches.filter(b => b.lat && b.lng)
+    if (activeBranches.length > 0) {
+      activeBranches.forEach(b => {
+        const branchRadius = b.max_delivery_km ? parseFloat(b.max_delivery_km) : modalMaxKm
+        const marker = new gmaps.Marker({
+          position: { lat: parseFloat(b.lat), lng: parseFloat(b.lng) },
+          map, title: `🏪 ${b.name} (${branchRadius} km radius)`,
+          icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png', scaledSize: new gmaps.Size(32, 32) }
+        })
+        const circle = new gmaps.Circle({
+          map, center: { lat: parseFloat(b.lat), lng: parseFloat(b.lng) },
+          radius: branchRadius * 1000,
+          strokeColor: '#e85d04', strokeOpacity: 0.4, strokeWeight: 2,
+          fillColor: '#e85d04', fillOpacity: 0.06
+        })
+        branchMarkersRef.current.push(marker, circle)
+      })
+    } else {
+      // Fallback: show kitchen circle
+      const circle = new gmaps.Circle({
+        map, center: { lat: kitchenLat, lng: kitchenLng },
+        radius: modalMaxKm * 1000,
+        strokeColor: '#e85d04', strokeOpacity: 0.4, strokeWeight: 2,
+        fillColor: '#e85d04', fillOpacity: 0.05
+      })
+      branchMarkersRef.current.push(circle)
+    }
+  }, [branchesLoaded, modalBranches, modalMaxKm])
 
   const useGPS = () => {
     setGpsLoading(true)
@@ -251,17 +275,17 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     )
   }
 
-  // Find nearest SERVING branch (respects per-branch radius)
-  const servingBranch = findNearestServingBranch(branches, pickedLat, pickedLng, maxKm)
-  // Also find absolute nearest for distance display (includes radius field)
-  const nearestBranch = findNearestBranchClient(branches, pickedLat, pickedLng, maxKm)
+  // Use modal's own branches for range check (always fresh)
+  const servingBranch = findNearestServingBranch(modalBranches, pickedLat, pickedLng, modalMaxKm)
+  const nearestBranch = findNearestBranchClient(modalBranches, pickedLat, pickedLng, modalMaxKm)
   const dist = nearestBranch
     ? nearestBranch.dist
     : calcDist(pickedLat, pickedLng, kitchenLat, kitchenLng)
-  // Out of range if no branch can serve this location
-  const outOfRange = userSelected && (branches?.filter(b => b.lat && b.lng).length > 0
-    ? servingBranch === null
-    : dist !== null && dist > maxKm)
+  const hasBranchCoords = modalBranches.filter(b => b.lat && b.lng).length > 0
+  // Show "calculating" until branches are loaded — never show false outOfRange
+  const outOfRange = branchesLoaded && userSelected && (
+    hasBranchCoords ? servingBranch === null : dist !== null && dist > modalMaxKm
+  )
 
   return (
     <div style={{ position:'fixed', inset:0, background:'#000a', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
@@ -304,7 +328,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
               ) : (
                 <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
                   {outOfRange
-                    ? `⚠️ Ye location delivery zone se bahar hai (${dist !== null ? dist.toFixed(1) : '?'} km — max ${nearestBranch?.radius ?? maxKm} km)`
+                    ? `⚠️ Ye location delivery zone se bahar hai (${dist !== null ? dist.toFixed(1) : '?'} km — max ${nearestBranch?.radius ?? modalMaxKm} km)`
                     : `✅ ${dist !== null ? dist.toFixed(1) : '?'} km ${nearestBranch ? nearestBranch.name + ' branch' : 'kitchen'} se · ${pickedAddress || 'Location selected'}`
                   }
                 </div>
@@ -987,7 +1011,6 @@ export default function CartPage() {
           initialLat={lat} initialLng={lng}
           kitchenLat={kitchenLat} kitchenLng={kitchenLng}
           maxKm={maxKm}
-          branches={branches}
           onConfirm={handleMapConfirm}
           onClose={() => setShowMapPicker(false)}
         />

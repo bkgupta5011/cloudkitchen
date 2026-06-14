@@ -19,30 +19,38 @@ export async function GET(request) {
   const checkOnly = searchParams.get('check') === '1'
 
   try {
+    // Raw catalog checks — pg_trigger and pg_rules are more complete than information_schema
+    const pgTriggers = await sql`SELECT tgname, tgtype, tgenabled, tgisinternal FROM pg_trigger WHERE tgrelid = 'public.branches'::regclass`
+    const pgRules    = await sql`SELECT rulename, ev_type, is_instead FROM pg_rules WHERE tablename = 'branches'`
+    const colPerms   = await sql`SELECT column_name, is_updatable FROM information_schema.columns WHERE table_name = 'branches' AND table_schema = 'public' ORDER BY ordinal_position`
+
     if (checkOnly) {
       const rows = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
-      return NextResponse.json({ mode: 'check', branches: rows })
+      return NextResponse.json({ mode: 'check', pgTriggers, pgRules, colPerms, branches: rows })
     }
 
-    // Use SQL literal false (not a JS parameter) to avoid Neon driver boolean serialization issue
-    const [k] = await sql`
-      UPDATE branches
-      SET is_active = false,
-          max_delivery_km = ${maxKm}
-      WHERE id = ${kankarbaghId}::uuid
-      RETURNING name, is_active, max_delivery_km
-    `
-    const [j] = await sql`
-      UPDATE branches
-      SET is_active = true,
-          max_delivery_km = ${maxKm}
-      WHERE id = ${jaganpuraId}::uuid
-      RETURNING name, is_active, max_delivery_km
-    `
-    // Verify immediately after update
+    // Try three approaches for setting is_active=false and see which one shows true/false in RETURNING
+    // Approach A: SQL literal false
+    const [rA] = await sql`UPDATE branches SET is_active = false WHERE id = ${kankarbaghId}::uuid RETURNING is_active AS approach_a`
+    // Approach B: cast via expression
+    const [rB] = await sql`UPDATE branches SET is_active = (1=2) WHERE id = ${kankarbaghId}::uuid RETURNING is_active AS approach_b`
+    // Approach C: NOT true
+    const [rC] = await sql`UPDATE branches SET is_active = NOT true WHERE id = ${kankarbaghId}::uuid RETURNING is_active AS approach_c`
+    // Approach D: NULL first, then false
+    await sql`UPDATE branches SET is_active = NULL WHERE id = ${kankarbaghId}::uuid`
+    const [rD] = await sql`UPDATE branches SET is_active = false WHERE id = ${kankarbaghId}::uuid RETURNING is_active AS approach_d`
+
     const verify = await sql`SELECT id, name, is_active, max_delivery_km FROM branches ORDER BY created_at ASC`
-    return NextResponse.json({ success: true, kankarbagh: k, jaganpura: j, verify })
+
+    // Also update km for both
+    await sql`UPDATE branches SET max_delivery_km = ${maxKm} WHERE id = ${jaganpuraId}::uuid`
+
+    return NextResponse.json({
+      pgTriggers, pgRules, colPerms,
+      approaches: { a: rA, b: rB, c: rC, d: rD },
+      verify
+    })
   } catch(e) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    return NextResponse.json({ error: e.message, stack: e.stack?.slice(0,500) }, { status: 500 })
   }
 }

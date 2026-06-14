@@ -258,12 +258,21 @@ export async function POST(request) {
     let detectedRole = null
 
     // Check admins (email OR phone)
-    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
+    try { await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''` } catch {}
     if (isEmail) {
       const admins = await sql`SELECT * FROM admins WHERE email = ${loginId} LIMIT 1`
       if (admins[0]) { user = admins[0]; detectedRole = 'admin' }
     } else {
-      const admins = await sql`SELECT * FROM admins WHERE phone = ${loginId} OR phone = ${'91' + loginId.replace(/[^0-9]/g,'')} OR phone = ${'+91' + loginId.replace(/[^0-9]/g,'')} LIMIT 1`
+      // Normalize to last 10 digits for matching
+      const digits10 = loginId.replace(/[^0-9]/g, '').slice(-10)
+      const admins = await sql`
+        SELECT * FROM admins WHERE
+          phone = ${loginId} OR
+          phone = ${digits10} OR
+          phone = ${'91' + digits10} OR
+          phone = ${'+91' + digits10} OR
+          phone = ${'0' + digits10}
+        LIMIT 1`
       if (admins[0]) { user = admins[0]; detectedRole = 'admin' }
     }
 
@@ -703,17 +712,32 @@ export async function POST(request) {
     }
     if (bPassword.length < 6) return NextResponse.json({ error: 'Password kam se kam 6 characters ka hona chahiye' }, { status: 400 })
 
-    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
-    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
-    await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
+    try {
+      await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS phone VARCHAR(20) DEFAULT ''`
+    } catch {}
+    try {
+      await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
+    } catch {}
+    try {
+      await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
+    } catch {}
+    try {
+      await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`
+    } catch {}
+
+    // Normalize phone: keep only digits, store as 10-digit number
+    const normalizedPhone = bPhone.replace(/[^0-9]/g, '').slice(-10)
+    if (normalizedPhone.length !== 10) {
+      return NextResponse.json({ error: 'Valid 10-digit phone number daalo' }, { status: 400 })
+    }
 
     const passwordHash = await hashPassword(bPassword)
     // Check if branch already has an admin
     const [existing] = await sql`SELECT id FROM admins WHERE branch_id = ${branch_id}::uuid LIMIT 1`
     if (existing) {
-      await sql`UPDATE admins SET phone = ${bPhone}, password_hash = ${passwordHash}, name = COALESCE(${bName || null}, name), is_super_admin = false WHERE id = ${existing.id}`
+      await sql`UPDATE admins SET phone = ${normalizedPhone}, password_hash = ${passwordHash}, name = COALESCE(${bName || null}, name), is_super_admin = false WHERE id = ${existing.id}`
     } else {
-      await sql`INSERT INTO admins (name, email, phone, password_hash, branch_id, is_super_admin) VALUES (${bName || 'Branch Admin'}, ${`branch_${branch_id}@foodfi.in`}, ${bPhone}, ${passwordHash}, ${branch_id}::uuid, false)`
+      await sql`INSERT INTO admins (name, email, phone, password_hash, branch_id, is_super_admin) VALUES (${bName || 'Branch Admin'}, ${`branch_${branch_id}@foodfi.in`}, ${normalizedPhone}, ${passwordHash}, ${branch_id}::uuid, false)`
     }
     return NextResponse.json({ success: true })
   }

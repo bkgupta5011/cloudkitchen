@@ -680,8 +680,8 @@ function MenuPageContent() {
               )}
             </button>
           )}
-          {/* Install button — only for guests (not logged-in customers) */}
-          {!isInstalled && !user && (installPrompt || isIOS) && (
+          {/* Install button — always visible (navbar me hona chahiye) */}
+          {!isInstalled && (installPrompt || isIOS) && (
             <button
               onClick={handleInstall}
               style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}

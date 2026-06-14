@@ -39,6 +39,10 @@ export default function AdminPage() {
   const [pendingBoys, setPendingBoys] = useState([])
   const [pricing, setPricing] = useState([])
   const [analytics, setAnalytics] = useState(null)
+  const [branchAnalytics, setBranchAnalytics] = useState(null)
+  const [branchAnalyticsLoading, setBranchAnalyticsLoading] = useState(false)
+  const [baDateFrom, setBaDateFrom] = useState('')
+  const [baDateTo, setBaDateTo] = useState('')
   const [apiUsage, setApiUsage] = useState(null)
   const [customers, setCustomers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -1609,6 +1613,175 @@ export default function AdminPage() {
                 </div>
               )
             })()}
+            {/* ── Branch-wise Analytics ── */}
+            {branches.length > 0 && (
+              <div style={{ background:'var(--card)', borderRadius:16, padding:'20px 24px', border:'1px solid var(--bd)', marginBottom:16 }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+                  <h3 style={{ fontSize:14, fontWeight:700, margin:0 }}>🏪 Branch-wise Report</h3>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    <input type="date" value={baDateFrom} onChange={e => setBaDateFrom(e.target.value)}
+                      style={{ border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 8px', fontSize:12, color:'var(--t1)', background:'var(--bg)' }} />
+                    <span style={{ fontSize:12, color:'var(--t2)' }}>to</span>
+                    <input type="date" value={baDateTo} onChange={e => setBaDateTo(e.target.value)}
+                      style={{ border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 8px', fontSize:12, color:'var(--t1)', background:'var(--bg)' }} />
+                    <button className="btn btn-primary" style={{ fontSize:12 }}
+                      onClick={async () => {
+                        setBranchAnalyticsLoading(true)
+                        const url = baDateFrom && baDateTo
+                          ? `/api/admin?type=branch_analytics&date_from=${baDateFrom}&date_to=${baDateTo}`
+                          : '/api/admin?type=branch_analytics'
+                        const d = await fetch(url).then(r => r.json())
+                        setBranchAnalytics(d)
+                        setBranchAnalyticsLoading(false)
+                      }}>
+                      {branchAnalyticsLoading ? '⏳...' : '🔍 Load'}
+                    </button>
+                    {!branchAnalytics && (
+                      <button className="btn btn-secondary" style={{ fontSize:12 }}
+                        onClick={async () => {
+                          setBranchAnalyticsLoading(true)
+                          const d = await fetch('/api/admin?type=branch_analytics').then(r => r.json())
+                          setBranchAnalytics(d)
+                          setBranchAnalyticsLoading(false)
+                        }}>
+                        📊 Last 30 Days
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {!branchAnalytics ? (
+                  <div style={{ textAlign:'center', padding:'30px', color:'var(--t3)', fontSize:13 }}>
+                    "Load" ya "Last 30 Days" click karo report dekhne ke liye
+                  </div>
+                ) : branchAnalyticsLoading ? (
+                  <div style={{ textAlign:'center', padding:30 }}><span className="spinner" /></div>
+                ) : (
+                  <>
+                    {/* Branch comparison table */}
+                    <div style={{ overflowX:'auto', marginBottom:20 }}>
+                      <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+                        <thead>
+                          <tr style={{ background:'var(--bg)' }}>
+                            {['Branch','Orders','Delivered','Cancelled','Active','Revenue','Avg Order','Delivery Income'].map(h => (
+                              <th key={h} style={{ padding:'8px 12px', textAlign: h==='Branch'?'left':'right', color:'var(--t2)', fontWeight:700, fontSize:11, textTransform:'uppercase', borderBottom:'1px solid var(--bd)', whiteSpace:'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(branchAnalytics.stats || []).map((b, i) => {
+                            const deliveredPct = b.total_orders > 0 ? Math.round(b.delivered / b.total_orders * 100) : 0
+                            return (
+                              <tr key={b.id} style={{ borderBottom:'1px solid var(--bd)', background: i%2===0?'var(--card)':'var(--bg)' }}>
+                                <td style={{ padding:'10px 12px' }}>
+                                  <div style={{ fontWeight:700, color:'var(--t1)' }}>{b.name}</div>
+                                  {b.city && <div style={{ fontSize:10, color:'var(--t2)' }}>📍 {b.city}</div>}
+                                  <span style={{ fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:8, background: b.is_active?'#dcfce7':'#fee2e2', color: b.is_active?'#15803d':'#dc2626' }}>
+                                    {b.is_active ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', fontWeight:700 }}>{b.total_orders}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'#16a34a', fontWeight:700 }}>
+                                  {b.delivered}
+                                  <div style={{ fontSize:10, color:'var(--t2)' }}>{deliveredPct}%</div>
+                                </td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color: b.cancelled>0?'#dc2626':'var(--t2)' }}>{b.cancelled}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color: b.active>0?'#f59e0b':'var(--t2)', fontWeight: b.active>0?700:400 }}>{b.active}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', fontWeight:800, color:'var(--or)' }}>₹{Math.round(parseFloat(b.revenue))}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'var(--t2)' }}>₹{Math.round(parseFloat(b.avg_order))}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'var(--t2)' }}>₹{Math.round(parseFloat(b.delivery_income))}</td>
+                              </tr>
+                            )
+                          })}
+                          {/* Total row */}
+                          {(branchAnalytics.stats||[]).length > 1 && (() => {
+                            const s = branchAnalytics.stats
+                            return (
+                              <tr style={{ borderTop:'2px solid var(--bd)', background:'var(--bg)', fontWeight:700 }}>
+                                <td style={{ padding:'10px 12px', color:'var(--t1)' }}>📊 TOTAL</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right' }}>{s.reduce((a,b)=>a+b.total_orders,0)}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'#16a34a' }}>{s.reduce((a,b)=>a+b.delivered,0)}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'#dc2626' }}>{s.reduce((a,b)=>a+b.cancelled,0)}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'#f59e0b' }}>{s.reduce((a,b)=>a+b.active,0)}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right', color:'var(--or)' }}>₹{Math.round(s.reduce((a,b)=>a+parseFloat(b.revenue),0))}</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right' }}>—</td>
+                                <td style={{ padding:'10px 12px', textAlign:'right' }}>₹{Math.round(s.reduce((a,b)=>a+parseFloat(b.delivery_income),0))}</td>
+                              </tr>
+                            )
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Top items per branch */}
+                    {(branchAnalytics.stats||[]).map(b => {
+                      const bItems = (branchAnalytics.topItems||[]).filter(t => t.branch_id === b.id).slice(0, 5)
+                      if (!bItems.length) return null
+                      const maxQty = bItems[0]?.qty || 1
+                      return (
+                        <div key={b.id} style={{ marginBottom:16, background:'var(--bg)', borderRadius:12, padding:'14px 16px' }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'var(--t1)', marginBottom:10 }}>🏆 {b.name} — Top Items</div>
+                          {bItems.map((item, i) => (
+                            <div key={i} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:7 }}>
+                              <span style={{ fontSize:11, fontWeight:700, color:'var(--t2)', minWidth:16 }}>#{i+1}</span>
+                              <span style={{ fontSize:12, minWidth:120, color:'var(--t1)' }}>{item.name}</span>
+                              <div style={{ flex:1, background:'var(--bd)', borderRadius:4, height:8 }}>
+                                <div style={{ width:`${Math.round(item.qty/maxQty*100)}%`, height:'100%', background:'linear-gradient(90deg,#ff8c42,#e85d04)', borderRadius:4 }} />
+                              </div>
+                              <span style={{ fontSize:11, color:'var(--t2)', minWidth:30, textAlign:'right' }}>{item.qty} pcs</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
+
+                    {/* 7-day daily trend per branch */}
+                    {(branchAnalytics.dailyTrend||[]).length > 0 && (() => {
+                      const branchIds = [...new Set((branchAnalytics.dailyTrend||[]).map(d => d.branch_id))]
+                      const allDays = [...new Set((branchAnalytics.dailyTrend||[]).map(d => d.label))]
+                      return (
+                        <div style={{ background:'var(--bg)', borderRadius:12, padding:'14px 16px', marginBottom:8 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:'var(--t1)', marginBottom:12 }}>📈 Last 7 Days — Branch-wise Daily Revenue</div>
+                          <div style={{ overflowX:'auto' }}>
+                            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+                              <thead>
+                                <tr>
+                                  <th style={{ padding:'6px 10px', textAlign:'left', color:'var(--t2)', fontWeight:700 }}>Branch</th>
+                                  {allDays.map(d => <th key={d} style={{ padding:'6px 10px', textAlign:'right', color:'var(--t2)', fontWeight:700, whiteSpace:'nowrap' }}>{d}</th>)}
+                                  <th style={{ padding:'6px 10px', textAlign:'right', color:'var(--t2)', fontWeight:700 }}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {branchIds.map(bid => {
+                                  const br = (branchAnalytics.stats||[]).find(s => s.id === bid)
+                                  if (!br) return null
+                                  const rowData = allDays.map(day => {
+                                    const found = branchAnalytics.dailyTrend.find(d => d.branch_id === bid && d.label === day)
+                                    return found ? Math.round(parseFloat(found.revenue)) : 0
+                                  })
+                                  const rowTotal = rowData.reduce((a,b) => a+b, 0)
+                                  return (
+                                    <tr key={bid} style={{ borderTop:'1px solid var(--bd)' }}>
+                                      <td style={{ padding:'7px 10px', fontWeight:600, color:'var(--t1)', whiteSpace:'nowrap' }}>{br.name}</td>
+                                      {rowData.map((v, i) => (
+                                        <td key={i} style={{ padding:'7px 10px', textAlign:'right', color: v>0?'var(--or)':'var(--t3)' }}>
+                                          {v > 0 ? `₹${v}` : '—'}
+                                        </td>
+                                      ))}
+                                      <td style={{ padding:'7px 10px', textAlign:'right', fontWeight:700, color:'var(--or)' }}>₹{rowTotal}</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
+              </div>
+            )}
           </>
         )})()}
         {/* ── NOTICES ── */}

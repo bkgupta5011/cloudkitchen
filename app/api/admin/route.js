@@ -141,6 +141,94 @@ export async function GET(request) {
     return NextResponse.json({ items })
   }
 
+  if (type === 'branch_analytics') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    const { searchParams } = new URL(request.url)
+    const dateFrom = searchParams.get('date_from')
+    const dateTo   = searchParams.get('date_to')
+
+    // Ensure branch_id on orders
+    try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
+
+    const stats = dateFrom && dateTo
+      ? await sql`
+          SELECT
+            b.id, b.name, b.city, b.is_active,
+            COUNT(o.id)::int                                                          AS total_orders,
+            COUNT(o.id) FILTER (WHERE o.status = 'delivered')::int                   AS delivered,
+            COUNT(o.id) FILTER (WHERE o.status = 'cancelled')::int                   AS cancelled,
+            COUNT(o.id) FILTER (WHERE o.status NOT IN ('delivered','cancelled'))::int AS active,
+            COALESCE(SUM(o.total) FILTER (WHERE o.status = 'delivered'), 0)::numeric  AS revenue,
+            COALESCE(AVG(o.total) FILTER (WHERE o.status = 'delivered'), 0)::numeric  AS avg_order,
+            COALESCE(SUM(o.delivery_charge) FILTER (WHERE o.status = 'delivered'), 0)::numeric AS delivery_income
+          FROM branches b
+          LEFT JOIN orders o ON o.branch_id = b.id
+            AND (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                BETWEEN ${dateFrom}::date AND ${dateTo}::date
+          GROUP BY b.id, b.name, b.city, b.is_active
+          ORDER BY revenue DESC
+        `
+      : await sql`
+          SELECT
+            b.id, b.name, b.city, b.is_active,
+            COUNT(o.id)::int                                                          AS total_orders,
+            COUNT(o.id) FILTER (WHERE o.status = 'delivered')::int                   AS delivered,
+            COUNT(o.id) FILTER (WHERE o.status = 'cancelled')::int                   AS cancelled,
+            COUNT(o.id) FILTER (WHERE o.status NOT IN ('delivered','cancelled'))::int AS active,
+            COALESCE(SUM(o.total) FILTER (WHERE o.status = 'delivered'), 0)::numeric  AS revenue,
+            COALESCE(AVG(o.total) FILTER (WHERE o.status = 'delivered'), 0)::numeric  AS avg_order,
+            COALESCE(SUM(o.delivery_charge) FILTER (WHERE o.status = 'delivered'), 0)::numeric AS delivery_income
+          FROM branches b
+          LEFT JOIN orders o ON o.branch_id = b.id
+            AND o.created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY b.id, b.name, b.city, b.is_active
+          ORDER BY revenue DESC
+        `
+
+    // Top items per branch (last 30 days or date range)
+    const topItems = dateFrom && dateTo
+      ? await sql`
+          SELECT o.branch_id, oi.name, SUM(oi.quantity)::int AS qty
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          WHERE o.status = 'delivered'
+            AND (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
+                BETWEEN ${dateFrom}::date AND ${dateTo}::date
+            AND o.branch_id IS NOT NULL
+          GROUP BY o.branch_id, oi.name
+          ORDER BY qty DESC
+        `
+      : await sql`
+          SELECT o.branch_id, oi.name, SUM(oi.quantity)::int AS qty
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          WHERE o.status = 'delivered'
+            AND o.created_at >= NOW() - INTERVAL '30 days'
+            AND o.branch_id IS NOT NULL
+          GROUP BY o.branch_id, oi.name
+          ORDER BY qty DESC
+        `
+
+    // Daily revenue per branch (last 7 days)
+    const dailyTrend = await sql`
+      SELECT
+        o.branch_id,
+        (o.created_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+        TO_CHAR((o.created_at AT TIME ZONE 'Asia/Kolkata')::date, 'DD Mon') AS label,
+        COUNT(*)::int AS orders,
+        COALESCE(SUM(o.total), 0)::numeric AS revenue
+      FROM orders o
+      WHERE o.status = 'delivered'
+        AND o.created_at >= NOW() - INTERVAL '7 days'
+        AND o.branch_id IS NOT NULL
+      GROUP BY o.branch_id, (o.created_at AT TIME ZONE 'Asia/Kolkata')::date
+      ORDER BY day ASC
+    `
+
+    return NextResponse.json({ stats, topItems, dailyTrend })
+  }
+
   if (type === 'offers') {
     const user = adminOnly(request)
     let offers

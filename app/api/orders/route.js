@@ -19,21 +19,52 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.asin(Math.sqrt(a))
 }
 
-// ── Find nearest active branch; fallback to first active branch ──
+// ── Find nearest active branch that covers the customer's location ──
+// 1. Prefers branch whose zone (max_delivery_km) covers the customer
+// 2. Among qualifying branches → picks nearest
+// 3. Fallback: nearest active branch (if no zone data set)
 async function findNearestBranch(sql, lat, lng) {
   try {
-    const branches = await sql`SELECT id, lat, lng FROM branches WHERE is_active = true ORDER BY created_at ASC`
+    const branches = await sql`
+      SELECT id, lat, lng, max_delivery_km
+      FROM branches WHERE is_active = true ORDER BY created_at ASC
+    `
     if (!branches.length) return null
+
+    // Get global max_delivery_km as fallback
+    const [settings] = await sql`SELECT max_delivery_km FROM kitchen_settings WHERE id = 1`
+    const globalKm = parseFloat(settings?.max_delivery_km) || 0
+
     if (lat && lng) {
+      const la = parseFloat(lat), ln = parseFloat(lng)
+
+      // Step 1: Find all branches that cover this location (within their zone)
+      const covering = []
+      for (const b of branches) {
+        if (!b.lat || !b.lng) continue
+        const d = haversineKm(la, ln, parseFloat(b.lat), parseFloat(b.lng))
+        const bKm = parseFloat(b.max_delivery_km) || 0
+        const radius = bKm > 0 ? bKm : globalKm
+        if (radius > 0 && d <= radius) covering.push({ ...b, dist: d })
+      }
+
+      // Step 2: Among covering branches → pick nearest
+      if (covering.length > 0) {
+        covering.sort((a, b) => a.dist - b.dist)
+        return covering[0].id
+      }
+
+      // Step 3: No branch covers → pick nearest active branch as fallback
       let nearest = null, minDist = Infinity
       for (const b of branches) {
         if (!b.lat || !b.lng) continue
-        const d = haversineKm(parseFloat(lat), parseFloat(lng), parseFloat(b.lat), parseFloat(b.lng))
+        const d = haversineKm(la, ln, parseFloat(b.lat), parseFloat(b.lng))
         if (d < minDist) { minDist = d; nearest = b }
       }
       if (nearest) return nearest.id
     }
-    // No GPS or no branch with coords → first active branch
+
+    // No GPS → first active branch
     return branches[0].id
   } catch { return null }
 }

@@ -75,10 +75,11 @@ function getCharge(km, pricing) {
 }
 
 // ── Branch delivery range check ──
-// globalMaxKm = kitchen-level setting (OVERRIDES branch value when set)
-// Priority: global > 0 → use global for ALL branches
-//           global = 0 → use each branch's own max_delivery_km
-// This lets admin control delivery range from one place (Kitchen Settings)
+// Each branch has its OWN zone (max_delivery_km).
+// Global maxKm is FALLBACK only when branch has no radius set.
+// Priority: branch.max_delivery_km > 0 → use branch (its own zone)
+//           branch has no radius       → use global as fallback
+// This ensures inactive branch's zone is NOT covered by other branches.
 function findNearestServingBranch(branches, lat, lng, globalMaxKm = 0) {
   if (!branches?.length || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
   const gKm = parseFloat(globalMaxKm) || 0
@@ -88,8 +89,8 @@ function findNearestServingBranch(branches, lat, lng, globalMaxKm = 0) {
     const d = calcDist(parseFloat(b.lat), parseFloat(b.lng), lat, lng)
     if (d === null) continue
     const bKm = parseFloat(b.max_delivery_km) || 0
-    const radius = gKm > 0 ? gKm : bKm  // global overrides branch completely
-    if (radius <= 0) continue            // neither configured → skip
+    const radius = bKm > 0 ? bKm : gKm   // branch zone first, global only as fallback
+    if (radius <= 0) continue             // no radius configured anywhere → skip
     candidates.push({ ...b, dist: d, radius })
   }
   candidates.sort((a, b) => a.dist - b.dist)
@@ -107,7 +108,7 @@ function findNearestBranchClient(branches, lat, lng, globalMaxKm = 0) {
     if (d !== null && d < minDist) {
       minDist = d
       const bKm = parseFloat(b.max_delivery_km) || 0
-      const radius = gKm > 0 ? gKm : bKm || null
+      const radius = (bKm > 0 ? bKm : gKm) || null
       nearest = { ...b, dist: d, radius }
     }
   }
@@ -233,8 +234,8 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     const activeBranches = modalBranches.filter(b => b.lat && b.lng)
     if (activeBranches.length > 0) {
       activeBranches.forEach(b => {
-        const gKm = parseFloat(modalMaxKm) || 0
-        const branchRadius = gKm > 0 ? gKm : (parseFloat(b.max_delivery_km) || 0)
+        const bKm2 = parseFloat(b.max_delivery_km) || 0
+        const branchRadius = bKm2 > 0 ? bKm2 : (parseFloat(modalMaxKm) || 0)
         const marker = new gmaps.Marker({
           position: { lat: parseFloat(b.lat), lng: parseFloat(b.lng) },
           map, title: `🏪 ${b.name} (${branchRadius} km radius)`,

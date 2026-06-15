@@ -13,9 +13,31 @@ async function ensureTable(sql) {
   `
 }
 
+// Lightweight in-memory rate limit: max 30 POSTs per IP per minute.
+// Real customers make only a handful of calls per session; this only
+// stops someone hammering the endpoint to bloat the table (DoS).
+const rlHits = new Map() // ip -> { count, resetAt }
+const RL_MAX = 30
+const RL_WINDOW_MS = 60 * 1000
+
+function rateLimited(ip) {
+  const now = Date.now()
+  const rec = rlHits.get(ip)
+  if (!rec || now > rec.resetAt) {
+    rlHits.set(ip, { count: 1, resetAt: now + RL_WINDOW_MS })
+    return false
+  }
+  rec.count++
+  if (rec.count > RL_MAX) return true
+  return false
+}
+
 // POST — record a usage event (called from client, no auth needed)
 export async function POST(request) {
   try {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'unknown'
+    if (rateLimited(ip)) return NextResponse.json({ ok: false }, { status: 429 })
+
     const sql = getDb()
     await ensureTable(sql)
     const { type } = await request.json()

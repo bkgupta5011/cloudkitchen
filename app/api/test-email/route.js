@@ -1,7 +1,15 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
+import { verifyToken } from '@/lib/auth'
 
-export async function GET() {
+export async function GET(request) {
+  // Admin-only: prevents anyone from triggering emails (spam / quota abuse)
+  const token = request.cookies.get('ck_token')?.value
+  const user = verifyToken(token)
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+  }
+
   const key = process.env.RESEND_API_KEY
   const adminEmail = process.env.ADMIN_ALERT_EMAIL
 

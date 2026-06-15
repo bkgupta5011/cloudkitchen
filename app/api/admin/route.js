@@ -12,6 +12,12 @@ function adminOnly(request) {
   return user
 }
 
+// Super admins have no branch_id. Branch admins are scoped to their own branch
+// and must NOT be able to touch global settings or other branches.
+function isSuperAdmin(user) {
+  return !!user && user.role === 'admin' && !user.branch_id
+}
+
 // ── Ensure branches table + admin branch columns ────────────────
 async function ensureBranchesTable(sql) {
   try {
@@ -127,6 +133,10 @@ export async function GET(request) {
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     const branchId = searchParams.get('branch_id')
     if (!branchId) return NextResponse.json({ error: 'branch_id required' }, { status: 400 })
+    // Branch admins may only view their OWN branch's inventory
+    if (!isSuperAdmin(user) && branchId !== user.branch_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     await ensureBranchInventoryTable(sql)
     // Auto-populate if empty (first time for this branch)
     await populateBranchInventory(sql, branchId)
@@ -145,7 +155,7 @@ export async function GET(request) {
 
   if (type === 'branch_analytics') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     const { searchParams } = new URL(request.url)
     const dateFrom = searchParams.get('date_from')
     const dateTo   = searchParams.get('date_to')
@@ -244,7 +254,7 @@ export async function GET(request) {
 
   if (type === 'stock') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_default INT DEFAULT NULL` } catch {}
     const items = await sql`
       SELECT id, name, category, stock_count, stock_default, is_available
@@ -284,7 +294,7 @@ export async function GET(request) {
 
   if (type === 'payment_history') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     const boyId = searchParams.get('boyId')
     await ensurePaymentTable(sql)
     const records = await sql`
@@ -297,7 +307,7 @@ export async function GET(request) {
 
   if (type === 'payout') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     const boyId = searchParams.get('boyId')
     if (!boyId) return NextResponse.json({ error: 'boyId required' }, { status: 400 })
     await ensurePaymentTable(sql)
@@ -358,7 +368,7 @@ export async function GET(request) {
 
   if (type === 'pending_boys') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await ensureDeliveryColumns(sql)
     const boys = await sql`
       SELECT id, name, email, phone, vehicle_number, vehicle_type,
@@ -373,7 +383,7 @@ export async function GET(request) {
 
   if (type === 'customers') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     const customers = await sql`
       SELECT u.id, u.name, u.email, u.phone, u.address, u.created_at,
         COUNT(o.id) as total_orders,
@@ -388,7 +398,7 @@ export async function GET(request) {
 
   if (type === 'analytics') {
     const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     const [todayStats] = await sql`
       SELECT COUNT(*) as today_orders, COALESCE(SUM(total), 0) as today_revenue,
         COUNT(CASE WHEN status NOT IN ('delivered', 'cancelled') THEN 1 END) as pending_orders
@@ -442,6 +452,7 @@ export async function PATCH(request) {
   const { type, ...data } = body
 
   if (type === 'kitchen') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await ensureKitchenColumns(sql)
 
     // Ensure row exists (upsert)
@@ -485,8 +496,7 @@ export async function PATCH(request) {
   }
 
   if (type === 'stock') {
-    const user = adminOnly(request)
-    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_default INT DEFAULT NULL` } catch {}
 
     // Reset all to defaults
@@ -519,6 +529,7 @@ export async function PATCH(request) {
   }
 
   if (type === 'offer') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     if (data.id) {
       const [offer] = await sql`
         UPDATE offers SET
@@ -540,6 +551,7 @@ export async function PATCH(request) {
   }
 
   if (type === 'pricing') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     for (const row of data.rows) {
       await sql`UPDATE km_pricing SET base_charge = ${row.base_charge}, per_km_charge = ${row.per_km_charge} WHERE id = ${row.id}`
     }
@@ -548,6 +560,7 @@ export async function PATCH(request) {
 
   // Update delivery boy details
   if (type === 'update_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await sql`
       UPDATE delivery_boys SET
         name           = COALESCE(${data.name ?? null}, name),
@@ -560,6 +573,7 @@ export async function PATCH(request) {
 
   // Approve delivery boy application
   if (type === 'approve_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await ensureDeliveryColumns(sql)
     await sql`UPDATE delivery_boys SET status = 'approved' WHERE id = ${data.id}::uuid`
     return NextResponse.json({ success: true })
@@ -567,24 +581,28 @@ export async function PATCH(request) {
 
   // Reject delivery boy application
   if (type === 'reject_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await sql`UPDATE delivery_boys SET status = 'rejected' WHERE id = ${data.id}::uuid`
     return NextResponse.json({ success: true })
   }
 
   // Suspend delivery boy
   if (type === 'suspend_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await sql`UPDATE delivery_boys SET status = 'suspended', is_online = false WHERE id = ${data.id}::uuid`
     return NextResponse.json({ success: true })
   }
 
   // Reactivate delivery boy
   if (type === 'reactivate_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await sql`UPDATE delivery_boys SET status = 'approved' WHERE id = ${data.id}::uuid`
     return NextResponse.json({ success: true })
   }
 
   // Record payment to delivery boy
   if (type === 'pay_boy') {
+    if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
     await ensureDeliveryColumns(sql)
     await ensurePaymentTable(sql)
     const amount = parseFloat(data.amount)
@@ -646,6 +664,10 @@ export async function PATCH(request) {
   if (type === 'branch_inventory') {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    // Branch admins may only modify their OWN branch's inventory
+    if (!isSuperAdmin(user) && data.branch_id !== user.branch_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     await ensureBranchInventoryTable(sql)
 
     // Toggle single item availability for a branch
@@ -678,7 +700,13 @@ export async function PATCH(request) {
 
   // ── Branch CRUD ───────────────────────────────────────────────────
   if (type === 'branch') {
-    // Note: top-level adminOnly already passed — no need for second check
+    // Branch admins may ONLY toggle their own branch open/closed.
+    // create / update / delete are super-admin only.
+    if (!isSuperAdmin(user)) {
+      if (data.action !== 'toggle' || data.id !== user.branch_id) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+    }
     await ensureBranchesTable(sql)
 
     if (data.action === 'create') {

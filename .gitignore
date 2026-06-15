@@ -1,5 +1,16 @@
-.env.local
+# Environment variables / secrets — never commit these
 .env
+.env.local
+.env.*.local
+.env.prod.local
+.env.production.local
+.env.development.local
+.env*
+
+# Temp / local-only files
+*Tempfix.json
+*.tmp.json
+
 node_modules/
 .next/
 out/

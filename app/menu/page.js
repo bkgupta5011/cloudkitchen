@@ -138,23 +138,25 @@ function ItemDetailModal({ item, qty, onAdd, onRemove, onClose, kitchenOpen, dp,
             width: '100%', height: 260, overflow: 'hidden',
             background: '#f1f5f9',
           }}>
-            {item.image_url
-              ? <img
-                  src={item.image_url}
-                  alt={item.name}
-                  style={{
-                    width: '100%', height: '100%', objectFit: 'cover',
-                    animation: 'itemImgIn 0.4s ease',
-                    filter: isSoldOut ? 'grayscale(60%) brightness(0.75)' : 'none',
-                  }}
-                />
-              : <div style={{
-                  width: '100%', height: '100%',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 80,
-                  background: 'linear-gradient(135deg,#fff7ed,#fef3c7)',
-                }}>🍛</div>
-            }
+            {item.image_url ? (
+              <img
+                src={item.image_url}
+                alt={item.name}
+                loading="lazy"
+                style={{
+                  width: '100%', height: '100%', objectFit: 'cover',
+                  animation: 'itemImgIn 0.4s ease',
+                  filter: isSoldOut ? 'grayscale(60%) brightness(0.75)' : 'none',
+                }}
+                onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
+              />
+            ) : null}
+            <div style={{
+              width: '100%', height: '100%',
+              display: item.image_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 80,
+              background: 'linear-gradient(135deg,#fff7ed,#fef3c7)',
+            }}>🍛</div>
           </div>
 
           {/* Gradient overlay at bottom of image */}
@@ -895,10 +897,13 @@ function MenuPageContent() {
               <div className={styles.cardRight}>
                 {/* Image with sold-out overlay */}
                 <div className={styles.imgWrap}>
-                  {item.image_url
-                    ? <img src={item.image_url} alt={item.name} className={`${styles.foodImg} ${isSoldOut ? styles.imgSoldOut : ''}`} />
-                    : <div className={`${styles.foodEmoji} ${isSoldOut ? styles.imgSoldOut : ''}`}>🍛</div>
-                  }
+                  {item.image_url ? (
+                    <img src={item.image_url} alt={item.name} loading="lazy"
+                      className={`${styles.foodImg} ${isSoldOut ? styles.imgSoldOut : ''}`}
+                      onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                  ) : null}
+                  <div className={`${styles.foodEmoji} ${isSoldOut ? styles.imgSoldOut : ''}`}
+                    style={{ display: item.image_url ? 'none' : 'flex' }}>🍛</div>
                   {isSoldOut && (
                     <div className={styles.soldOutBadge}><span>Sold Out</span></div>
                   )}

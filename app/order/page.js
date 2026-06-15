@@ -368,6 +368,7 @@ export default function OrderPage() {
                       <img
                         src={item.image_url}
                         alt={`${item.name} – FoodFi Cloud Kitchen Patna | Best ${item.category || 'Food'} Delivery in Patna`}
+                        loading="lazy"
                         style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.3s ease', transform: isHovered ? 'scale(1.07)' : 'scale(1)' }}
                         onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
                       />

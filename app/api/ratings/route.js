@@ -18,6 +18,26 @@ async function ensureRatingsTable(sql) {
   } catch (e) {}
 }
 
+// Review rewards: a one-time discount a customer earns by reviewing a delivered
+// order, auto-applied to a later order. UNIQUE(source_order_id) => one reward
+// per reviewed order (re-editing a review never mints a second reward).
+async function ensureRewardsTable(sql) {
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS review_rewards (
+        id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        customer_id     UUID NOT NULL,
+        source_order_id UUID NOT NULL UNIQUE,
+        amount          INT  NOT NULL,
+        status          VARCHAR(12) NOT NULL DEFAULT 'available',
+        used_order_id   UUID,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        used_at         TIMESTAMP
+      )
+    `
+  } catch (e) {}
+}
+
 // GET — check if order already rated | per-item averages (public) | admin stats
 export async function GET(request) {
   const sql = getDb()
@@ -51,6 +71,29 @@ export async function GET(request) {
   const token = request.cookies.get('ck_token')?.value
   const user = verifyToken(token)
   if (!user) return NextResponse.json({ error: 'Login required' }, { status: 401 })
+
+  // Customer's available review reward + the reward config (used by cart to
+  // show the auto-discount AND the "review to earn" popup after ordering)
+  if (type === 'reward') {
+    try {
+      const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount, review_reward_min_order FROM kitchen_settings WHERE id = 1`
+      const config = {
+        enabled: !!cfg?.review_reward_enabled,
+        amount: parseInt(cfg?.review_reward_amount) || 0,
+        minOrder: parseInt(cfg?.review_reward_min_order) || 0,
+      }
+      if (!config.enabled) return NextResponse.json({ reward: null, config })
+      await ensureRewardsTable(sql)
+      const [r] = await sql`
+        SELECT amount FROM review_rewards
+        WHERE customer_id = ${user.id} AND status = 'available'
+        ORDER BY created_at ASC LIMIT 1
+      `
+      return NextResponse.json({ reward: r ? { amount: parseInt(r.amount), minOrder: config.minOrder } : null, config })
+    } catch (e) {
+      return NextResponse.json({ reward: null, config: { enabled: false, amount: 0, minOrder: 0 } })
+    }
+  }
 
   const orderId = searchParams.get('orderId')
 
@@ -112,5 +155,22 @@ export async function POST(request) {
     ON CONFLICT (order_id) DO UPDATE SET rating = ${rating}, comment = ${comment || null}
     RETURNING *
   `
-  return NextResponse.json({ rating: saved })
+
+  // Mint a review reward (only if enabled in settings; one per reviewed order)
+  let rewardEarned = null
+  try {
+    const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount FROM kitchen_settings WHERE id = 1`
+    if (cfg?.review_reward_enabled && cfg?.review_reward_amount > 0) {
+      await ensureRewardsTable(sql)
+      const [r] = await sql`
+        INSERT INTO review_rewards (customer_id, source_order_id, amount)
+        VALUES (${user.id}, ${orderId}, ${cfg.review_reward_amount})
+        ON CONFLICT (source_order_id) DO NOTHING
+        RETURNING amount
+      `
+      if (r) rewardEarned = { amount: r.amount }   // null if this order already earned one
+    }
+  } catch (e) {}
+
+  return NextResponse.json({ rating: saved, rewardEarned })
 }

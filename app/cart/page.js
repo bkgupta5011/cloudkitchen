@@ -429,6 +429,8 @@ export default function CartPage() {
   const [offerCode, setOfferCode] = useState('')
   const [offerResult, setOfferResult] = useState(null)
   const [offerError, setOfferError] = useState('')
+  const [reviewReward, setReviewReward] = useState(null) // { amount, minOrder } | null
+  const [rewardConfig, setRewardConfig] = useState(null) // { enabled, amount, minOrder }
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -438,6 +440,14 @@ export default function CartPage() {
   const [userName, setUserName] = useState('')
   const [userId, setUserId] = useState(null)
   const [needsName, setNeedsName] = useState(false)   // true if account has no name yet
+
+  // Fetch customer's available review reward (auto-applied at checkout) + config
+  useEffect(() => {
+    fetch('/api/ratings?type=reward')
+      .then(r => r.json())
+      .then(d => { setReviewReward(d.reward || null); setRewardConfig(d.config || null) })
+      .catch(() => {})
+  }, [])
   const [nameInput, setNameInput] = useState('')
   const [nameSaving, setNameSaving] = useState(false)
   const [showThankYou, setShowThankYou] = useState(false)
@@ -613,10 +623,14 @@ export default function CartPage() {
 
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)
   const discount = offerResult?.discount || 0
+  // Review reward auto-applies only when the order meets the min-order rule.
+  // Server re-validates this on order placement — this is just the live preview.
+  const rewardDiscount = (reviewReward && subtotal >= (reviewReward.minOrder || 0))
+    ? reviewReward.amount : 0
   const freeDelivery = offerResult?.freeDelivery || false
   const safeDelivery = Number.isFinite(deliveryCharge) ? deliveryCharge : 0
   const effectiveDelivery = freeDelivery ? 0 : safeDelivery
-  const total = Math.max(0, subtotal - discount) + effectiveDelivery
+  const total = Math.max(0, subtotal - discount - rewardDiscount) + effectiveDelivery
 
   // Map picker confirm — Dominos model: per-branch radius only
   const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
@@ -768,6 +782,17 @@ export default function CartPage() {
             </div>
           ))}
         </div>
+        {rewardConfig?.enabled && rewardConfig.amount > 0 && (
+          <div style={{ background:'linear-gradient(135deg,#ecfdf5,#d1fae5)', border:'1.5px solid #34d399', borderRadius:14, padding:'16px', margin:'4px 0 16px', textAlign:'center' }}>
+            <div style={{ fontSize:26, marginBottom:4 }}>🎁</div>
+            <div style={{ fontSize:15, fontWeight:800, color:'#065f46', lineHeight:1.35 }}>
+              Review your order & get ₹{rewardConfig.amount} OFF your next order!
+            </div>
+            <div style={{ fontSize:12, color:'#047857', marginTop:6 }}>
+              Just rate this order after delivery — your ₹{rewardConfig.amount} discount applies automatically next time.
+            </div>
+          </div>
+        )}
         <button className="btn btn-primary btn-full" onClick={() => router.push('/menu')}>Order More Food</button>
       </div>
     </div>
@@ -919,6 +944,7 @@ export default function CartPage() {
               <h3>Bill Summary</h3>
               <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
               {discount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
+              {rewardDiscount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>🎁 Review reward</span><span>−₹{rewardDiscount}</span></div>}
               <div className={styles.billRow}>
                 <span>Delivery {Number.isFinite(distanceKm) ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
                 <span>
@@ -933,7 +959,7 @@ export default function CartPage() {
               <div className={`${styles.billRow} ${styles.total}`}>
                 <span>Total</span>
                 <span style={{ color:'var(--or)' }}>
-                  {!freeDelivery && !Number.isFinite(deliveryCharge) ? `₹${subtotal - discount} + delivery` : `₹${total}`}
+                  {!freeDelivery && !Number.isFinite(deliveryCharge) ? `₹${Math.max(0, subtotal - discount - rewardDiscount)} + delivery` : `₹${total}`}
                 </span>
               </div>
             </div>

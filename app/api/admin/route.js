@@ -81,6 +81,10 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS force_closed BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS order_timeout_minutes INT DEFAULT 2`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS escalation_interval_sec INT DEFAULT 30`
+    // Review reward: give a discount on next order when customer reviews a delivered order
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_enabled BOOLEAN DEFAULT false`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_amount INT DEFAULT 20`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_min_order INT DEFAULT 99`
   } catch (e) {}
 }
 
@@ -437,7 +441,8 @@ export async function GET(request) {
   const [settings] = await sql`
     SELECT is_open, kitchen_name, address, phone, lat, lng,
            max_delivery_km, open_time, close_time, estimated_time, auto_schedule,
-           order_timeout_minutes, escalation_interval_sec
+           order_timeout_minutes, escalation_interval_sec,
+           review_reward_enabled, review_reward_amount, review_reward_min_order
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -465,6 +470,9 @@ export async function PATCH(request) {
     const lngVal     = data.lng                   != null ? parseFloat(data.lng)                  : null
     const toVal      = data.order_timeout_minutes != null ? parseInt(data.order_timeout_minutes)  : null
     const escVal     = data.escalation_interval_sec != null ? parseInt(data.escalation_interval_sec) : null
+    const rrEnabled  = data.review_reward_enabled   != null ? !!data.review_reward_enabled         : null
+    const rrAmount   = data.review_reward_amount     != null ? parseInt(data.review_reward_amount)   : null
+    const rrMin      = data.review_reward_min_order  != null ? parseInt(data.review_reward_min_order): null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -489,6 +497,9 @@ export async function PATCH(request) {
         auto_schedule           = COALESCE(${data.auto_schedule  ?? null}, auto_schedule),
         order_timeout_minutes   = COALESCE(${toVal},   order_timeout_minutes),
         escalation_interval_sec = COALESCE(${escVal},  escalation_interval_sec),
+        review_reward_enabled   = COALESCE(${rrEnabled}, review_reward_enabled),
+        review_reward_amount    = COALESCE(${rrAmount},  review_reward_amount),
+        review_reward_min_order = COALESCE(${rrMin},     review_reward_min_order),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

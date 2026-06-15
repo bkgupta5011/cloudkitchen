@@ -472,11 +472,28 @@ export async function POST(request) {
     await sql`UPDATE offers SET used_count = used_count + 1 WHERE id = ${offerId}`
   }
 
+  // ── Review reward (server-side, auto-applied; one available reward per order) ──
+  // Amount & eligibility come from DB only — never trusted from the client.
+  let rewardDiscount = 0
+  let rewardToUse = null
+  try {
+    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order FROM kitchen_settings WHERE id = 1`
+    if (rcfg?.review_reward_enabled && subtotal >= (rcfg.review_reward_min_order || 0)) {
+      const [r] = await sql`
+        SELECT id, amount FROM review_rewards
+        WHERE customer_id = ${user.id} AND status = 'available'
+        ORDER BY created_at ASC LIMIT 1
+      `
+      if (r) { rewardToUse = r.id; rewardDiscount = parseInt(r.amount) || 0 }
+    }
+  } catch (e) {}
+
   const finalDelivery = freeDelivery ? 0 : deliveryCharge
-  const total = Math.max(0, subtotal - discountAmount) + finalDelivery
+  const total = Math.max(0, subtotal - discountAmount - rewardDiscount) + finalDelivery
 
   // Ensure columns exist
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS review_reward_discount DECIMAL(10,2) DEFAULT 0` } catch {}
   await ensureOrderBranchColumn(sql)
 
   // Auto-detect nearest branch
@@ -485,18 +502,27 @@ export async function POST(request) {
   // Create order
   const [order] = await sql`
     INSERT INTO orders (
-      user_id, offer_id, status, subtotal, discount_amount,
+      user_id, offer_id, status, subtotal, discount_amount, review_reward_discount,
       delivery_charge, total, delivery_address, delivery_lat,
       delivery_lng, distance_km, notes, branch_id
     )
     VALUES (
-      ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount},
+      ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount}, ${rewardDiscount},
       ${finalDelivery}, ${total}, ${deliveryAddress},
       ${deliveryLat || null}, ${deliveryLng || null},
       ${distanceKm || null}, ${notes || null}, ${branchId || null}
     )
     RETURNING *
   `
+
+  // Consume the review reward atomically (guard prevents double-spend)
+  if (rewardToUse && rewardDiscount > 0) {
+    await sql`
+      UPDATE review_rewards
+      SET status = 'used', used_order_id = ${order.id}, used_at = NOW()
+      WHERE id = ${rewardToUse} AND status = 'available'
+    `.catch(() => {})
+  }
 
   // Insert order items + deduct stock atomically
   for (const oi of orderItems) {

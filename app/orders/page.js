@@ -112,16 +112,19 @@ function StarRating({ orderId, existing, onDone }) {
   const [comment, setComment] = useState(existing?.comment || '')
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(!!existing)
+  const [reward, setReward] = useState(null)
 
   const submit = async () => {
     if (!selected) return
     setSaving(true)
     try {
-      await fetch('/api/ratings', {
+      const res = await fetch('/api/ratings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, rating: selected, comment })
       })
+      const data = await res.json().catch(() => ({}))
+      if (data?.rewardEarned?.amount) setReward(data.rewardEarned)
       setDone(true)
       onDone && onDone(selected)
     } catch {} finally { setSaving(false) }
@@ -131,6 +134,11 @@ function StarRating({ orderId, existing, onDone }) {
     <div style={{ marginTop:12, padding:'10px 12px', background:'#fefce8', borderRadius:8, fontSize:13, color:'#92400e' }}>
       {'⭐'.repeat(selected || existing?.rating || 0)} Shukriya! Aapki rating mili.
       {(comment || existing?.comment) && <span style={{color:'#6b7280'}}> · "{comment || existing?.comment}"</span>}
+      {reward?.amount && (
+        <div style={{ marginTop:8, padding:'8px 10px', background:'#d1fae5', border:'1px solid #34d399', borderRadius:8, color:'#065f46', fontWeight:700 }}>
+          🎁 ₹{reward.amount} reward earned! Agle order pe apне aap lag jayega.
+        </div>
+      )}
     </div>
   )
 

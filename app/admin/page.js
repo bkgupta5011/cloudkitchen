@@ -60,7 +60,7 @@ export default function AdminPage() {
   const [stockItems, setStockItems] = useState([])
   const [stockLoading, setStockLoading] = useState(false)
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30 })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99 })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -389,7 +389,7 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30 }
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99 }
     setKitchenSettings(ks)
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
@@ -1377,6 +1377,30 @@ export default function AdminPage() {
                 </div>
                 <p style={{ fontSize:11, color:'#92400e', background:'#fef3c7', borderRadius:8, padding:'8px 12px', margin:0 }}>
                   💡 Save karne ke baad naye timings turant apply ho jayenge. Default: 2 min timeout, 30 sec repeat.
+                </p>
+              </div>
+
+              {/* 🎁 Review Reward control (super admin) */}
+              <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1.5px solid #34d399', gridColumn:'1/-1' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                  <h3 style={{ fontSize:14, fontWeight:700, margin:0 }}>🎁 Review Reward</h3>
+                  <div className={`switch ${kitchenSettings.review_reward_enabled?'on':''}`} onClick={() => setKitchenSettings({...kitchenSettings, review_reward_enabled:!kitchenSettings.review_reward_enabled})} />
+                </div>
+                <p style={{ fontSize:11, color:'var(--t2)', marginBottom:14 }}>Customer jab kisi delivered order ko review karega, use agle order pe discount milega (auto-apply, ₹{kitchenSettings.review_reward_min_order}+ ke order pe). Margin ka dhyan rakhte hue kabhi bhi band kar sakte ho.</p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, opacity: kitchenSettings.review_reward_enabled ? 1 : 0.5, pointerEvents: kitchenSettings.review_reward_enabled ? 'auto' : 'none' }}>
+                  <div className="field">
+                    <label>Reward Amount (₹)</label>
+                    <input type="number" min="1" max="500" value={kitchenSettings.review_reward_amount} onChange={e => setKitchenSettings({...kitchenSettings, review_reward_amount:e.target.value})} />
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Har review pe customer ko itna ₹ off (agle order pe)</p>
+                  </div>
+                  <div className="field">
+                    <label>Min Order (₹)</label>
+                    <input type="number" min="0" max="2000" value={kitchenSettings.review_reward_min_order} onChange={e => setKitchenSettings({...kitchenSettings, review_reward_min_order:e.target.value})} />
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Reward use karne ke liye order kam se kam itne ka ho</p>
+                  </div>
+                </div>
+                <p style={{ fontSize:11, color:'#065f46', background:'#d1fae5', borderRadius:8, padding:'8px 12px', margin:0 }}>
+                  💡 Option A: har review pe reward milta hai → repeat orders + reviews badhte hain. Default: ₹20, min ₹99.
                 </p>
               </div>
             </div>

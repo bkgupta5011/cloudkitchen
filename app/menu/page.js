@@ -504,6 +504,15 @@ function MenuPageContent() {
   // 🔥 Hero deals: items whose final price is ₹99 (shown as a featured strip)
   const featured99 = menuItems.filter(m => discPrice(m) === 99)
 
+  // ⭐ Overall rating from REAL per-item ratings (no fabricated numbers)
+  const ratingAgg = (() => {
+    let count = 0, weighted = 0
+    for (const r of Object.values(itemRatings)) {
+      if (r?.count > 0) { count += r.count; weighted += r.avg * r.count }
+    }
+    return count > 0 ? { avg: weighted / count, count } : null
+  })()
+
   const logout = async () => {
     await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }) })
     router.push('/login')
@@ -816,6 +825,18 @@ function MenuPageContent() {
               🏷️ <strong>{o.code}</strong> — {o.type === 'flat' ? `₹${o.value} off` : o.type === 'percent' ? `${o.value}% off` : 'Free delivery'}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ⭐ Trust badge — real aggregate rating (only when enough reviews) */}
+      {ratingAgg && ratingAgg.count >= 3 && (
+        <div style={{ margin: '0 16px 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#fffbeb', border:'1px solid #fde68a', borderRadius:20, padding:'5px 12px', fontSize:13, fontWeight:700, color:'#92400e' }}>
+            ⭐ {ratingAgg.avg.toFixed(1)} <span style={{ fontWeight:500, color:'#b45309' }}>· {ratingAgg.count} reviews</span>
+          </span>
+          <span style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:20, padding:'5px 12px', fontSize:13, fontWeight:700, color:'#15803d' }}>
+            🍳 Freshly cooked
+          </span>
         </div>
       )}
 

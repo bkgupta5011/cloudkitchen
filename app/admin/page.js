@@ -37,6 +37,7 @@ async function reverseGeocodeAdmin(lat, lng) {
 const SECTIONS = [
   { id: 'orders',    label: '📋 Orders',           badge: 'orders' },
   { id: 'menu',      label: '🍛 Menu Items' },
+  { id: 'fitness',   label: '🥗 Fitness Corner' },
   { id: 'offers',    label: '🏷️ Offers' },
   { id: 'boys',      label: '🛵 Delivery Boys' },
   { id: 'apps',      label: '📝 Applications',     badge: 'apps' },
@@ -82,6 +83,15 @@ export default function AdminPage() {
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [manualOrder, setManualOrder] = useState({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{} })
   const [newItem, setNewItem] = useState({ name:'', description:'', price:'', discount_percent:0, category:'Rice Combos', is_veg:true, image_url:'' })
+
+  // 🥗 Fitness Corner
+  const EMPTY_FIT = { name:'', about:'', price:'', discount_percent:0, calories:'', protein_g:'', carbs_g:'', fat_g:'', fiber_g:'', other_nutrients:'', diet_tag:'', is_veg:true, image_url:'', is_available:false }
+  const [fitnessItems, setFitnessItems] = useState([])
+  const [fitCornerOn, setFitCornerOn] = useState(false)
+  const [fitLoading, setFitLoading] = useState(false)
+  const [showFitForm, setShowFitForm] = useState(false)
+  const [editFitId, setEditFitId] = useState(null)
+  const [fitForm, setFitForm] = useState(EMPTY_FIT)
   const [newOffer, setNewOffer] = useState({ code:'', type:'percent', value:'', min_order:'', max_uses:1000, valid_till:'' })
   const [showBoyDetail, setShowBoyDetail] = useState(false)
   const [boyDetail, setBoyDetail] = useState(null)
@@ -576,6 +586,59 @@ export default function AdminPage() {
     showToast('✅ Photo update ho gayi!')
   }
 
+  // ── 🥗 Fitness Corner functions ──────────────────────────────────
+  const loadFitness = () => {
+    setFitLoading(true)
+    fetch('/api/fitness').then(r => r.json())
+      .then(d => { setFitnessItems(d.items || []); setFitCornerOn(!!d.cornerEnabled); setFitLoading(false) })
+      .catch(() => setFitLoading(false))
+  }
+
+  const toggleFitCorner = async () => {
+    const next = !fitCornerOn
+    setFitCornerOn(next)
+    await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', fitness_corner_enabled: next }) })
+    showToast(next ? '🟢 Fitness Corner LIVE! (ab order ho sakta hai)' : '🔴 Coming Soon mode (order band)')
+  }
+
+  const openAddFit  = () => { setEditFitId(null); setFitForm(EMPTY_FIT); setShowFitForm(true) }
+  const openEditFit = (it) => {
+    setEditFitId(it.id)
+    setFitForm({ name:it.name, about:it.about||'', price:it.price, discount_percent:it.discount_percent||0,
+      calories:it.calories, protein_g:it.protein_g, carbs_g:it.carbs_g, fat_g:it.fat_g, fiber_g:it.fiber_g,
+      other_nutrients:it.other_nutrients||'', diet_tag:it.diet_tag||'', is_veg:it.is_veg, image_url:it.image_url||'', is_available:it.is_available })
+    setShowFitForm(true)
+  }
+
+  const saveFit = async (e) => {
+    e.preventDefault()
+    // Nutrition is COMPULSORY — block save if anything missing
+    const req = [['price','Price'],['calories','Calories'],['protein_g','Protein'],['carbs_g','Carbs'],['fat_g','Fat'],['fiber_g','Fiber']]
+    for (const [f, label] of req) {
+      if (fitForm[f] === '' || fitForm[f] == null || isNaN(parseFloat(fitForm[f]))) {
+        showToast(`❌ "${label}" zaroori hai — fitness item bina nutrition save nahi hoga`); return
+      }
+    }
+    if (!fitForm.name.trim()) { showToast('❌ Name zaroori hai'); return }
+    const method = editFitId ? 'PATCH' : 'POST'
+    const body = editFitId ? { ...fitForm, id: editFitId } : fitForm
+    const res = await fetch('/api/fitness', { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) { showToast('❌ ' + (d.error || 'Save fail')); return }
+    setShowFitForm(false); showToast(editFitId ? '✅ Update ho gaya' : '✅ Item add ho gaya'); loadFitness()
+  }
+
+  const deleteFit = async (it) => {
+    if (!window.confirm(`"${it.name}" delete karein?`)) return
+    await fetch('/api/fitness?id=' + it.id, { method:'DELETE' })
+    showToast('🗑️ Delete ho gaya'); loadFitness()
+  }
+
+  const toggleFitAvail = async (it) => {
+    setFitnessItems(prev => prev.map(x => x.id === it.id ? { ...x, is_available: !x.is_available } : x))
+    await fetch('/api/fitness', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: it.id, action:'toggle_available', is_available: !it.is_available }) })
+  }
+
   const openBoyDetail = async (boy) => {
     setBoyDetail(boy)
     setBoyEditForm({ name:boy.name, phone:boy.phone, per_km_earning:boy.per_km_earning||0 })
@@ -851,7 +914,7 @@ export default function AdminPage() {
           : SECTIONS
         ).map(s => (
           <button key={s.id} className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`}
-            onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads(); if(s.id==='analytics') fetch('/api/track-usage').then(r=>r.json()).then(d=>setApiUsage(d)).catch(()=>{}); if(s.id==='stock'){ setStockLoading(true); fetch('/api/admin?type=stock').then(r=>r.json()).then(d=>{ setStockItems(d.items||[]); setStockLoading(false) }).catch(()=>setStockLoading(false)) } }}>
+            onClick={() => { setSection(s.id); if(s.id==='orders') setNotifCount(0); if(s.id==='support') loadSupportThreads(); if(s.id==='fitness') loadFitness(); if(s.id==='analytics') fetch('/api/track-usage').then(r=>r.json()).then(d=>setApiUsage(d)).catch(()=>{}); if(s.id==='stock'){ setStockLoading(true); fetch('/api/admin?type=stock').then(r=>r.json()).then(d=>{ setStockItems(d.items||[]); setStockLoading(false) }).catch(()=>setStockLoading(false)) } }}>
             {s.label}
             {s.badge === 'orders' && pendingCount > 0 && <span className={styles.sideBadge}>{pendingCount}</span>}
             {s.badge === 'apps' && pendingBoys.length > 0 && <span className={styles.sideBadge}>{pendingBoys.length}</span>}
@@ -1158,6 +1221,107 @@ export default function AdminPage() {
                     <div style={{ display:'flex', gap:8 }}>
                       <button type="button" className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowAddItem(false)}>Cancel</button>
                       <button type="submit" className="btn btn-primary" style={{ flex:1 }} disabled={uploadingImg}>Add Item</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── 🥗 FITNESS CORNER ── */}
+        {section === 'fitness' && (
+          <>
+            {/* Master ON/OFF toggle */}
+            <div style={{ background:'var(--card)', borderRadius:14, padding:'16px 18px', border:'1.5px solid '+(fitCornerOn?'#34d399':'#fbbf24'), marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+              <div style={{ flex:1, minWidth:200 }}>
+                <div style={{ fontSize:15, fontWeight:800 }}>🥗 Fitness Freak Corner — {fitCornerOn ? '🟢 LIVE' : '🟡 Coming Soon'}</div>
+                <div style={{ fontSize:12, color:'var(--t2)', marginTop:3 }}>
+                  {fitCornerOn
+                    ? 'Corner LIVE hai — "Available" items customer order kar sakta hai.'
+                    : 'Customer ko "Coming Soon" dikh raha hai (order band). ON karo to ordering allowed ho jayega.'}
+                </div>
+              </div>
+              <div className={`switch ${fitCornerOn?'on':''}`} onClick={toggleFitCorner} />
+            </div>
+
+            <div className={styles.sectionHead}><h2>Fitness Items ({fitnessItems.length})</h2><button className="btn btn-primary" onClick={openAddFit}>+ Add Healthy Item</button></div>
+
+            {fitLoading ? <div style={{ textAlign:'center', padding:40 }}><span className="spinner" /></div> : (
+              <div className={styles.menuGrid}>
+                {fitnessItems.map(it => (
+                  <div key={it.id} className={styles.menuCard}>
+                    <div style={{ position:'relative', width:'100%', height:100, borderRadius:8, marginBottom:8, background:'var(--bg)', overflow:'hidden' }}>
+                      {it.image_url
+                        ? <img src={it.image_url} alt={it.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                        : <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', fontSize:32 }}>🥗</div>}
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4, flexWrap:'wrap' }}>
+                      <span className={`veg-dot ${it.is_veg?'veg':'nonveg'}`} />
+                      <strong style={{ fontSize:12 }}>{it.name}</strong>
+                    </div>
+                    <div style={{ fontSize:10.5, color:'var(--t2)', marginBottom:6, display:'flex', gap:6, flexWrap:'wrap' }}>
+                      <span>🔥 {it.calories}cal</span><span>💪 {it.protein_g}g</span><span>🍚 {it.carbs_g}g</span><span>🧈 {it.fat_g}g</span><span>🌾 {it.fiber_g}g</span>
+                    </div>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#065f46', marginBottom:8 }}>₹{it.price}</div>
+                    <div className={styles.availToggle}>
+                      <div className={`switch ${it.is_available?'on':''}`} onClick={() => toggleFitAvail(it)} />
+                      <span style={{ fontSize:12, color:'var(--t2)' }}>{it.is_available?'Available':'Unavailable'}</span>
+                    </div>
+                    <div style={{ display:'flex', gap:6, marginTop:8 }}>
+                      <button className="btn btn-secondary" style={{ flex:1, fontSize:11, padding:'4px 8px' }} onClick={() => openEditFit(it)}>✏️ Edit</button>
+                      <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px', color:'#dc2626' }} onClick={() => deleteFit(it)}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showFitForm && (
+              <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowFitForm(false)}>
+                <div className={styles.modal} style={{ maxHeight:'90vh', overflowY:'auto' }}>
+                  <h3>{editFitId ? 'Edit' : 'Add'} Healthy Item</h3>
+                  <form onSubmit={saveFit}>
+                    <div className="field"><label>Item Name *</label><input required value={fitForm.name} onChange={e=>setFitForm({...fitForm, name:e.target.value})} /></div>
+                    <div className="field"><label>About (short description)</label><input value={fitForm.about} onChange={e=>setFitForm({...fitForm, about:e.target.value})} /></div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                      <div className="field"><label>Price (₹) *</label><input required type="number" value={fitForm.price} onChange={e=>setFitForm({...fitForm, price:e.target.value})} /></div>
+                      <div className="field"><label>Discount %</label><input type="number" value={fitForm.discount_percent} onChange={e=>setFitForm({...fitForm, discount_percent:e.target.value})} /></div>
+                    </div>
+                    <div style={{ background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:10, padding:'10px 12px', margin:'4px 0 12px' }}>
+                      <div style={{ fontSize:12, fontWeight:800, color:'#065f46', marginBottom:8 }}>🔒 Nutrition — COMPULSORY (bina bhare save nahi hoga)</div>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                        <div className="field"><label>Calories (kcal) *</label><input required type="number" value={fitForm.calories} onChange={e=>setFitForm({...fitForm, calories:e.target.value})} /></div>
+                        <div className="field"><label>Protein (g) *</label><input required type="number" value={fitForm.protein_g} onChange={e=>setFitForm({...fitForm, protein_g:e.target.value})} /></div>
+                        <div className="field"><label>Carbs (g) *</label><input required type="number" value={fitForm.carbs_g} onChange={e=>setFitForm({...fitForm, carbs_g:e.target.value})} /></div>
+                        <div className="field"><label>Fat (g) *</label><input required type="number" value={fitForm.fat_g} onChange={e=>setFitForm({...fitForm, fat_g:e.target.value})} /></div>
+                        <div className="field"><label>Fiber (g) *</label><input required type="number" value={fitForm.fiber_g} onChange={e=>setFitForm({...fitForm, fiber_g:e.target.value})} /></div>
+                      </div>
+                    </div>
+                    <div className="field"><label>Other Nutrients</label><input value={fitForm.other_nutrients} onChange={e=>setFitForm({...fitForm, other_nutrients:e.target.value})} placeholder="Iron, Calcium, B12" /></div>
+                    <div className="field"><label>Diet Tag</label><input value={fitForm.diet_tag} onChange={e=>setFitForm({...fitForm, diet_tag:e.target.value})} placeholder="High Protein / Low Carb" /></div>
+                    <div style={{ display:'flex', gap:18, alignItems:'center', margin:'4px 0 12px', flexWrap:'wrap' }}>
+                      <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}>
+                        <div className={`switch ${fitForm.is_veg?'on':''}`} onClick={()=>setFitForm({...fitForm, is_veg:!fitForm.is_veg})} /> {fitForm.is_veg?'🟢 Veg':'🔴 Non-veg'}
+                      </label>
+                      <label style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, cursor:'pointer' }}>
+                        <div className={`switch ${fitForm.is_available?'on':''}`} onClick={()=>setFitForm({...fitForm, is_available:!fitForm.is_available})} /> {fitForm.is_available?'Available':'Unavailable'}
+                      </label>
+                    </div>
+                    <div className="field">
+                      <label>Photo (Cloudinary)</label>
+                      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                        {fitForm.image_url && <img src={fitForm.image_url} style={{ width:60, height:45, objectFit:'cover', borderRadius:6 }} />}
+                        <label style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', background:'var(--bg)', border:'1px dashed var(--bdr)', borderRadius:8, cursor:'pointer', fontSize:12 }}>
+                          📷 {uploadingImg ? 'Uploading...' : 'Choose Photo (JPEG)'}
+                          <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display:'none' }} disabled={uploadingImg}
+                            onChange={e => { if(e.target.files[0]) uploadImage(e.target.files[0], url => setFitForm(f => ({...f, image_url:url}))) }} />
+                        </label>
+                      </div>
+                    </div>
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button type="button" className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowFitForm(false)}>Cancel</button>
+                      <button type="submit" className="btn btn-primary" style={{ flex:1 }} disabled={uploadingImg}>{editFitId?'Save Changes':'Add Item'}</button>
                     </div>
                   </form>
                 </div>

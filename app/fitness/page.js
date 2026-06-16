@@ -44,7 +44,7 @@ export default function FitnessCorner() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f0fdf4,#ffffff 240px)', paddingBottom: 40 }}>
-     <div style={{ maxWidth: 620, margin: '0 auto' }}>
+     <div style={{ maxWidth: 1160, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 2px 12px #0002' }}>
         <button onClick={() => router.push('/menu')} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', width: 34, height: 34, borderRadius: 10, fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>←</button>
@@ -76,7 +76,7 @@ export default function FitnessCorner() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: '#6b7280' }}><div className="spinner" /></div>
       ) : (
-        <div style={{ padding: '8px 16px', display: 'grid', gap: 14 }}>
+        <div style={{ padding: '8px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14 }}>
           {shown.map(it => (
             <div key={it.id} style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 12px #0000000d', border: '1px solid #ecfdf5' }}>
               {/* Photo (Cloudinary) — green placeholder until a photo is added */}

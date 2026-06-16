@@ -104,7 +104,7 @@ export default function FitnessCorner() {
 
                 {/* Calories highlight */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-                  <div style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 78 }}>
+                  <div style={{ background: 'linear-gradient(135deg,#fb7185,#f43f5e)', color: '#fff', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 78 }}>
                     <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1 }}>{it.calories}</div>
                     <div style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.95 }}>KCAL</div>
                   </div>
@@ -123,7 +123,7 @@ export default function FitnessCorner() {
                 {/* Price + action */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10, gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ background: 'linear-gradient(135deg,#047857,#10b981)', color: '#fff', fontSize: 18, fontWeight: 900, padding: '6px 14px', borderRadius: 12, boxShadow: '0 3px 8px rgba(5,150,105,0.35)', letterSpacing: -0.3 }}>₹{dp(it)}</span>
+                    <span style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', fontSize: 18, fontWeight: 900, padding: '6px 14px', borderRadius: 12, boxShadow: '0 3px 8px rgba(239,68,68,0.33)', letterSpacing: -0.3 }}>₹{dp(it)}</span>
                     {it.discount_percent > 0 && (
                       <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
                         <span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>₹{Math.round(it.price)}</span>
@@ -186,7 +186,7 @@ export default function FitnessCorner() {
               {selected.about && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, lineHeight: 1.4 }}>{selected.about}</div>}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 10px' }}>
-                <div style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', borderRadius: 12, padding: '12px 16px', textAlign: 'center', minWidth: 92 }}>
+                <div style={{ background: 'linear-gradient(135deg,#fb7185,#f43f5e)', color: '#fff', borderRadius: 12, padding: '12px 16px', textAlign: 'center', minWidth: 92 }}>
                   <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{selected.calories}</div>
                   <div style={{ fontSize: 10, fontWeight: 700 }}>KCAL</div>
                 </div>
@@ -201,7 +201,7 @@ export default function FitnessCorner() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderTop: '1px dashed #e5e7eb', paddingTop: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ background: 'linear-gradient(135deg,#047857,#10b981)', color: '#fff', fontSize: 22, fontWeight: 900, padding: '8px 18px', borderRadius: 14, boxShadow: '0 4px 12px rgba(5,150,105,0.4)', letterSpacing: -0.5 }}>₹{dp(selected)}</span>
+                  <span style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', fontSize: 22, fontWeight: 900, padding: '8px 18px', borderRadius: 14, boxShadow: '0 4px 12px rgba(239,68,68,0.38)', letterSpacing: -0.5 }}>₹{dp(selected)}</span>
                   {selected.discount_percent > 0 && (
                     <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
                       <span style={{ fontSize: 13, color: '#9ca3af', textDecoration: 'line-through' }}>₹{Math.round(selected.price)}</span>

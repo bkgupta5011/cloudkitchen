@@ -840,6 +840,19 @@ function MenuPageContent() {
         </div>
       )}
 
+      {/* 🥗 Fitness Freak Corner entry banner */}
+      <div onClick={() => router.push('/fitness')} style={{ margin:'0 16px 12px', background:'linear-gradient(135deg,#065f46,#10b981)', borderRadius:16, padding:'14px 16px', display:'flex', alignItems:'center', gap:12, cursor:'pointer', boxShadow:'0 4px 16px #05966733' }}>
+        <div style={{ fontSize:30, flexShrink:0 }}>🥗</div>
+        <div style={{ flex:1, color:'#fff' }}>
+          <div style={{ fontSize:15, fontWeight:800, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            Fitness Freak Corner
+            <span style={{ background:'#fbbf24', color:'#7c2d12', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>COMING SOON</span>
+          </div>
+          <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>High-protein healthy meals · calories & macros ke saath 💪</div>
+        </div>
+        <div style={{ color:'#fff', fontSize:22, flexShrink:0 }}>›</div>
+      </div>
+
       {/* Search bar */}
       <div className={styles.searchBar}>
         <span className={styles.searchIcon}>🔍</span>

@@ -44,6 +44,7 @@ export default function FitnessCorner() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f0fdf4,#ffffff 240px)', paddingBottom: 40 }}>
+     <div style={{ maxWidth: 620, margin: '0 auto' }}>
       {/* Header */}
       <div style={{ position: 'sticky', top: 0, zIndex: 10, background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 2px 12px #0002' }}>
         <button onClick={() => router.push('/menu')} style={{ background: 'rgba(255,255,255,0.18)', border: 'none', color: '#fff', width: 34, height: 34, borderRadius: 10, fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>←</button>
@@ -142,6 +143,7 @@ export default function FitnessCorner() {
       {!loading && items.length === 0 && (
         <div style={{ textAlign: 'center', padding: 50, color: '#6b7280' }}>Abhi koi item nahi hai.</div>
       )}
+     </div>
 
       {/* Floating cart bar */}
       {cartCount > 0 && (

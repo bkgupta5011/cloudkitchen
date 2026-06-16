@@ -64,49 +64,54 @@ export default function FitnessCorner() {
       ) : (
         <div style={{ padding: '8px 16px', display: 'grid', gap: 14 }}>
           {shown.map(it => (
-            <div key={it.id} style={{ background: '#fff', borderRadius: 16, padding: 14, boxShadow: '0 2px 12px #0000000d', border: '1px solid #ecfdf5' }}>
-              {/* Title row */}
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <span style={{ width: 14, height: 14, border: '1.5px solid ' + (it.is_veg ? '#16a34a' : '#dc2626'), borderRadius: 3, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: it.is_veg ? '#16a34a' : '#dc2626' }} />
-                    </span>
-                    <span style={{ fontSize: 15, fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{it.name}</span>
-                  </div>
-                  {it.about && <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.35 }}>{it.about}</div>}
-                </div>
+            <div key={it.id} style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 12px #0000000d', border: '1px solid #ecfdf5' }}>
+              {/* Photo (Cloudinary) — green placeholder until a photo is added */}
+              <div style={{ position: 'relative', width: '100%', height: 156, background: 'linear-gradient(135deg,#d1fae5,#a7f3d0)' }}>
+                {it.image_url ? (
+                  <img src={it.image_url} alt={it.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+                ) : null}
+                <div style={{ display: it.image_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', fontSize: 56 }}>🥗</div>
+                <span style={{ position: 'absolute', top: 8, left: 8, width: 18, height: 18, background: '#fff', border: '1.5px solid ' + (it.is_veg ? '#16a34a' : '#dc2626'), borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: it.is_veg ? '#16a34a' : '#dc2626' }} />
+                </span>
                 {it.diet_tag && (
-                  <span style={{ flexShrink: 0, background: '#ecfdf5', color: '#047857', fontSize: 10.5, fontWeight: 800, padding: '4px 8px', borderRadius: 20, border: '1px solid #a7f3d0' }}>{it.diet_tag}</span>
+                  <span style={{ position: 'absolute', top: 8, right: 8, background: '#065f46', color: '#fff', fontSize: 10.5, fontWeight: 800, padding: '4px 9px', borderRadius: 20 }}>{it.diet_tag}</span>
                 )}
               </div>
 
-              {/* Calories highlight */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
-                <div style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 78 }}>
-                  <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1 }}>{it.calories}</div>
-                  <div style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.95 }}>KCAL</div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flex: 1 }}>
-                  <Macro label="Protein" value={it.protein_g} unit="g" color="#059669" />
-                  <Macro label="Carbs" value={it.carbs_g} unit="g" color="#2563eb" />
-                  <Macro label="Fat" value={it.fat_g} unit="g" color="#d97706" />
-                  <Macro label="Fiber" value={it.fiber_g} unit="g" color="#7c3aed" />
-                </div>
-              </div>
+              {/* Content */}
+              <div style={{ padding: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#111827', lineHeight: 1.2 }}>{it.name}</div>
+                {it.about && <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.35, marginTop: 3 }}>{it.about}</div>}
 
-              {it.other_nutrients && (
-                <div style={{ fontSize: 11.5, color: '#6b7280', marginBottom: 10 }}>💊 {it.other_nutrients}</div>
-              )}
+                {/* Calories highlight */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0 8px' }}>
+                  <div style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', borderRadius: 10, padding: '8px 12px', textAlign: 'center', minWidth: 78 }}>
+                    <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1 }}>{it.calories}</div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, opacity: 0.95 }}>KCAL</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flex: 1 }}>
+                    <Macro label="Protein" value={it.protein_g} unit="g" color="#059669" />
+                    <Macro label="Carbs" value={it.carbs_g} unit="g" color="#2563eb" />
+                    <Macro label="Fat" value={it.fat_g} unit="g" color="#d97706" />
+                    <Macro label="Fiber" value={it.fiber_g} unit="g" color="#7c3aed" />
+                  </div>
+                </div>
 
-              {/* Price + action */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10 }}>
-                <div style={{ fontSize: 17, fontWeight: 800, color: '#065f46' }}>₹{dp(it)}</div>
-                {cornerEnabled && it.is_available ? (
-                  <span style={{ background: '#059669', color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '7px 16px', borderRadius: 10 }}>Available ✓</span>
-                ) : (
-                  <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 10 }}>🔜 Coming Soon</span>
+                {it.other_nutrients && (
+                  <div style={{ fontSize: 11.5, color: '#6b7280', marginBottom: 10 }}>💊 {it.other_nutrients}</div>
                 )}
+
+                {/* Price + action */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10 }}>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: '#065f46' }}>₹{dp(it)}</div>
+                  {cornerEnabled && it.is_available ? (
+                    <span style={{ background: '#059669', color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '7px 16px', borderRadius: 10 }}>Available ✓</span>
+                  ) : (
+                    <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 10 }}>🔜 Coming Soon</span>
+                  )}
+                </div>
               </div>
             </div>
           ))}

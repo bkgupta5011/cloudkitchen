@@ -85,6 +85,8 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_amount INT DEFAULT 20`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_min_order INT DEFAULT 99`
+    // Fitness Freak Corner: when false, customers see items as "Coming Soon" (no ordering)
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS fitness_corner_enabled BOOLEAN DEFAULT false`
   } catch (e) {}
 }
 
@@ -442,7 +444,8 @@ export async function GET(request) {
     SELECT is_open, kitchen_name, address, phone, lat, lng,
            max_delivery_km, open_time, close_time, estimated_time, auto_schedule,
            order_timeout_minutes, escalation_interval_sec,
-           review_reward_enabled, review_reward_amount, review_reward_min_order
+           review_reward_enabled, review_reward_amount, review_reward_min_order,
+           fitness_corner_enabled
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -473,6 +476,7 @@ export async function PATCH(request) {
     const rrEnabled  = data.review_reward_enabled   != null ? !!data.review_reward_enabled         : null
     const rrAmount   = data.review_reward_amount     != null ? parseInt(data.review_reward_amount)   : null
     const rrMin      = data.review_reward_min_order  != null ? parseInt(data.review_reward_min_order): null
+    const ffEnabled  = data.fitness_corner_enabled   != null ? !!data.fitness_corner_enabled         : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -500,6 +504,7 @@ export async function PATCH(request) {
         review_reward_enabled   = COALESCE(${rrEnabled}, review_reward_enabled),
         review_reward_amount    = COALESCE(${rrAmount},  review_reward_amount),
         review_reward_min_order = COALESCE(${rrMin},     review_reward_min_order),
+        fitness_corner_enabled  = COALESCE(${ffEnabled}, fitness_corner_enabled),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

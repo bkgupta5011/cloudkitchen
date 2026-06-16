@@ -20,6 +20,7 @@ export default function FitnessCorner() {
   const [vegOnly, setVegOnly] = useState(false)
 
   const [cart, setCart] = useState({})
+  const [selected, setSelected] = useState(null)
 
   useEffect(() => {
     fetch('/api/fitness')
@@ -78,7 +79,9 @@ export default function FitnessCorner() {
       ) : (
         <div style={{ padding: '8px 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 14 }}>
           {shown.map(it => (
-            <div key={it.id} style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 12px #0000000d', border: '1px solid #ecfdf5' }}>
+            <div key={it.id} onClick={() => setSelected(it)} style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 12px #0000000d', border: '1px solid #ecfdf5', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 8px 22px #05966722' }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 2px 12px #0000000d' }}>
               {/* Photo (Cloudinary) — green placeholder until a photo is added */}
               <div style={{ position: 'relative', width: '100%', height: 156, background: 'linear-gradient(135deg,#d1fae5,#a7f3d0)' }}>
                 {it.image_url ? (
@@ -118,13 +121,21 @@ export default function FitnessCorner() {
                 )}
 
                 {/* Price + action */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10 }}>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: '#065f46' }}>₹{dp(it)}</div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10, gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ background: 'linear-gradient(135deg,#047857,#10b981)', color: '#fff', fontSize: 18, fontWeight: 900, padding: '6px 14px', borderRadius: 12, boxShadow: '0 3px 8px rgba(5,150,105,0.35)', letterSpacing: -0.3 }}>₹{dp(it)}</span>
+                    {it.discount_percent > 0 && (
+                      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                        <span style={{ fontSize: 12, color: '#9ca3af', textDecoration: 'line-through' }}>₹{Math.round(it.price)}</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: '#15803d' }}>{it.discount_percent}% OFF</span>
+                      </span>
+                    )}
+                  </div>
                   {cornerEnabled && it.is_available ? (
                     (cart[it.id] || 0) === 0 ? (
-                      <button onClick={() => addItem(it.id)} style={{ background: '#059669', color: '#fff', border: 'none', fontSize: 13, fontWeight: 700, padding: '8px 20px', borderRadius: 10, cursor: 'pointer' }}>+ Add</button>
+                      <button onClick={e => { e.stopPropagation(); addItem(it.id) }} style={{ background: '#059669', color: '#fff', border: 'none', fontSize: 13, fontWeight: 700, padding: '8px 20px', borderRadius: 10, cursor: 'pointer' }}>+ Add</button>
                     ) : (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#ecfdf5', borderRadius: 10, padding: '5px 12px', border: '1px solid #a7f3d0' }}>
+                      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#ecfdf5', borderRadius: 10, padding: '5px 12px', border: '1px solid #a7f3d0' }}>
                         <button onClick={() => removeItem(it.id)} style={{ background: 'none', border: 'none', fontSize: 20, fontWeight: 800, color: '#059669', cursor: 'pointer', lineHeight: 1 }}>−</button>
                         <span style={{ fontWeight: 800, color: '#065f46', minWidth: 14, textAlign: 'center' }}>{cart[it.id]}</span>
                         <button onClick={() => addItem(it.id)} style={{ background: 'none', border: 'none', fontSize: 20, fontWeight: 800, color: '#059669', cursor: 'pointer', lineHeight: 1 }}>+</button>
@@ -150,6 +161,70 @@ export default function FitnessCorner() {
         <div onClick={() => router.push('/cart')} style={{ position: 'fixed', bottom: 16, left: 16, right: 16, maxWidth: 560, margin: '0 auto', background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', boxShadow: '0 6px 22px #05966677', zIndex: 30 }}>
           <span style={{ fontWeight: 700 }}>🛒 {cartCount} item{cartCount > 1 ? 's' : ''} in cart</span>
           <span style={{ fontWeight: 800 }}>View Cart ›</span>
+        </div>
+      )}
+
+      <style>{`@keyframes fitPop{from{transform:scale(.9) translateY(14px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}`}</style>
+
+      {/* Detail popup */}
+      {selected && (
+        <div onClick={() => setSelected(null)} style={{ position: 'fixed', inset: 0, background: '#0009', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 22, maxWidth: 440, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 70px #00000066', animation: 'fitPop 0.22s cubic-bezier(.2,.9,.3,1.25)' }}>
+            <div style={{ position: 'relative', width: '100%', height: 200, background: 'linear-gradient(135deg,#d1fae5,#a7f3d0)' }}>
+              {selected.image_url ? (
+                <img src={selected.image_url} alt={selected.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }} />
+              ) : null}
+              <div style={{ display: selected.image_url ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', fontSize: 70 }}>🥗</div>
+              <button onClick={() => setSelected(null)} style={{ position: 'absolute', top: 12, right: 12, width: 34, height: 34, borderRadius: '50%', background: '#fff', border: 'none', fontSize: 17, cursor: 'pointer', boxShadow: '0 2px 8px #0003' }}>✕</button>
+              <span style={{ position: 'absolute', top: 12, left: 12, width: 20, height: 20, background: '#fff', border: '1.5px solid ' + (selected.is_veg ? '#16a34a' : '#dc2626'), borderRadius: 5, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: selected.is_veg ? '#16a34a' : '#dc2626' }} />
+              </span>
+              {selected.diet_tag && <span style={{ position: 'absolute', bottom: 12, left: 12, background: '#065f46', color: '#fff', fontSize: 11, fontWeight: 800, padding: '5px 11px', borderRadius: 20 }}>{selected.diet_tag}</span>}
+            </div>
+            <div style={{ padding: 18 }}>
+              <div style={{ fontSize: 19, fontWeight: 800, color: '#111827' }}>{selected.name}</div>
+              {selected.about && <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4, lineHeight: 1.4 }}>{selected.about}</div>}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 10px' }}>
+                <div style={{ background: 'linear-gradient(135deg,#f97316,#ef4444)', color: '#fff', borderRadius: 12, padding: '12px 16px', textAlign: 'center', minWidth: 92 }}>
+                  <div style={{ fontSize: 22, fontWeight: 900, lineHeight: 1 }}>{selected.calories}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700 }}>KCAL</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, flex: 1 }}>
+                  <Macro label="Protein" value={selected.protein_g} unit="g" color="#059669" />
+                  <Macro label="Carbs" value={selected.carbs_g} unit="g" color="#2563eb" />
+                  <Macro label="Fat" value={selected.fat_g} unit="g" color="#d97706" />
+                  <Macro label="Fiber" value={selected.fiber_g} unit="g" color="#7c3aed" />
+                </div>
+              </div>
+              {selected.other_nutrients && <div style={{ fontSize: 12.5, color: '#6b7280', marginBottom: 14 }}>💊 {selected.other_nutrients}</div>}
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderTop: '1px dashed #e5e7eb', paddingTop: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ background: 'linear-gradient(135deg,#047857,#10b981)', color: '#fff', fontSize: 22, fontWeight: 900, padding: '8px 18px', borderRadius: 14, boxShadow: '0 4px 12px rgba(5,150,105,0.4)', letterSpacing: -0.5 }}>₹{dp(selected)}</span>
+                  {selected.discount_percent > 0 && (
+                    <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                      <span style={{ fontSize: 13, color: '#9ca3af', textDecoration: 'line-through' }}>₹{Math.round(selected.price)}</span>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: '#15803d' }}>{selected.discount_percent}% OFF</span>
+                    </span>
+                  )}
+                </div>
+                {cornerEnabled && selected.is_available ? (
+                  (cart[selected.id] || 0) === 0 ? (
+                    <button onClick={() => addItem(selected.id)} style={{ background: '#059669', color: '#fff', border: 'none', fontSize: 15, fontWeight: 800, padding: '11px 24px', borderRadius: 12, cursor: 'pointer' }}>+ Add to Cart</button>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, background: '#ecfdf5', borderRadius: 12, padding: '7px 16px', border: '1px solid #a7f3d0' }}>
+                      <button onClick={() => removeItem(selected.id)} style={{ background: 'none', border: 'none', fontSize: 22, fontWeight: 800, color: '#059669', cursor: 'pointer' }}>−</button>
+                      <span style={{ fontWeight: 800, color: '#065f46' }}>{cart[selected.id]}</span>
+                      <button onClick={() => addItem(selected.id)} style={{ background: 'none', border: 'none', fontSize: 22, fontWeight: 800, color: '#059669', cursor: 'pointer' }}>+</button>
+                    </div>
+                  )
+                ) : (
+                  <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 13, fontWeight: 700, padding: '10px 18px', borderRadius: 12 }}>🔜 Coming Soon</span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

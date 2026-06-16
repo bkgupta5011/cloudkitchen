@@ -419,15 +419,26 @@ export async function POST(request) {
   const itemIds = items.map(i => i.id)
   const menuItems = await sql`SELECT * FROM menu_items WHERE id = ANY(${itemIds}) AND is_available = true`
 
+  // Fitness Corner items — orderable ONLY when the corner is enabled + item available
+  let fitRows = []
+  try {
+    const [fcfg] = await sql`SELECT fitness_corner_enabled FROM kitchen_settings WHERE id = 1`
+    if (fcfg?.fitness_corner_enabled) {
+      fitRows = await sql`SELECT * FROM fitness_items WHERE id = ANY(${itemIds}) AND is_available = true`
+    }
+  } catch (e) {}
+
   let subtotal = 0
   const orderItems = []
 
   for (const cartItem of items) {
     const menuItem = menuItems.find(m => m.id === cartItem.id)
-    if (!menuItem) return NextResponse.json({ error: `Item not available: ${cartItem.name}` }, { status: 400 })
+    const fitItem  = !menuItem ? fitRows.find(f => f.id === cartItem.id) : null
+    const src = menuItem || fitItem
+    if (!src) return NextResponse.json({ error: `Item not available: ${cartItem.name}` }, { status: 400 })
 
-    // ── Stock check ──────────────────────────────────────────────────
-    if (menuItem.stock_count !== null && menuItem.stock_count !== undefined) {
+    // ── Stock check (menu items only; fitness items have no stock) ────
+    if (menuItem && menuItem.stock_count !== null && menuItem.stock_count !== undefined) {
       if (menuItem.stock_count <= 0) {
         return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai (stock khatam)` }, { status: 400 })
       }
@@ -436,19 +447,20 @@ export async function POST(request) {
       }
     }
 
-    const discountedPrice = menuItem.discount_percent > 0
-      ? menuItem.price * (1 - menuItem.discount_percent / 100)
-      : parseFloat(menuItem.price)
+    const discountedPrice = src.discount_percent > 0
+      ? src.price * (1 - src.discount_percent / 100)
+      : parseFloat(src.price)
 
     const lineTotal = discountedPrice * cartItem.qty
     subtotal += lineTotal
     orderItems.push({
-      menu_item_id: menuItem.id,
-      name: menuItem.name,
+      menu_item_id: menuItem ? menuItem.id : null,
+      fitness_item_id: fitItem ? fitItem.id : null,
+      name: src.name,
       price: discountedPrice,
       quantity: cartItem.qty,
       subtotal: lineTotal,
-      has_stock: menuItem.stock_count !== null && menuItem.stock_count !== undefined,
+      has_stock: !!(menuItem && menuItem.stock_count !== null && menuItem.stock_count !== undefined),
     })
   }
 
@@ -525,10 +537,11 @@ export async function POST(request) {
   }
 
   // Insert order items + deduct stock atomically
+  try { await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS fitness_item_id UUID` } catch {}
   for (const oi of orderItems) {
     await sql`
-      INSERT INTO order_items (order_id, menu_item_id, name, price, quantity, subtotal)
-      VALUES (${order.id}, ${oi.menu_item_id}, ${oi.name}, ${oi.price}, ${oi.quantity}, ${oi.subtotal})
+      INSERT INTO order_items (order_id, menu_item_id, fitness_item_id, name, price, quantity, subtotal)
+      VALUES (${order.id}, ${oi.menu_item_id}, ${oi.fitness_item_id || null}, ${oi.name}, ${oi.price}, ${oi.quantity}, ${oi.subtotal})
     `
     // Deduct stock if item has stock tracking
     if (oi.has_stock) {

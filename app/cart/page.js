@@ -414,6 +414,7 @@ function launchConfetti() {
 export default function CartPage() {
   const router = useRouter()
   const [menuItems, setMenuItems] = useState([])
+  const [fitnessItems, setFitnessItems] = useState([])
   const [menuLoading, setMenuLoading] = useState(true)
   // Lazy initializer — reads localStorage synchronously on first render.
   // Avoids the flash of "empty cart" caused by useEffect being async.
@@ -493,6 +494,8 @@ export default function CartPage() {
       setMenuItems(d.items || [])
       setMenuLoading(false)
     })
+    // Fitness Corner items — so the cart can resolve & total them too
+    fetch('/api/fitness').then(r => r.json()).then(d => setFitnessItems(d.items || [])).catch(() => {})
     // Fetch customer info — check if name is missing
     fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'me' }) })
       .then(r => r.json()).then(d => {
@@ -618,7 +621,7 @@ export default function CartPage() {
     : (item?.price || 0)
 
   const cartEntries = Object.entries(cart)
-    .map(([id, qty]) => ({ item: menuItems.find(m => m.id === id), qty }))
+    .map(([id, qty]) => ({ item: menuItems.find(m => m.id === id) || fitnessItems.find(f => f.id === id), qty }))
     .filter(e => e.item)
 
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)

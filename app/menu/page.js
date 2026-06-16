@@ -367,6 +367,7 @@ function MenuPageContent() {
   const [showInstallBanner, setShowInstallBanner] = useState(false)
   const [showIOSModal, setShowIOSModal] = useState(false)
   const [itemRatings, setItemRatings] = useState({})
+  const [fitnessLive, setFitnessLive] = useState(null) // null=unknown, true=live, false=coming soon
   const [showNotifDrawer, setShowNotifDrawer] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [kitchenPhone, setKitchenPhone] = useState(null)
@@ -406,7 +407,8 @@ function MenuPageContent() {
       fetch('/api/admin?type=offers').then(r => r.json()),
       fetch('/api/ratings?type=menu').then(r => r.json()).catch(() => ({ itemRatings: {} })),
       fetch('/api/cart').then(r => r.json()).catch(() => ({ cart: {} })),
-    ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData]) => {
+      fetch('/api/fitness').then(r => r.json()).catch(() => ({ cornerEnabled: false })),
+    ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData, fitnessData]) => {
       // Guest mode: skip auth redirect — guests can browse menu freely
       if (!isGuest) {
         if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
@@ -429,6 +431,7 @@ function MenuPageContent() {
       setKitchenPhone(settingsData.settings?.phone || null)
       setOffers(offersData.offers || [])
       setItemRatings(ratingsData.itemRatings || {})
+      setFitnessLive(!!fitnessData.cornerEnabled)
       setLoading(false)
     })
   }, [])
@@ -846,7 +849,8 @@ function MenuPageContent() {
         <div style={{ flex:1, color:'#fff' }}>
           <div style={{ fontSize:15, fontWeight:800, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
             Fitness Freak Corner
-            <span style={{ background:'#fbbf24', color:'#7c2d12', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>COMING SOON</span>
+            {fitnessLive === false && <span style={{ background:'#fbbf24', color:'#7c2d12', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>COMING SOON</span>}
+            {fitnessLive === true && <span style={{ background:'#bbf7d0', color:'#065f46', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>● LIVE</span>}
           </div>
           <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>High-protein healthy meals · calories & macros ke saath 💪</div>
         </div>

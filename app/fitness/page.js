@@ -19,15 +19,28 @@ export default function FitnessCorner() {
   const [loading, setLoading] = useState(true)
   const [vegOnly, setVegOnly] = useState(false)
 
+  const [cart, setCart] = useState({})
+
   useEffect(() => {
     fetch('/api/fitness')
       .then(r => r.json())
       .then(d => { setItems(d.items || []); setCornerEnabled(!!d.cornerEnabled); setLoading(false) })
       .catch(() => setLoading(false))
+    try { setCart(JSON.parse(localStorage.getItem('ck_cart') || '{}')) } catch {}
   }, [])
+
+  // Same cart as the rest of the app (ck_cart) — keep local + server in sync
+  const syncCart = (next) => {
+    setCart(next)
+    try { localStorage.setItem('ck_cart', JSON.stringify(next)) } catch {}
+    fetch('/api/cart', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cart: next }) }).catch(() => {})
+  }
+  const addItem = (id) => syncCart({ ...cart, [id]: (cart[id] || 0) + 1 })
+  const removeItem = (id) => { const n = (cart[id] || 0) - 1; const next = { ...cart }; if (n <= 0) delete next[id]; else next[id] = n; syncCart(next) }
 
   const dp = (it) => it.discount_percent > 0 ? Math.round(it.price * (1 - it.discount_percent / 100)) : Math.round(it.price)
   const shown = vegOnly ? items.filter(i => i.is_veg) : items
+  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0)
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f0fdf4,#ffffff 240px)', paddingBottom: 40 }}>
@@ -107,7 +120,15 @@ export default function FitnessCorner() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed #e5e7eb', paddingTop: 10 }}>
                   <div style={{ fontSize: 17, fontWeight: 800, color: '#065f46' }}>₹{dp(it)}</div>
                   {cornerEnabled && it.is_available ? (
-                    <span style={{ background: '#059669', color: '#fff', fontSize: 12.5, fontWeight: 700, padding: '7px 16px', borderRadius: 10 }}>Available ✓</span>
+                    (cart[it.id] || 0) === 0 ? (
+                      <button onClick={() => addItem(it.id)} style={{ background: '#059669', color: '#fff', border: 'none', fontSize: 13, fontWeight: 700, padding: '8px 20px', borderRadius: 10, cursor: 'pointer' }}>+ Add</button>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#ecfdf5', borderRadius: 10, padding: '5px 12px', border: '1px solid #a7f3d0' }}>
+                        <button onClick={() => removeItem(it.id)} style={{ background: 'none', border: 'none', fontSize: 20, fontWeight: 800, color: '#059669', cursor: 'pointer', lineHeight: 1 }}>−</button>
+                        <span style={{ fontWeight: 800, color: '#065f46', minWidth: 14, textAlign: 'center' }}>{cart[it.id]}</span>
+                        <button onClick={() => addItem(it.id)} style={{ background: 'none', border: 'none', fontSize: 20, fontWeight: 800, color: '#059669', cursor: 'pointer', lineHeight: 1 }}>+</button>
+                      </div>
+                    )
                   ) : (
                     <span style={{ background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700, padding: '7px 14px', borderRadius: 10 }}>🔜 Coming Soon</span>
                   )}
@@ -120,6 +141,14 @@ export default function FitnessCorner() {
 
       {!loading && items.length === 0 && (
         <div style={{ textAlign: 'center', padding: 50, color: '#6b7280' }}>Abhi koi item nahi hai.</div>
+      )}
+
+      {/* Floating cart bar */}
+      {cartCount > 0 && (
+        <div onClick={() => router.push('/cart')} style={{ position: 'fixed', bottom: 16, left: 16, right: 16, maxWidth: 560, margin: '0 auto', background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', borderRadius: 14, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', boxShadow: '0 6px 22px #05966677', zIndex: 30 }}>
+          <span style={{ fontWeight: 700 }}>🛒 {cartCount} item{cartCount > 1 ? 's' : ''} in cart</span>
+          <span style={{ fontWeight: 800 }}>View Cart ›</span>
+        </div>
       )}
     </div>
   )

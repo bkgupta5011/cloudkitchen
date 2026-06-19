@@ -22,12 +22,17 @@ export function middleware(request) {
     ) {
       return NextResponse.next()
     }
+    // order.foodfi.in is NOT separately installable — block its manifest so the
+    // browser never offers to install the order.foodfi.in app (users install
+    // the real app from foodfi.in). 404 = no valid manifest = no install prompt.
+    if (url.pathname === '/manifest.json') {
+      return new NextResponse(null, { status: 404 })
+    }
     // Allow Next.js internals, static files and SEO files
     if (
       url.pathname.startsWith('/_next/') ||
       url.pathname.startsWith('/icons/') ||
       url.pathname === '/sw.js' ||
-      url.pathname === '/manifest.json' ||
       url.pathname === '/favicon.ico' ||
       url.pathname === '/sitemap.xml' ||
       url.pathname === '/robots.txt' ||

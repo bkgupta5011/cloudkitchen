@@ -31,6 +31,8 @@ export default function PWAInstall() {
   useEffect(() => {
     if (!authChecked) return   // still checking — do nothing
     if (isLoggedIn) return     // logged in — never show install prompts
+    // order.foodfi.in is NOT separately installable — users install the app from foodfi.in
+    if (typeof window !== 'undefined' && window.location.hostname === 'order.foodfi.in') return
 
     // Already installed as standalone app?
     const standalone =

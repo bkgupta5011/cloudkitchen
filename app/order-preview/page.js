@@ -63,7 +63,9 @@ export default function OrderPreview() {
             </a>
           </div>
 
-          <div style={{ marginTop: 34, fontSize: 12.5, opacity: 0.7, animation: 'bobPv 1.6s ease-in-out infinite' }}>↓ Aaj ke specials</div>
+          <button onClick={() => { window.location.href = 'https://foodfi.in/menu' }} style={{ marginTop: 24, background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.32)', color: '#fff', borderRadius: 24, padding: '10px 22px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}>📲 Install FoodFi App</button>
+
+          <div style={{ marginTop: 26, fontSize: 12.5, opacity: 0.7, animation: 'bobPv 1.6s ease-in-out infinite' }}>↓ Aaj ke specials</div>
         </div>
       </div>
 

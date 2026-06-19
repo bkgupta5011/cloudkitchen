@@ -10,6 +10,15 @@ export function middleware(request) {
     if (url.pathname.startsWith('/api/public/')) {
       return NextResponse.next()
     }
+    // Allow the Blog Corner (listing, single posts, writer) + its API
+    if (
+      url.pathname === '/blog' ||
+      url.pathname.startsWith('/blog/') ||
+      url.pathname === '/blog-write' ||
+      url.pathname.startsWith('/api/blog')
+    ) {
+      return NextResponse.next()
+    }
     // Allow Next.js internals, static files and SEO files
     if (
       url.pathname.startsWith('/_next/') ||

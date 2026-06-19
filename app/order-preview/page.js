@@ -101,7 +101,7 @@ export default function OrderPreview() {
           <div style={{ textAlign: 'center', marginTop: 34 }}>
             <button onClick={() => router.push('/menu')} style={{ background: 'linear-gradient(135deg,#fb923c,#ef4444)', color: '#fff', border: 'none', borderRadius: 30, padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 6px 22px rgba(239,68,68,0.4)' }}>Order Now →</button>
           </div>
-          <div style={{ textAlign: 'center', marginTop: 14, fontSize: 11, color: '#57534e' }}>SAMPLE PREVIEW — live site abhi change nahi hui</div>
+          <div style={{ textAlign: 'center', marginTop: 18, fontSize: 11.5, color: '#57534e' }}>FoodFi Cloud Kitchen · Patna 🛵 · <a href="/blog" style={{ color: '#a8a29e', textDecoration: 'none' }}>📝 Blog</a></div>
         </div>
       </div>
 

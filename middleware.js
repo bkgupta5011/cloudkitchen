@@ -10,12 +10,15 @@ export function middleware(request) {
     if (url.pathname.startsWith('/api/public/')) {
       return NextResponse.next()
     }
-    // Allow the Blog Corner (listing, single posts, writer) + its API
+    // Allow the Blog Corner + Fitness Corner + premium landing (+ their APIs)
     if (
       url.pathname === '/blog' ||
       url.pathname.startsWith('/blog/') ||
       url.pathname === '/blog-write' ||
-      url.pathname.startsWith('/api/blog')
+      url.pathname.startsWith('/api/blog') ||
+      url.pathname === '/fitness' ||
+      url.pathname.startsWith('/api/fitness') ||
+      url.pathname === '/order-preview'
     ) {
       return NextResponse.next()
     }
@@ -32,9 +35,10 @@ export function middleware(request) {
     ) {
       return NextResponse.next()
     }
-    // Allow root path — splash screen handles auth + redirect
+    // Root → premium landing (rotating food hero + menu/fitness entries)
     if (url.pathname === '/') {
-      return NextResponse.next()
+      url.pathname = '/order-preview'
+      return NextResponse.rewrite(url)
     }
     // Rewrite EVERYTHING else (including /login, /menu etc.) → /order
     url.pathname = '/order'

@@ -47,14 +47,14 @@ export default function OrderPreview() {
           <div style={{ fontSize: 'clamp(15px,3.6vw,21px)', opacity: 0.94, maxWidth: 540, marginTop: 14, lineHeight: 1.5 }}>Ghar jaisа khana · har niwale mein dil 🧡<br />Fresh, fast aur ekdum tasty.</div>
 
           <div style={{ display: 'flex', gap: 16, marginTop: 38, flexWrap: 'wrap', justifyContent: 'center', width: '100%', maxWidth: 560 }}>
-            <a onClick={() => router.push('/menu')} style={cta}
+            <a onClick={() => { window.location.href = 'https://foodfi.in/menu' }} style={cta}
               onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
               onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.background = 'rgba(255,255,255,0.12)' }}>
               <div style={{ fontSize: 30 }}>🍛</div>
               <div style={{ fontSize: 18, fontWeight: 800, marginTop: 6 }}>Regular Menu</div>
               <div style={{ fontSize: 12.5, opacity: 0.8, marginTop: 2 }}>Rajma · Chole · Roti combos — ₹99 se</div>
             </a>
-            <a onClick={() => router.push('/fitness')} style={cta}
+            <a onClick={() => { window.location.href = 'https://foodfi.in/fitness' }} style={cta}
               onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
               onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.background = 'rgba(255,255,255,0.12)' }}>
               <div style={{ fontSize: 30 }}>🥗</div>
@@ -75,7 +75,7 @@ export default function OrderPreview() {
             {featured.map((it, i) => {
               const dp = Math.round(it.price * (1 - (it.discount_percent || 0) / 100))
               return (
-                <div key={i} onClick={() => router.push(it.calories ? '/fitness' : '/menu')} style={{ flex: '0 0 auto', width: 168, background: '#1c1917', borderRadius: 16, overflow: 'hidden', cursor: 'pointer', border: '1px solid #292524' }}>
+                <div key={i} onClick={() => { window.location.href = it.calories ? 'https://foodfi.in/fitness' : 'https://foodfi.in/menu' }} style={{ flex: '0 0 auto', width: 168, background: '#1c1917', borderRadius: 16, overflow: 'hidden', cursor: 'pointer', border: '1px solid #292524' }}>
                   <div style={{ height: 120, background: '#292524' }}>
                     {it.image_url ? <img src={it.image_url} alt={it.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 38 }}>{it.calories ? '🥗' : '🍛'}</div>}
                   </div>
@@ -99,7 +99,7 @@ export default function OrderPreview() {
           </div>
 
           <div style={{ textAlign: 'center', marginTop: 34 }}>
-            <button onClick={() => router.push('/menu')} style={{ background: 'linear-gradient(135deg,#fb923c,#ef4444)', color: '#fff', border: 'none', borderRadius: 30, padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 6px 22px rgba(239,68,68,0.4)' }}>Order Now →</button>
+            <button onClick={() => { window.location.href = 'https://foodfi.in/menu' }} style={{ background: 'linear-gradient(135deg,#fb923c,#ef4444)', color: '#fff', border: 'none', borderRadius: 30, padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 6px 22px rgba(239,68,68,0.4)' }}>Order Now →</button>
           </div>
           <div style={{ textAlign: 'center', marginTop: 18, fontSize: 11.5, color: '#57534e' }}>FoodFi Cloud Kitchen · Patna 🛵 · <a href="/blog" style={{ color: '#a8a29e', textDecoration: 'none' }}>📝 Blog</a></div>
         </div>

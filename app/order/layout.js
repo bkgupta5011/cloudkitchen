@@ -150,7 +150,7 @@ export const metadata = {
   },
 }
 
-const jsonLd = {
+export const jsonLd = {
   '@context': 'https://schema.org',
   '@graph': [
     {

@@ -102,6 +102,7 @@ export async function GET(request) {
     const posts = await sql`
       SELECT p.id, p.title, p.slug, p.excerpt, p.cover_image_url, p.author, p.created_at,
              p.views, p.likes, p.shares, p.food_name,
+             p.calories, p.protein_g, p.carbs_g, p.fat_g, p.fiber_g,
              (SELECT COUNT(*)::int FROM blog_comments c WHERE c.post_id = p.id) AS comment_count
       FROM blog_posts p
       WHERE p.published = true

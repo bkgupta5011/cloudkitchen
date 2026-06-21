@@ -7,12 +7,14 @@ export default function OrderPreview() {
   const [bg, setBg] = useState([])
   const [idx, setIdx] = useState(0)
   const [featured, setFeatured] = useState([])
+  const [blogs, setBlogs] = useState([])
 
   useEffect(() => {
     Promise.all([
       fetch('/api/public/menu').then(r => r.json()).catch(() => ({ items: [] })),
       fetch('/api/fitness').then(r => r.json()).catch(() => ({ items: [] })),
-    ]).then(([menu, fit]) => {
+      fetch('/api/blog').then(r => r.json()).catch(() => ({ posts: [] })),
+    ]).then(([menu, fit, blog]) => {
       const m = (menu.items || []).filter(i => i.image_url)
       const f = (fit.items || []).filter(i => i.image_url)
       const imgs = [...m, ...f].map(i => i.image_url)
@@ -22,8 +24,11 @@ export default function OrderPreview() {
       // featured: ₹99 combos + a few fitness items
       const deals = m.filter(i => Math.round(i.price * (1 - (i.discount_percent || 0) / 100)) === 99).slice(0, 6)
       setFeatured([...deals, ...f.slice(0, 4)])
+      setBlogs(blog.posts || [])
     })
   }, [])
+
+  const chip = (color, bg) => ({ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 6, color, background: bg })
 
   useEffect(() => {
     if (bg.length < 2) return
@@ -103,11 +108,45 @@ export default function OrderPreview() {
           <div style={{ textAlign: 'center', marginTop: 34 }}>
             <button onClick={() => { window.location.href = 'https://foodfi.in/menu' }} style={{ background: 'linear-gradient(135deg,#fb923c,#ef4444)', color: '#fff', border: 'none', borderRadius: 30, padding: '14px 40px', fontSize: 16, fontWeight: 800, cursor: 'pointer', boxShadow: '0 6px 22px rgba(239,68,68,0.4)' }}>Order Now →</button>
           </div>
-          <div style={{ textAlign: 'center', marginTop: 18, fontSize: 11.5, color: '#57534e' }}>FoodFi Cloud Kitchen · Patna 🛵 · <a href="/blog" style={{ color: '#a8a29e', textDecoration: 'none' }}>📝 Blog</a></div>
+
+          {/* 📝 Floating blog strip */}
+          {blogs.length > 0 && (
+            <div style={{ marginTop: 44 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>📝 From our Blog</div>
+              <div style={{ fontSize: 13, opacity: 0.7, marginBottom: 16 }}>Health &amp; food — tap karke padho</div>
+              <div className="blogMq" style={{ overflow: 'hidden', width: '100%' }}>
+                <div className="blogTrack" style={{ display: 'flex', gap: 14, width: 'max-content' }}>
+                  {[...blogs, ...blogs].map((b, i) => {
+                    const hasNut = b.calories != null || b.protein_g != null
+                    return (
+                      <div key={i} onClick={() => router.push('/blog/' + b.slug)} style={{ flex: '0 0 auto', width: 230, background: '#1c1917', borderRadius: 16, overflow: 'hidden', cursor: 'pointer', border: '1px solid #292524' }}>
+                        <div style={{ height: 120, background: '#292524' }}>
+                          {b.cover_image_url ? <img src={b.cover_image_url} alt={b.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 34 }}>📝</div>}
+                        </div>
+                        <div style={{ padding: '11px 13px' }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.3, height: 36, overflow: 'hidden' }}>{b.title}</div>
+                          <div style={{ fontSize: 11, color: '#78716c', margin: '5px 0 8px' }}>✍️ {b.author}</div>
+                          {hasNut && (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {b.protein_g != null && <span style={chip('#34d399', 'rgba(16,185,129,0.16)')}>{b.protein_g}g protein</span>}
+                              {b.carbs_g != null && <span style={chip('#60a5fa', 'rgba(59,130,246,0.16)')}>{b.carbs_g}g carbs</span>}
+                              {b.calories != null && <span style={chip('#fb923c', 'rgba(249,115,22,0.16)')}>{b.calories} cal</span>}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ textAlign: 'center', marginTop: 30, fontSize: 11.5, color: '#57534e' }}>FoodFi Cloud Kitchen · Patna 🛵 · <a href="/blog" style={{ color: '#a8a29e', textDecoration: 'none' }}>📝 Blog</a></div>
         </div>
       </div>
 
-      <style>{`@keyframes bobPv{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}`}</style>
+      <style>{`@keyframes bobPv{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}@keyframes blogMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}.blogTrack{animation:blogMarquee 30s linear infinite}.blogMq:hover .blogTrack{animation-play-state:paused}`}</style>
     </div>
   )
 }

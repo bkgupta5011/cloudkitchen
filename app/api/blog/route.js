@@ -56,6 +56,11 @@ async function ensureBlogTables(sql) {
     await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS title_hi TEXT`
     await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS excerpt_hi TEXT`
     await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS content_hi TEXT`
+    // SEO keywords, scheduling, and live item-image linking
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS keywords TEXT`
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS scheduled_for TIMESTAMPTZ`
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS fitness_item_id UUID`
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS menu_item_id UUID`
     await sql`
       CREATE TABLE IF NOT EXISTS blog_comments (
         id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -98,17 +103,27 @@ export async function GET(request) {
     if (slug) {
       const [post] = await sql`SELECT * FROM blog_posts WHERE slug = ${slug} AND published = true`
       if (!post) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      // Live cover from the linked item — uploading the item photo later auto-shows here
+      if (post.fitness_item_id || post.menu_item_id) {
+        const [img] = post.fitness_item_id
+          ? await sql`SELECT image_url FROM fitness_items WHERE id = ${post.fitness_item_id}`.catch(() => [])
+          : await sql`SELECT image_url FROM menu_items WHERE id = ${post.menu_item_id}`.catch(() => [])
+        if (img?.image_url) post.cover_image_url = img.image_url
+      }
       await sql`UPDATE blog_posts SET views = views + 1 WHERE id = ${post.id}`.catch(() => {})
       const comments = await sql`SELECT id, name, comment, created_at FROM blog_comments WHERE post_id = ${post.id} ORDER BY created_at DESC`
       return NextResponse.json({ post: { ...post, views: post.views + 1 }, comments })
     }
 
     const posts = await sql`
-      SELECT p.id, p.title, p.slug, p.excerpt, p.cover_image_url, p.author, p.created_at,
+      SELECT p.id, p.title, p.slug, p.excerpt, p.author, p.created_at,
              p.views, p.likes, p.shares, p.food_name,
              p.calories, p.protein_g, p.carbs_g, p.fat_g, p.fiber_g,
+             COALESCE(fi.image_url, mi.image_url, p.cover_image_url) AS cover_image_url,
              (SELECT COUNT(*)::int FROM blog_comments c WHERE c.post_id = p.id) AS comment_count
       FROM blog_posts p
+      LEFT JOIN fitness_items fi ON fi.id = p.fitness_item_id
+      LEFT JOIN menu_items mi ON mi.id = p.menu_item_id
       WHERE p.published = true
       ORDER BY p.created_at DESC
     `

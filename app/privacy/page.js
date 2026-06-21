@@ -122,7 +122,7 @@ export default function PrivacyPolicy() {
         <Section title="11. Contact Us">
           <p>
             For any questions, data requests, or account deletion, contact us at:<br />
-            📧 <a href="mailto:foodfi925@gmail.com" style={linkStyle}>foodfi925@gmail.com</a><br />
+            📧 <a href="mailto:bkgupta5011@gmail.com" style={linkStyle}>bkgupta5011@gmail.com</a><br />
             📞 +91 75469 83536<br />
             🏠 FoodFi, East Laxmi Nagar, Patna, Bihar, India
           </p>

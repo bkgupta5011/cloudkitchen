@@ -27,6 +27,7 @@ function NutBox({ label, val, unit, c }) {
 }
 const linkStyle = (c) => ({ display: 'inline-block', background: '#fff', border: '1.5px solid ' + c, color: c, borderRadius: 20, padding: '7px 14px', fontSize: 13, fontWeight: 700, textDecoration: 'none' })
 const inp = (w) => ({ flex: w ? 'none' : 1, width: w || 'auto', padding: '9px 11px', border: '1px solid #e7e5e4', borderRadius: 9, fontSize: 14, outline: 'none', fontFamily: 'inherit', background: '#fff' })
+const langBtn = (active) => ({ background: active ? '#ea580c' : '#fff', color: active ? '#fff' : '#57534e', border: '1.5px solid ' + (active ? '#ea580c' : '#e7e5e4'), borderRadius: 20, padding: '5px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' })
 
 export default function BlogPost() {
   const { slug } = useParams()
@@ -38,6 +39,7 @@ export default function BlogPost() {
   const [cName, setCName] = useState('')
   const [cText, setCText] = useState('')
   const [posting, setPosting] = useState(false)
+  const [lang, setLang] = useState('en')
 
   useEffect(() => {
     if (!slug) return
@@ -96,7 +98,14 @@ export default function BlogPost() {
       <article style={{ maxWidth: 720, margin: '0 auto', background: '#fff', minHeight: '90vh' }}>
         {post.cover_image_url && <img src={post.cover_image_url} alt={post.title} style={{ width: '100%', height: 300, objectFit: 'cover' }} />}
         <div style={{ padding: '24px 22px 40px' }}>
-          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 31, fontWeight: 800, color: '#1c1917', lineHeight: 1.25, margin: 0 }}>{post.title}</h1>
+          {post.content_hi && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#a8a29e' }}>🌐</span>
+              <button onClick={() => setLang('en')} style={langBtn(lang === 'en')}>English</button>
+              <button onClick={() => setLang('hi')} style={langBtn(lang === 'hi')}>हिंदी</button>
+            </div>
+          )}
+          <h1 style={{ fontFamily: 'Georgia, serif', fontSize: 31, fontWeight: 800, color: '#1c1917', lineHeight: 1.25, margin: 0 }}>{lang === 'hi' && post.title_hi ? post.title_hi : post.title}</h1>
           <div style={{ fontSize: 13, color: '#a8a29e', margin: '12px 0 0', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
             <span>✍️ {post.author}</span><span>{fmtDate(post.created_at)}</span><span>👁️ {post.views} views</span>
           </div>
@@ -114,7 +123,7 @@ export default function BlogPost() {
             </div>
           )}
 
-          <div style={{ fontFamily: 'Georgia, serif', fontSize: 17.5, lineHeight: 1.85, color: '#292524', marginTop: 18, whiteSpace: 'pre-wrap' }}>{post.content}</div>
+          <div style={{ fontFamily: 'Georgia, serif', fontSize: 17.5, lineHeight: 1.85, color: '#292524', marginTop: 18, whiteSpace: 'pre-wrap' }}>{lang === 'hi' && post.content_hi ? post.content_hi : post.content}</div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '28px 0 18px', flexWrap: 'wrap' }}>
             <button onClick={like} disabled={liked} style={{ display: 'flex', alignItems: 'center', gap: 7, background: liked ? '#fee2e2' : '#fff', border: '1.5px solid ' + (liked ? '#fca5a5' : '#e7e5e4'), color: liked ? '#dc2626' : '#57534e', borderRadius: 24, padding: '9px 18px', fontSize: 14, fontWeight: 700, cursor: liked ? 'default' : 'pointer' }}>

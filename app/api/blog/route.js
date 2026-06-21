@@ -52,6 +52,10 @@ async function ensureBlogTables(sql) {
         created_at      TIMESTAMP DEFAULT NOW()
       )
     `
+    // Bilingual support (Hindi versions) — added later, safe to re-run
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS title_hi TEXT`
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS excerpt_hi TEXT`
+    await sql`ALTER TABLE blog_posts ADD COLUMN IF NOT EXISTS content_hi TEXT`
     await sql`
       CREATE TABLE IF NOT EXISTS blog_comments (
         id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -141,9 +145,11 @@ export async function POST(request) {
     const [post] = await sql`
       INSERT INTO blog_posts (
         title, slug, excerpt, content, cover_image_url, author,
+        title_hi, excerpt_hi, content_hi,
         food_name, calories, protein_g, carbs_g, fat_g, fiber_g
       ) VALUES (
         ${d.title.trim()}, ${slug}, ${excerpt}, ${d.content}, ${d.cover_image_url || null}, ${d.author?.trim() || 'FoodFi'},
+        ${d.title_hi?.trim() || null}, ${d.excerpt_hi?.trim() || null}, ${d.content_hi?.trim() || null},
         ${d.food_name?.trim() || null},
         ${d.calories != null && d.calories !== '' ? parseInt(d.calories) : null},
         ${d.protein_g != null && d.protein_g !== '' ? parseFloat(d.protein_g) : null},

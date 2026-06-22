@@ -381,6 +381,36 @@ export default function AdminPage() {
     return () => { clearInterval(interval); clearInterval(escInterval) }
   }, [])
 
+  // ── Service-worker push → ring loud + refresh INSTANTLY, even if the 10s
+  //    polling was throttled/paused while the tab was in the background.
+  //    This is the reliable path for catching orders when no one is looking. ──
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) return
+    const handler = async (e) => {
+      const type = e.data?.type
+      if (type !== 'NEW_ORDER_ALARM' && type !== 'PLAY_NOTIFICATION_SOUND') return
+      playLoudAlert()
+      try {
+        const ordRes = await fetch('/api/orders').then(r => r.json())
+        const latest = ordRes.orders || []
+        const activeOrders = latest.filter(o => !['delivered', 'cancelled'].includes(o.status))
+        const newOnes = lastOrderIdsRef.current.size > 0
+          ? activeOrders.filter(o => !lastOrderIdsRef.current.has(o.id))
+          : []
+        if (newOnes.length > 0) {
+          setNotifCount(n => n + newOnes.length)
+          const detail = await fetch(`/api/orders?id=${newOnes[0].id}`).then(r => r.json()).catch(() => ({}))
+          const firstWithItems = { ...newOnes[0], items: detail.order?.items || [] }
+          setNewOrderPopup([firstWithItems, ...newOnes.slice(1)])
+        }
+        lastOrderIdsRef.current = new Set(activeOrders.map(o => o.id))
+        setOrders(latest)
+      } catch {}
+    }
+    navigator.serviceWorker.addEventListener('message', handler)
+    return () => navigator.serviceWorker.removeEventListener('message', handler)
+  }, [])
+
   const loadAll = async () => {
     setLoading(true)
     const t = todayIST()

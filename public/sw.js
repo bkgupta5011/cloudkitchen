@@ -1,7 +1,7 @@
 // FoodFi Service Worker — Push Notifications + PWA Cache
-// v5 — auto-assign: single boy, simple notification, tap → /delivery
+// v6 — admin new-order alarm: robust tag detection, click → target page (/admin or /delivery)
 
-const CACHE = 'foodfi-v5'
+const CACHE = 'foodfi-v6'
 const OFFLINE_URL = '/'
 
 // Install — cache essential pages
@@ -40,7 +40,7 @@ self.addEventListener('push', (e) => {
   let payload
   try { payload = e.data.json() } catch { payload = { title: 'FoodFi', body: e.data.text(), url: '/' } }
 
-  const isNewOrder = !!(payload.tag?.startsWith('delivery-') || payload.tag?.startsWith('new-order-'))
+  const isNewOrder = !!(payload.tag?.startsWith('delivery-') || payload.tag?.startsWith('new-order') || payload.tag?.startsWith('branch-order'))
 
   const options = {
     body:               payload.body || '',
@@ -73,29 +73,29 @@ self.addEventListener('push', (e) => {
   )
 })
 
-// ── Notification click — open/focus /delivery page ────────────────────
+// ── Notification click — open/focus the target page (/admin or /delivery) ──
 self.addEventListener('notificationclick', (e) => {
   e.notification.close()
-  const { url } = e.notification.data || {}
-  const targetUrl = (url && url.includes('/delivery')) ? url : '/delivery'
+  const data = e.notification.data || {}
+  const targetUrl = data.url || '/'
 
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
-      // First choice: an already-open delivery page
-      const deliveryClient = list.find(c => c.url.includes('/delivery'))
-      if (deliveryClient) {
-        deliveryClient.focus()
-        deliveryClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: e.notification.data || {} })
+      // First choice: an already-open window on the target section
+      const match = list.find(c => c.url.includes(targetUrl))
+      if (match) {
+        match.focus()
+        match.postMessage({ type: 'NEW_ORDER_ALARM', payload: data })
         return
       }
-      // Second choice: any origin window — navigate it to delivery
+      // Second choice: any same-origin window — focus + alarm
       const anyClient = list.find(c => c.url.includes(self.location.origin) && 'focus' in c)
       if (anyClient) {
         anyClient.focus()
-        anyClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: e.notification.data || {} })
+        anyClient.postMessage({ type: 'NEW_ORDER_ALARM', payload: data })
         return
       }
-      // No window open — open a new one
+      // No window open — open the target page
       return clients.openWindow(targetUrl)
     })
   )

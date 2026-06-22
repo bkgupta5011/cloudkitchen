@@ -656,7 +656,7 @@ export async function POST(request) {
       ? `🛵 ${assignedBoy.name} ko assign kiya — ₹${Math.round(order.total)}`
       : `⚠️ Koi delivery boy available nahi — manually assign karo · ₹${Math.round(order.total)}`,
     url: '/admin',
-    tag: 'new-order',
+    tag: `new-order-${order.id}`,
     requireInteraction: true,
   }).catch(() => {})
 

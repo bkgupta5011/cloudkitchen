@@ -267,10 +267,34 @@ export default function LoginPage() {
     }
   }
 
-  // ── Send OTP — Firebase (DLT registration pending, will switch to Fast2SMS after) ──
+  // ── Send OTP — 2Factor (Fast2SMS) primary, Firebase automatic fallback ──
   const sendOtp = async () => {
     if (!phoneReady) { setError('Please enter a valid 10-digit mobile number'); return }
     setError(''); setOtpStep('sending'); setOtpInput(['', '', '', '', '', ''])
+
+    // ── Try 2Factor SMS OTP first ─────────────────────────────────
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send-otp', phone: '+91' + phoneDigits }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        otpProviderRef.current = 'fast2sms'
+        setOtpProvider('fast2sms')
+        setOtpStep('sent')
+        setOtpTimer(60)
+        setTimeout(() => hiddenOtpRef.current?.focus(), 100)
+        return
+      }
+      // 2Factor unavailable (no balance / API error) → fall through to Firebase
+    } catch (e) {
+      // network error → fall through to Firebase
+    }
+
+    // ── Fallback: Firebase phone auth ─────────────────────────────
+    otpProviderRef.current = 'firebase'
     setOtpProvider('firebase')
     await sendFirebaseOtp()
   }

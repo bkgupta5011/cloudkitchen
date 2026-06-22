@@ -5,7 +5,7 @@ import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail } from '@/lib/email'
-import { sendOrderConfirmedSms, sendOrderDeliveredSms } from '@/lib/sms'
+import { sendOrderConfirmedSms, sendOrderDeliveredSms, sendNewOrderSignal } from '@/lib/sms'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 import { checkAndResetDailyStock, notifyLowStock } from '@/lib/stock'
 
@@ -659,6 +659,9 @@ export async function POST(request) {
     tag: `new-order-${order.id}`,
     requireInteraction: true,
   }).catch(() => {})
+
+  // Reliable SMS signal to kitchen/owner numbers (works even if dashboard is closed)
+  sendNewOrderSignal().catch(() => {})
 
   // Notify branch admin specifically (if order assigned to a branch)
   if (branchId) {

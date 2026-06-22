@@ -178,17 +178,43 @@ export default function AdminPage() {
   const alertCtxRef = useRef(null)
   const supportCtxRef = useRef(null)
   const escalationCtxRef = useRef(null)
+  const sharedCtxRef = useRef(null)              // persistent, user-unlocked AudioContext
+  const [audioReady, setAudioReady] = useState(false)
   const lastSupportUnread = useRef({})   // userId → unreadCount
   const activeChatUserRef = useRef(null) // activeChatUser ka current value (for closure use)
   const escalatedOrderIds = useRef(new Set())   // escalation already triggered for these
   const escalationTimerRef = useRef(null)        // repeating escalation interval
   const kitchenSettingsRef = useRef({ order_timeout_minutes: 2, escalation_interval_sec: 30 }) // closure-safe copy
 
+  // Prime/resume audio — must be called once from a user gesture so the
+  // browser's autoplay policy lets the order alarm actually make sound.
+  const unlockAudio = () => {
+    try {
+      if (!sharedCtxRef.current || sharedCtxRef.current.state === 'closed') {
+        sharedCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+      }
+      if (sharedCtxRef.current.state === 'suspended') sharedCtxRef.current.resume().catch(() => {})
+      setAudioReady(true)
+    } catch {}
+  }
+
+  // Auto-unlock on the first interaction anywhere (admin always clicks around).
+  useEffect(() => {
+    const h = () => unlockAudio()
+    window.addEventListener('pointerdown', h, { once: true })
+    window.addEventListener('keydown', h, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', h)
+      window.removeEventListener('keydown', h)
+    }
+  }, [])
+
   const playLoudAlert = () => {
     try {
       // Pehle wala alert band karo agar chal raha ho
       if (alertCtxRef.current) { try { alertCtxRef.current.close() } catch {} }
       const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {})
       alertCtxRef.current = ctx
 
       // 15 second ka alarm — har 0.55s pe ek ding-dong pair
@@ -802,6 +828,21 @@ export default function AdminPage() {
 
   return (
     <div className={styles.page}>
+
+      {/* ── Enable-sound banner (browsers block audio until user taps once) ── */}
+      {!audioReady && (
+        <div
+          onClick={() => { unlockAudio(); playLoudAlert() }}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100000,
+            background: '#dc2626', color: '#fff', textAlign: 'center',
+            padding: '12px 16px', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 2px 10px #0003',
+          }}
+        >
+          🔔 Order alarm ON karne ke liye yahan TAP karo (ek baar)
+        </div>
+      )}
 
       {/* ── New Order Popup ─────────────────────────────────────────── */}
       {newOrderPopup.length > 0 && (() => {

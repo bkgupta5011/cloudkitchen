@@ -4,7 +4,7 @@ import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
-import { sendOrderConfirmationEmail, sendOrderCancelEmail } from '@/lib/email'
+import { sendOrderConfirmationEmail, sendOrderCancelEmail, sendNewOrderAdminEmail } from '@/lib/email'
 import { sendOrderConfirmedSms, sendOrderDeliveredSms, sendNewOrderSignal } from '@/lib/sms'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 import { checkAndResetDailyStock, notifyLowStock } from '@/lib/stock'
@@ -558,9 +558,10 @@ export async function POST(request) {
     }
   }
 
-  // ── SEND CONFIRMATION EMAIL (fire-and-forget) ─────────────────────
+  // ── SEND EMAILS (fire-and-forget) ─────────────────────────────────
   try {
-    const [customerRow] = await sql`SELECT email FROM users WHERE id = ${user.id}`
+    const [customerRow] = await sql`SELECT email, phone FROM users WHERE id = ${user.id}`
+    // Customer confirmation
     if (customerRow?.email) {
       sendOrderConfirmationEmail({
         toEmail: customerRow.email,
@@ -574,6 +575,18 @@ export async function POST(request) {
         deliveryAddress,
       }).catch(() => {})
     }
+    // Admin alert — full order details to foodfi925@gmail.com
+    sendNewOrderAdminEmail({
+      orderNumber: order.order_number,
+      customerName: user.name,
+      customerPhone: customerRow?.phone,
+      items: orderItems,
+      subtotal,
+      discountAmount,
+      deliveryCharge: finalDelivery,
+      total,
+      deliveryAddress,
+    }).catch(() => {})
   } catch {}
 
   // ── AUTO-ASSIGN TO NEAREST AVAILABLE ONLINE DELIVERY BOY ────────

@@ -209,6 +209,26 @@ export default function AdminPage() {
     }
   }, [])
 
+  // Keep the kitchen device's screen awake so order polling never sleeps.
+  // Re-acquires the lock whenever the tab becomes visible again.
+  useEffect(() => {
+    let wakeLock = null
+    const request = async () => {
+      try {
+        if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+          wakeLock = await navigator.wakeLock.request('screen')
+        }
+      } catch {}
+    }
+    request()
+    const onVis = () => { if (document.visibilityState === 'visible') request() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      document.removeEventListener('visibilitychange', onVis)
+      try { wakeLock && wakeLock.release() } catch {}
+    }
+  }, [])
+
   const playLoudAlert = () => {
     try {
       // Pehle wala alert band karo agar chal raha ho

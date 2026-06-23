@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
+import { roadDistanceKm } from '@/lib/distance'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail, sendNewOrderAdminEmail } from '@/lib/email'
 import { sendOrderConfirmedSms, sendOrderDeliveredSms, sendNewOrderSignal } from '@/lib/sms'
@@ -464,9 +465,34 @@ export async function POST(request) {
     })
   }
 
-  // Delivery charge — pricing table se calculate karo (no hardcoded fallback)
-  const deliveryCharge = (distanceKm != null && distanceKm >= 0)
-    ? await getDeliveryCharge(parseFloat(distanceKm))
+  // ── Server-authoritative branch + ROAD distance + radius enforcement ──
+  // Never trust the client's distanceKm. Recompute road distance to the
+  // assigned branch and reject orders outside the delivery radius.
+  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
+  let serverDistanceKm = (distanceKm != null && distanceKm >= 0) ? parseFloat(distanceKm) : null
+  const dLatNum = parseFloat(deliveryLat), dLngNum = parseFloat(deliveryLng)
+  if (Number.isFinite(dLatNum) && Number.isFinite(dLngNum) && branchId) {
+    const [br] = await sql`SELECT lat, lng, max_delivery_km FROM branches WHERE id = ${branchId}::uuid`
+    if (br?.lat && br?.lng) {
+      const rd = await roadDistanceKm(parseFloat(br.lat), parseFloat(br.lng), dLatNum, dLngNum)
+      serverDistanceKm = rd.km
+      const [s] = await sql`SELECT max_delivery_km FROM kitchen_settings WHERE id = 1`
+      const globalKm = parseFloat(s?.max_delivery_km) || 0
+      const branchKm = parseFloat(br.max_delivery_km) || 0
+      const radius = branchKm > 0 ? branchKm : globalKm
+      // Hard-reject only on a confident (ORS) road distance, so an ORS outage
+      // never falsely blocks a genuine in-range customer.
+      if (rd.source === 'ors' && radius > 0 && rd.km > radius) {
+        return NextResponse.json({
+          error: `Sorry, ye location humari delivery range (${radius} km) se bahar hai. Aapki doori: ${rd.km} km.`,
+        }, { status: 400 })
+      }
+    }
+  }
+
+  // Delivery charge — from the server road distance (not the client value)
+  const deliveryCharge = (serverDistanceKm != null && serverDistanceKm >= 0)
+    ? await getDeliveryCharge(serverDistanceKm)
     : await getMinDeliveryCharge()
 
   // Offer
@@ -508,9 +534,6 @@ export async function POST(request) {
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS review_reward_discount DECIMAL(10,2) DEFAULT 0` } catch {}
   await ensureOrderBranchColumn(sql)
 
-  // Auto-detect nearest branch
-  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
-
   // Create order
   const [order] = await sql`
     INSERT INTO orders (
@@ -522,7 +545,7 @@ export async function POST(request) {
       ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount}, ${rewardDiscount},
       ${finalDelivery}, ${total}, ${deliveryAddress},
       ${deliveryLat || null}, ${deliveryLng || null},
-      ${distanceKm || null}, ${notes || null}, ${branchId || null}
+      ${serverDistanceKm || null}, ${notes || null}, ${branchId || null}
     )
     RETURNING *
   `

@@ -266,7 +266,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     if (!navigator.geolocation) { alert('GPS not supported'); setGpsLoading(false); return }
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords
+        const { latitude: lat, longitude: lng, accuracy } = pos.coords
         const map = mapInstanceRef.current
         const marker = markerRef.current
         if (map && marker) {
@@ -277,8 +277,13 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
         }
         await updatePin(lat, lng, true)
         setGpsLoading(false)
+        // Warn if the fix is coarse (e.g. desktop/IP-based) so the user verifies the pin.
+        if (typeof accuracy === 'number' && accuracy > 100) {
+          alert('Aapki location thodi exact nahi hai (' + Math.round(accuracy) + 'm). Map pe pin ko apne ghar pe sahi se set karein.')
+        }
       },
-      () => { alert('GPS nahi mila — manually search karo'); setGpsLoading(false) }
+      () => { alert('GPS nahi mila — manually search karo'); setGpsLoading(false) },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     )
   }
 
@@ -566,8 +571,9 @@ export default function CartPage() {
     const serving = findNearestServingBranch(branches, lat, lng, maxKm)
     const nearest = findNearestBranchClient(branches, lat, lng, maxKm)
 
+    // Instant straight-line estimate so the UI shows something immediately,
+    // then we refine it below with the REAL road distance from the server.
     if (serving) {
-      // ✅ Customer is within a branch's delivery radius
       setDistanceKm(serving.dist)
       setOutOfRange(false)
       setNearestBranchRadius(serving.radius)
@@ -581,15 +587,28 @@ export default function CartPage() {
         })
       }
     } else if (nearest) {
-      // ❌ No branch can serve — show nearest branch distance for error message
       setDistanceKm(nearest.dist)
       setOutOfRange(true)
       setNearestBranchRadius(nearest.radius)
       setDeliveryCharge(null)
     } else {
-      // No branches at all with GPS — don't block order
       setDistanceKm(null); setDeliveryCharge(null); setOutOfRange(false)
     }
+
+    // Refine with REAL road distance (server: OpenRouteService + fallback).
+    // This is what the customer actually sees for distance/charge/in-range.
+    let cancelled = false
+    fetch(`/api/distance?lat=${lat}&lng=${lng}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled || !d || d.error || d.distanceKm == null) return
+        setDistanceKm(d.distanceKm)
+        setOutOfRange(!!d.outOfRange)
+        if (d.radius) setNearestBranchRadius(d.radius)
+        setDeliveryCharge(d.outOfRange ? null : d.deliveryCharge)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [lat, lng, branches, branchesReady, maxKm])
 
   // Debounced DB sync — fires 800ms after last change

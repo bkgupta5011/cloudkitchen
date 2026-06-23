@@ -281,26 +281,40 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
   const useGPS = () => {
     setGpsLoading(true)
     if (!navigator.geolocation) { alert('GPS not supported'); setGpsLoading(false); return }
+    const onSuccess = async (pos) => {
+      const { latitude: lat, longitude: lng, accuracy } = pos.coords
+      const map = mapInstanceRef.current
+      const marker = markerRef.current
+      if (map && marker) {
+        const pos2 = new window.google.maps.LatLng(lat, lng)
+        map.setCenter(pos2); map.setZoom(16)
+        marker.setPosition(pos2)
+        marker.setVisible(true)
+      }
+      await updatePin(lat, lng, true)
+      setGpsLoading(false)
+      // Warn if the fix is coarse (e.g. desktop/IP-based) so the user verifies the pin.
+      if (typeof accuracy === 'number' && accuracy > 100) {
+        alert('Aapki location thodi exact nahi hai (' + Math.round(accuracy) + 'm). Map pe pin ko apne ghar pe sahi se set karein.')
+      }
+    }
+    const onFail = (err) => {
+      setGpsLoading(false)
+      if (err && err.code === 1) {
+        alert('Location permission band hai. App/Browser settings me location ON karke dobara try karo — ya map pe pin set karo.')
+      } else {
+        alert('GPS nahi mil paya. Map pe apni location pin karo ya search box me address daalo.')
+      }
+    }
+    // High-accuracy first; if it fails/times out (common inside the app WebView),
+    // retry with a quicker low-accuracy fix (allows a recent cached location).
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude: lat, longitude: lng, accuracy } = pos.coords
-        const map = mapInstanceRef.current
-        const marker = markerRef.current
-        if (map && marker) {
-          const pos2 = new window.google.maps.LatLng(lat, lng)
-          map.setCenter(pos2); map.setZoom(16)
-          marker.setPosition(pos2)
-          marker.setVisible(true)
-        }
-        await updatePin(lat, lng, true)
-        setGpsLoading(false)
-        // Warn if the fix is coarse (e.g. desktop/IP-based) so the user verifies the pin.
-        if (typeof accuracy === 'number' && accuracy > 100) {
-          alert('Aapki location thodi exact nahi hai (' + Math.round(accuracy) + 'm). Map pe pin ko apne ghar pe sahi se set karein.')
-        }
-      },
-      () => { alert('GPS nahi mila — manually search karo'); setGpsLoading(false) },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      onSuccess,
+      () => navigator.geolocation.getCurrentPosition(
+        onSuccess, onFail,
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+      ),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     )
   }
 

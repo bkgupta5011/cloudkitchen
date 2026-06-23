@@ -151,6 +151,23 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
   const [loading, setLoading] = useState(true)
   const [gpsLoading, setGpsLoading] = useState(false)
   const [userSelected, setUserSelected] = useState(hasInitial)
+  // Real road distance for the picked spot (server: OpenRouteService).
+  // Debounced so dragging the pin / typing in search doesn't spam the API.
+  const [roadInfo, setRoadInfo] = useState(null) // { distanceKm, outOfRange, radius, branchName }
+  useEffect(() => {
+    if (!Number.isFinite(pickedLat) || !Number.isFinite(pickedLng)) { setRoadInfo(null); return }
+    let cancelled = false
+    const t = setTimeout(() => {
+      fetch(`/api/distance?lat=${pickedLat}&lng=${pickedLng}`)
+        .then(r => r.json())
+        .then(d => {
+          if (cancelled || !d || d.error || d.distanceKm == null) return
+          setRoadInfo({ distanceKm: d.distanceKm, outOfRange: !!d.outOfRange, radius: d.radius, branchName: d.branchName })
+        })
+        .catch(() => {})
+    }, 600)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [pickedLat, pickedLng])
 
   const updatePin = useCallback(async (lat, lng, byUser = false) => {
     setPickedLat(lat); setPickedLng(lng)
@@ -297,6 +314,14 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
     modalBranches.filter(b => b.lat && b.lng && (parseFloat(b.max_delivery_km) > 0 || gKm > 0)).length > 0 &&
     servingBranch === null
 
+  // Prefer the real road distance (roadInfo) once it loads; haversine is the
+  // instant fallback. Used for BOTH the display and the confirm-button gate,
+  // so search-box / pin / GPS all show the same accurate number.
+  const effDist     = roadInfo ? roadInfo.distanceKm : dist
+  const effOut      = roadInfo ? roadInfo.outOfRange : outOfRange
+  const effRadius   = roadInfo ? roadInfo.radius : nearestBranch?.radius
+  const effBranch   = roadInfo ? roadInfo.branchName : nearestBranch?.name
+
   return (
     <div style={{ position:'fixed', inset:0, background:'#000a', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
       <div style={{ background:'var(--card)', borderRadius:20, width:'100%', maxWidth:540, maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px #0006' }}>
@@ -336,12 +361,12 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
                   📍 Map pe click karo, pin drag karo ya GPS use karo apni location select karne ke liye
                 </div>
               ) : (
-                <div style={{ fontSize:12, color: outOfRange ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
+                <div style={{ fontSize:12, color: effOut ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
                   {!branchesLoaded
                     ? '⏳ Branch info load ho rahi hai...'
-                    : outOfRange
-                    ? `⚠️ Ye location delivery zone se bahar hai — nearest branch (${nearestBranch?.name || ''}) sirf ${nearestBranch?.radius ?? '?'} km tak deliver karta hai, aap ${dist?.toFixed(1) ?? '?'} km door hain`
-                    : `✅ ${dist !== null ? dist.toFixed(1) : '?'} km ${nearestBranch ? nearestBranch.name + ' branch' : ''} se · ${pickedAddress || 'Location selected'}`
+                    : effOut
+                    ? `⚠️ Ye location delivery zone se bahar hai — nearest branch (${effBranch || ''}) sirf ${effRadius ?? '?'} km tak deliver karta hai, aap ${effDist != null ? Number(effDist).toFixed(1) : '?'} km door hain`
+                    : `✅ ${effDist != null ? Number(effDist).toFixed(1) : '?'} km ${effBranch ? effBranch + ' branch' : ''} se · ${pickedAddress || 'Location selected'}`
                   }
                 </div>
               )}
@@ -355,9 +380,9 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
                   Cancel
                 </button>
                 <button
-                  disabled={!userSelected || outOfRange}
+                  disabled={!userSelected || effOut}
                   onClick={() => onConfirm({ address: pickedAddress, lat: pickedLat, lng: pickedLng })}
-                  style={{ flex:2, padding:'10px', background: (!userSelected || outOfRange) ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: (!userSelected || outOfRange) ? 'not-allowed' : 'pointer' }}>
+                  style={{ flex:2, padding:'10px', background: (!userSelected || effOut) ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: (!userSelected || effOut) ? 'not-allowed' : 'pointer' }}>
                   ✅ Ye Location Use Karo
                 </button>
               </div>

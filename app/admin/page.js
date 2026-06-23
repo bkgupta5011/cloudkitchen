@@ -127,6 +127,11 @@ export default function AdminPage() {
   }
   const [dateFrom, setDateFrom] = useState(todayIST())
   const [dateTo,   setDateTo]   = useState(todayIST())
+  // Always-fresh copies of the selected range so the 10s poll/push refresh
+  // stay strict to the chosen dates instead of overwriting with all orders.
+  const dateFromRef = useRef(todayIST())
+  const dateToRef   = useRef(todayIST())
+  useEffect(() => { dateFromRef.current = dateFrom; dateToRef.current = dateTo }, [dateFrom, dateTo])
   const [notifCount, setNotifCount] = useState(0)
   const [toast, setToast] = useState('')
   const [darkMode, setDarkMode] = useState(false)
@@ -326,7 +331,7 @@ export default function AdminPage() {
     const interval = setInterval(async () => {
       try {
         const [ordRes, appRes] = await Promise.all([
-          fetch('/api/orders').then(r => r.json()),
+          fetch(`/api/orders?date_from=${dateFromRef.current}&date_to=${dateToRef.current}`).then(r => r.json()),
           fetch('/api/admin?type=pending_boys').then(r => r.json()),
         ])
         const latest = ordRes.orders || []
@@ -437,7 +442,7 @@ export default function AdminPage() {
       if (type !== 'NEW_ORDER_ALARM' && type !== 'PLAY_NOTIFICATION_SOUND') return
       playLoudAlert()
       try {
-        const ordRes = await fetch('/api/orders').then(r => r.json())
+        const ordRes = await fetch(`/api/orders?date_from=${dateFromRef.current}&date_to=${dateToRef.current}`).then(r => r.json())
         const latest = ordRes.orders || []
         const activeOrders = latest.filter(o => !['delivered', 'cancelled'].includes(o.status))
         const newOnes = lastOrderIdsRef.current.size > 0
@@ -533,7 +538,11 @@ export default function AdminPage() {
   const fetchOrdersByDate = async (from, to) => {
     try {
       const res = await fetch(`/api/orders?date_from=${from}&date_to=${to}`).then(r => r.json())
-      setOrders(res.orders || [])
+      const list = res.orders || []
+      setOrders(list)
+      // Re-baseline new-order detection to the viewed range so switching dates
+      // doesn't falsely flag old orders as "new" on the next poll.
+      lastOrderIdsRef.current = new Set(list.filter(o => !['delivered', 'cancelled'].includes(o.status)).map(o => o.id))
     } catch {}
   }
 

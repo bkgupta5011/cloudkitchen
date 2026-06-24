@@ -467,6 +467,8 @@ export default function CartPage() {
     try { return JSON.parse(localStorage.getItem('ck_cart') || '{}') } catch { return {} }
   })
   const [address, setAddress] = useState('')
+  const [building, setBuilding] = useState('') // Flat / House / Building No.
+  const [landmark, setLandmark] = useState('') // nearby landmark
   const [lat, setLat] = useState(null)
   const [lng, setLng] = useState(null)
   const [distanceKm, setDistanceKm] = useState(null)
@@ -741,9 +743,12 @@ export default function CartPage() {
       const geo = await forwardGeocode(address)
       if (geo) { saveLat = geo.lat; saveLng = geo.lng }
     }
+    // Save the combined detailed address (Flat/House + area + landmark)
+    const detailed = [building.trim(), address.trim(), landmark.trim() ? `Near ${landmark.trim()}` : '']
+      .filter(Boolean).join(', ')
     await fetch('/api/addresses', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: newAddrLabel, address_text: address, lat: saveLat, lng: saveLng })
+      body: JSON.stringify({ label: newAddrLabel, address_text: detailed || address, lat: saveLat, lng: saveLng })
     })
     const d = await fetch('/api/addresses').then(r => r.json())
     setSavedAddresses(d.addresses || [])
@@ -776,6 +781,13 @@ export default function CartPage() {
     if (needsName) { setError('Pehle apna naam batao 👆'); return }
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
+    // Require Flat/House for fresh locations (saved addresses are already detailed)
+    const isSavedAddr = savedAddresses.some(a => a.address_text === address)
+    if (!isSavedAddr && !building.trim()) { setError('Flat / House / Building No. likhna zaroori hai 🏠'); return }
+    const deliveryAddress = isSavedAddr
+      ? address.trim()
+      : [building.trim(), address.trim(), landmark.trim() ? `Near ${landmark.trim()}` : '']
+          .filter(Boolean).join(', ')
     if (outOfRange) { setError(`Sorry, we only deliver within ${nearestBranchRadius ?? maxKm} km of our nearest branch`); return }
     // If no GPS coords, open map picker to confirm location (needed for branch & delivery charge)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -789,7 +801,7 @@ export default function CartPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: cartEntries.map(e => ({ id: e.item.id, qty: e.qty, name: e.item.name })),
-          deliveryAddress: address, deliveryLat: lat, deliveryLng: lng,
+          deliveryAddress, deliveryLat: lat, deliveryLng: lng,
           distanceKm, offerCode: offerResult ? offerCode : null, notes
         })
       })
@@ -960,13 +972,33 @@ export default function CartPage() {
                 </div>
               )}
 
-              {/* Manual address input */}
-              <div className="field" style={{ marginTop:8, marginBottom:0 }}>
-                <label>Full Address (edit if needed)</label>
+              {/* Flat / House — required so kitchen & delivery boy get the exact door */}
+              <div className="field" style={{ marginTop:8, marginBottom:8 }}>
+                <label>Flat / House / Building No. <span style={{ color:'var(--rd, #dc2626)' }}>*</span></label>
+                <input
+                  value={building}
+                  onChange={e => setBuilding(e.target.value)}
+                  placeholder="e.g. Flat 3B, Tower A, Shiv Niwas"
+                />
+              </div>
+
+              {/* Landmark — optional, helps delivery */}
+              <div className="field" style={{ marginBottom:8 }}>
+                <label>Landmark (optional)</label>
+                <input
+                  value={landmark}
+                  onChange={e => setLandmark(e.target.value)}
+                  placeholder="Near school / temple / shop..."
+                />
+              </div>
+
+              {/* Area / Street / City — auto-filled from the map, edit if needed */}
+              <div className="field" style={{ marginBottom:0 }}>
+                <label>Area / Street / City (map se auto-fill)</label>
                 <textarea
                   value={address}
                   onChange={e => setAddress(e.target.value)}
-                  placeholder="Map se select karo ya manually likhein — Flat no, Street, Landmark, City"
+                  placeholder="Map se select karo ya manually likhein — Street, Area, City, Pincode"
                   rows={2}
                   style={{ resize:'vertical' }}
                 />

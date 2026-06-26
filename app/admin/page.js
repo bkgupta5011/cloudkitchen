@@ -82,7 +82,12 @@ export default function AdminPage() {
   const [showOrderDetail, setShowOrderDetail] = useState(false)
   const [orderDetail, setOrderDetail] = useState(null)
   const [showManualOrder, setShowManualOrder] = useState(false)
-  const [manualOrder, setManualOrder] = useState({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{} })
+  const [showPhoneMap, setShowPhoneMap] = useState(false)
+  const [manualOrder, setManualOrder] = useState({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{}, lat:'', lng:'' })
+  const phoneMapRef = useRef(null)
+  const phoneMarkerRef = useRef(null)
+  const phoneMapInstRef = useRef(null)
+  const phoneSearchRef = useRef(null)
   const [newItem, setNewItem] = useState({ name:'', description:'', price:'', discount_percent:0, category:'Rice Combos', is_veg:true, image_url:'' })
 
   // 🥗 Fitness Corner
@@ -568,11 +573,11 @@ export default function AdminPage() {
     e.preventDefault()
     if (!Object.values(manualOrder.items).some(q => q > 0)) { showToast('❌ Kam se kam ek item select karo'); return }
     showToast('⏳ Order create ho raha hai...')
-    const res = await fetch('/api/orders/manual', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(manualOrder) })
+    const res = await fetch('/api/orders/manual', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...manualOrder, deliveryLat: manualOrder.lat, deliveryLng: manualOrder.lng }) })
     const data = await res.json()
     if (!res.ok) { showToast('❌ ' + data.error); return }
     setShowManualOrder(false)
-    setManualOrder({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{} })
+    setManualOrder({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{}, lat:'', lng:'' })
     loadAll()
     showToast(`✅ Manual order #${data.orderNumber} create ho gaya!`)
   }
@@ -3380,7 +3385,19 @@ export default function AdminPage() {
                   </div>
                 </div>
               </div>
-              <div className="field"><label>Delivery Address</label><input required value={manualOrder.address} onChange={e => setManualOrder({...manualOrder, address:e.target.value})} placeholder="Pura address daalo" /></div>
+              <div className="field">
+                <label>Delivery Address</label>
+                <div style={{ display:'flex', gap:8 }}>
+                  <input required value={manualOrder.address} onChange={e => setManualOrder({...manualOrder, address:e.target.value})} placeholder="Pura address daalo" style={{ flex:1 }} />
+                  <button type="button" onClick={() => setShowPhoneMap(true)}
+                    style={{ whiteSpace:'nowrap', padding:'8px 12px', background:(manualOrder.lat&&manualOrder.lng)?'#dcfce7':'var(--bl-l)', color:(manualOrder.lat&&manualOrder.lng)?'#16a34a':'var(--bl)', border:'1px solid '+((manualOrder.lat&&manualOrder.lng)?'#16a34a':'var(--bl)'), borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    {manualOrder.lat&&manualOrder.lng ? '✅ Location' : '🗺️ Map'}
+                  </button>
+                </div>
+                {manualOrder.lat&&manualOrder.lng
+                  ? <div style={{ fontSize:11, color:'var(--gr-d)', marginTop:3 }}>📍 Exact location set — delivery boy seedha yahan navigate karega</div>
+                  : <div style={{ fontSize:11, color:'var(--t3)', marginTop:3 }}>💡 Map se location select karo taaki exact pe deliver ho (warna address text se confusion ho sakti hai)</div>}
+              </div>
               <div className="field">
                 <label>Items Select Karo</label>
                 <div style={{ background:'var(--bg)', borderRadius:10, padding:'10px 12px', maxHeight:220, overflowY:'auto' }}>
@@ -3408,6 +3425,69 @@ export default function AdminPage() {
                 <button type="submit" className="btn btn-primary" style={{ flex:1 }}>✅ Order Create Karo</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Phone Order Location Picker ─────────────────────────── */}
+      {showPhoneMap && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:10002, display:'flex', alignItems:'center', justifyContent:'center', padding:12 }}>
+          <div style={{ background:'var(--card)', borderRadius:20, width:'100%', maxWidth:560, maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden', boxShadow:'0 20px 60px #0008' }}>
+            <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div>
+                <div style={{ fontWeight:700, fontSize:15 }}>🗺️ Customer Location Select Karo</div>
+                <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Address search karo, map pe click ya pin drag karo</div>
+              </div>
+              <button onClick={() => { setShowPhoneMap(false); phoneMapInstRef.current = null }} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'var(--t2)' }}>✕</button>
+            </div>
+            <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)' }}>
+              <input ref={phoneSearchRef} placeholder="🔍 Address search karo (e.g. Sneha Sadan, Subash Nagar, Patna)..." style={{ width:'100%', boxSizing:'border-box', padding:'9px 12px', border:'1.5px solid var(--bd2)', borderRadius:10, fontSize:13, outline:'none', background:'var(--bg)', color:'var(--t1)' }} />
+            </div>
+            <div ref={(el) => {
+              phoneMapRef.current = el
+              if (!el || phoneMapInstRef.current) return
+              loadGoogleMaps().then(gmaps => {
+                if (!phoneMapRef.current) return
+                const initLat = parseFloat(manualOrder.lat) || 25.5943
+                const initLng = parseFloat(manualOrder.lng) || 85.1376
+                const map = new gmaps.Map(phoneMapRef.current, {
+                  center: { lat: initLat, lng: initLng },
+                  zoom: manualOrder.lat ? 16 : 13,
+                  mapTypeControl: false, streetViewControl: false, fullscreenControl: false,
+                  zoomControlOptions: { position: gmaps.ControlPosition.RIGHT_CENTER }
+                })
+                phoneMapInstRef.current = map
+                const marker = new gmaps.Marker({ position: { lat: initLat, lng: initLng }, map, draggable: true, title: 'Customer location', animation: gmaps.Animation.DROP, visible: !!manualOrder.lat })
+                phoneMarkerRef.current = marker
+                const onPick = (lat, lng) => {
+                  marker.setVisible(true)
+                  setManualOrder(p => ({ ...p, lat: lat.toFixed(8), lng: lng.toFixed(8) }))
+                  reverseGeocodeAdmin(lat, lng).then(addr => { if (addr) setManualOrder(p => ({ ...p, address: addr })) })
+                }
+                marker.addListener('dragend', () => { const pos = marker.getPosition(); onPick(pos.lat(), pos.lng()) })
+                map.addListener('click', e => { marker.setPosition(e.latLng); onPick(e.latLng.lat(), e.latLng.lng()) })
+                if (phoneSearchRef.current) {
+                  const ac = new gmaps.places.Autocomplete(phoneSearchRef.current, { componentRestrictions: { country: 'in' }, fields: ['formatted_address', 'geometry'] })
+                  ac.addListener('place_changed', () => {
+                    const place = ac.getPlace()
+                    if (!place.geometry) return
+                    const loc = place.geometry.location
+                    map.setCenter(loc); map.setZoom(17)
+                    marker.setPosition(loc); marker.setVisible(true)
+                    setManualOrder(p => ({ ...p, lat: loc.lat().toFixed(8), lng: loc.lng().toFixed(8), address: place.formatted_address || p.address }))
+                  })
+                }
+              })
+            }} style={{ flex:1, minHeight:320 }} />
+            <div style={{ padding:'12px 14px', borderTop:'1px solid var(--bd)', background:'var(--card)' }}>
+              {manualOrder.lat && manualOrder.lng
+                ? <div style={{ fontSize:12, color:'var(--gr-d)', marginBottom:10 }}>✅ {parseFloat(manualOrder.lat).toFixed(6)}, {parseFloat(manualOrder.lng).toFixed(6)}{manualOrder.address && <span style={{ color:'var(--t2)', marginLeft:6 }}>· {manualOrder.address.slice(0,50)}</span>}</div>
+                : <div style={{ fontSize:12, color:'var(--t3)', marginBottom:10 }}>📍 Address search karo ya map pe click karo</div>}
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={() => { setShowPhoneMap(false); phoneMapInstRef.current = null }} style={{ flex:1, padding:'10px', background:'var(--bg)', border:'1px solid var(--bd2)', borderRadius:10, fontSize:13, cursor:'pointer' }}>Cancel</button>
+                <button disabled={!manualOrder.lat || !manualOrder.lng} onClick={() => { setShowPhoneMap(false); phoneMapInstRef.current = null; showToast('📍 Location set ho gaya!') }} style={{ flex:2, padding:'10px', background:(!manualOrder.lat || !manualOrder.lng)?'#d1d5db':'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor:(!manualOrder.lat || !manualOrder.lng)?'not-allowed':'pointer' }}>✅ Ye Location Use Karo</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

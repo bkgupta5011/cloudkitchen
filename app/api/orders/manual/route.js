@@ -1,13 +1,57 @@
 export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
+import { verifyToken, hashPassword } from '@/lib/auth'
+import crypto from 'crypto'
 
 async function getDefaultBranch(sql) {
   try {
     const [b] = await sql`SELECT id FROM branches WHERE is_active = true ORDER BY created_at ASC LIMIT 1`
     return b?.id || null
   } catch { return null }
+}
+
+function normalizePhone(phone) {
+  if (!phone) return ''
+  const digits = String(phone).replace(/[^0-9]/g, '').replace(/^91/, '').slice(-10)
+  return digits.length === 10 ? '+91' + digits : ''
+}
+
+// Find an existing customer by phone, else create one. Returns the user id.
+// This links the phone order to a real customer account so it shows the name,
+// appears in the Customers list, and — when that person later logs in with the
+// same number — appears in their order history. No duplicate if already exists.
+async function findOrCreateCustomer(sql, name, phone) {
+  const normalized = normalizePhone(phone)
+  if (!normalized) return null
+  const digits = normalized.replace('+91', '')
+  const variants = [normalized, '91' + digits, digits]
+
+  for (const p of variants) {
+    const [u] = await sql`SELECT id, name FROM users WHERE phone = ${p} LIMIT 1`.catch(() => [])
+    if (u) {
+      // Fill the name if the existing account doesn't have one yet.
+      if ((!u.name || !u.name.trim()) && name && name.trim()) {
+        await sql`UPDATE users SET name = ${name.trim()} WHERE id = ${u.id}`.catch(() => {})
+      }
+      return u.id
+    }
+  }
+
+  // Not found → create a new customer (OTP-style account, no password login).
+  try {
+    try { await sql`ALTER TABLE users ALTER COLUMN email DROP NOT NULL` } catch {}
+    const dummyHash = await hashPassword(crypto.randomUUID())
+    const [newU] = await sql`
+      INSERT INTO users (name, email, phone, address, password_hash)
+      VALUES (${(name || '').trim()}, NULL, ${normalized}, '', ${dummyHash})
+      RETURNING id
+    `
+    return newU.id
+  } catch (e) {
+    const [retry] = await sql`SELECT id FROM users WHERE phone = ${normalized} LIMIT 1`.catch(() => [])
+    return retry?.id || null
+  }
 }
 
 export async function POST(request) {
@@ -19,7 +63,7 @@ export async function POST(request) {
   }
 
   const body = await request.json()
-  const { customerName, customerPhone, address, notes, deliveryCharge, items } = body
+  const { customerName, customerPhone, address, notes, deliveryCharge, items, deliveryLat, deliveryLng } = body
 
   if (!customerName || !address) {
     return NextResponse.json({ error: 'Customer name and address required' }, { status: 400 })
@@ -47,16 +91,25 @@ export async function POST(request) {
     orderItems.push({ menu_item_id: menuItem.id, name: menuItem.name, price, quantity: qty, subtotal: lineTotal })
   }
 
-  const charge = parseFloat(deliveryCharge) || 30
+  // Respect a manually-entered delivery charge — including 0 (the old `|| 30`
+  // turned 0 into 30 because 0 is falsy).
+  const parsedCharge = parseFloat(deliveryCharge)
+  const charge = Number.isFinite(parsedCharge) ? parsedCharge : 30
   const total = subtotal + charge
   const orderNotes = `[📞 Phone Order] Customer: ${customerName}, Phone: ${customerPhone || 'N/A'}${notes ? '. ' + notes : ''}`
 
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
   const branchId = await getDefaultBranch(sql)
 
+  // Link (or create) the customer so the order has a name + shows in history.
+  const userId = await findOrCreateCustomer(sql, customerName, customerPhone)
+
+  const lat = (deliveryLat != null && deliveryLat !== '' && Number.isFinite(parseFloat(deliveryLat))) ? parseFloat(deliveryLat) : null
+  const lng = (deliveryLng != null && deliveryLng !== '' && Number.isFinite(parseFloat(deliveryLng))) ? parseFloat(deliveryLng) : null
+
   const [order] = await sql`
-    INSERT INTO orders (status, subtotal, discount_amount, delivery_charge, total, delivery_address, notes, branch_id)
-    VALUES ('confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${orderNotes}, ${branchId || null})
+    INSERT INTO orders (user_id, status, subtotal, discount_amount, delivery_charge, total, delivery_address, delivery_lat, delivery_lng, notes, branch_id)
+    VALUES (${userId || null}, 'confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${lat}, ${lng}, ${orderNotes}, ${branchId || null})
     RETURNING *
   `
 

@@ -75,6 +75,7 @@ export default function AdminPage() {
   const [baDateTo, setBaDateTo] = useState('')
   const [apiUsage, setApiUsage] = useState(null)
   const [customers, setCustomers] = useState([])
+  const [waMessage, setWaMessage] = useState('') // WhatsApp message — write once, send per customer
   const [loading, setLoading] = useState(true)
   const [showAddItem, setShowAddItem] = useState(false)
   const [showAddOffer, setShowAddOffer] = useState(false)
@@ -1731,21 +1732,50 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
-              <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 220px)', borderRadius:12, border:'1px solid var(--bdr)' }}>
-                <div className={styles.table} style={{ minWidth:700 }}>
-                  <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr', position:'sticky', top:0, zIndex:2 }}>
-                    <span>Name</span><span>Phone</span><span>Orders</span><span>Total Spent</span><span>Joined</span><span>Last Order</span>
+
+              {/* WhatsApp helper — write a message once, send to each customer with one click */}
+              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'12px 14px', marginBottom:12 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#15803d', marginBottom:6 }}>💬 WhatsApp message — ek baar likho, har customer ke saamne 🟢 button se bhejo</div>
+                <textarea
+                  value={waMessage}
+                  onChange={e => setWaMessage(e.target.value)}
+                  placeholder="Namaste! 🙏 FoodFi pe aaj Chole Chawal sirf ₹99 se shuru. Order karo: https://foodfi.in"
+                  rows={3}
+                  style={{ width:'100%', boxSizing:'border-box', borderRadius:8, border:'1px solid #bbf7d0', padding:'8px 10px', fontSize:13, resize:'vertical', fontFamily:'inherit' }}
+                />
+                <div style={{ fontSize:11, color:'var(--t2)', marginTop:4 }}>
+                  🟢 Send dabate hi naye tab mein WhatsApp khulega, message pehle se bhara hoga — bas Send dabao. (Pehle WhatsApp Web pe login hona chahiye.)
+                </div>
+              </div>
+
+              <div style={{ overflowX:'auto', overflowY:'auto', maxHeight:'calc(100vh - 340px)', borderRadius:12, border:'1px solid var(--bdr)' }}>
+                <div className={styles.table} style={{ minWidth:780 }}>
+                  <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'1.8fr 1.4fr 0.7fr 0.9fr 1fr 1.2fr 0.9fr', position:'sticky', top:0, zIndex:2 }}>
+                    <span>Name</span><span>Phone</span><span>Orders</span><span>Total Spent</span><span>Joined</span><span>Last Order</span><span>WhatsApp</span>
                   </div>
-                  {sorted.map(c => (
-                    <div key={c.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'2fr 1.5fr 1fr 1fr 1fr 1.5fr' }}>
+                  {sorted.map(c => {
+                    const waDigits = (c.phone || '').replace(/\D/g, '')
+                    return (
+                    <div key={c.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'1.8fr 1.4fr 0.7fr 0.9fr 1fr 1.2fr 0.9fr' }}>
                       <div><div style={{ fontWeight:500, fontSize:13 }}>{c.name}</div><div style={{ fontSize:11, color:'var(--t2)' }}>{c.email}</div></div>
                       <span style={{ fontSize:12, color:'var(--t2)' }}>{c.phone||'—'}</span>
                       <span style={{ fontWeight:600, color:'var(--bl)' }}>{c.total_orders}</span>
                       <span style={{ fontWeight:600, color:'var(--gr-d)' }}>₹{Math.round(c.total_spent)}</span>
                       <span style={{ fontSize:11, color:'var(--t2)' }}>{new Date(c.created_at).toLocaleDateString('en-IN')}</span>
                       <span style={{ fontSize:11, color:'var(--t2)' }}>{c.last_order_at ? new Date(c.last_order_at).toLocaleDateString('en-IN') : '—'}</span>
+                      <span>
+                        {waDigits ? (
+                          <button
+                            onClick={() => window.open(`https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`, '_blank')}
+                            title="WhatsApp pe message bhejo"
+                            style={{ display:'inline-flex', alignItems:'center', gap:4, background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'5px 10px', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                            🟢 Send
+                          </button>
+                        ) : <span style={{ fontSize:11, color:'var(--t3)' }}>—</span>}
+                      </span>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </>

@@ -3282,7 +3282,9 @@ export default function AdminPage() {
                     style={{ display:'flex', alignItems:'center', gap:4, background:'#dcfce7', color:'#16a34a', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
                     📞 Call
                   </a>
-                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderDetail.delivery_address)}`}
+                  <a href={(orderDetail.delivery_lat && orderDetail.delivery_lng)
+                      ? `https://www.google.com/maps/search/?api=1&query=${orderDetail.delivery_lat},${orderDetail.delivery_lng}`
+                      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(orderDetail.delivery_address || '')}`}
                     target="_blank" rel="noopener noreferrer"
                     style={{ display:'flex', alignItems:'center', gap:4, background:'#dbeafe', color:'#1d4ed8', borderRadius:8, padding:'6px 12px', textDecoration:'none', fontSize:12, fontWeight:600 }}>
                     🗺️ Map

@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { getDeliveryCharge, getMinDeliveryCharge, applyOffer } from '@/lib/utils'
+import { getDeliveryCharge, getMinDeliveryCharge, applyOffer, getBoyPayout } from '@/lib/utils'
 import { roadDistanceKm } from '@/lib/distance'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail, sendNewOrderAdminEmail } from '@/lib/email'
@@ -534,18 +534,23 @@ export async function POST(request) {
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS review_reward_discount DECIMAL(10,2) DEFAULT 0` } catch {}
   await ensureOrderBranchColumn(sql)
 
+  // Delivery boy payout — from kitchen distance, independent of what the
+  // customer paid for delivery (so free/short deliveries still pay the boy fairly).
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+  const boyPayout = await getBoyPayout(serverDistanceKm)
+
   // Create order
   const [order] = await sql`
     INSERT INTO orders (
       user_id, offer_id, status, subtotal, discount_amount, review_reward_discount,
       delivery_charge, total, delivery_address, delivery_lat,
-      delivery_lng, distance_km, notes, branch_id
+      delivery_lng, distance_km, boy_payout, notes, branch_id
     )
     VALUES (
       ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount}, ${rewardDiscount},
       ${finalDelivery}, ${total}, ${deliveryAddress},
       ${deliveryLat || null}, ${deliveryLng || null},
-      ${serverDistanceKm || null}, ${notes || null}, ${branchId || null}
+      ${serverDistanceKm || null}, ${boyPayout}, ${notes || null}, ${branchId || null}
     )
     RETURNING *
   `

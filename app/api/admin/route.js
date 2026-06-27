@@ -87,6 +87,9 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_min_order INT DEFAULT 99`
     // Fitness Freak Corner: when false, customers see items as "Coming Soon" (no ordering)
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS fitness_corner_enabled BOOLEAN DEFAULT false`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_min_payout NUMERIC DEFAULT 25`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_base_km NUMERIC DEFAULT 2`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_per_km NUMERIC DEFAULT 7`
   } catch (e) {}
 }
 
@@ -445,7 +448,7 @@ export async function GET(request) {
            max_delivery_km, open_time, close_time, estimated_time, auto_schedule,
            order_timeout_minutes, escalation_interval_sec,
            review_reward_enabled, review_reward_amount, review_reward_min_order,
-           fitness_corner_enabled
+           fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -477,6 +480,9 @@ export async function PATCH(request) {
     const rrAmount   = data.review_reward_amount     != null ? parseInt(data.review_reward_amount)   : null
     const rrMin      = data.review_reward_min_order  != null ? parseInt(data.review_reward_min_order): null
     const ffEnabled  = data.fitness_corner_enabled   != null ? !!data.fitness_corner_enabled         : null
+    const bMin       = data.boy_min_payout != null ? parseFloat(data.boy_min_payout) : null
+    const bBaseKm    = data.boy_base_km    != null ? parseFloat(data.boy_base_km)    : null
+    const bPerKm     = data.boy_per_km     != null ? parseFloat(data.boy_per_km)     : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -505,6 +511,9 @@ export async function PATCH(request) {
         review_reward_amount    = COALESCE(${rrAmount},  review_reward_amount),
         review_reward_min_order = COALESCE(${rrMin},     review_reward_min_order),
         fitness_corner_enabled  = COALESCE(${ffEnabled}, fitness_corner_enabled),
+        boy_min_payout          = COALESCE(${bMin},    boy_min_payout),
+        boy_base_km             = COALESCE(${bBaseKm}, boy_base_km),
+        boy_per_km              = COALESCE(${bPerKm},  boy_per_km),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

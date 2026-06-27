@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken, hashPassword } from '@/lib/auth'
+import { getBoyPayout } from '@/lib/utils'
+import { roadDistanceKm } from '@/lib/distance'
 import crypto from 'crypto'
 
 async function getDefaultBranch(sql) {
@@ -107,9 +109,21 @@ export async function POST(request) {
   const lat = (deliveryLat != null && deliveryLat !== '' && Number.isFinite(parseFloat(deliveryLat))) ? parseFloat(deliveryLat) : null
   const lng = (deliveryLng != null && deliveryLng !== '' && Number.isFinite(parseFloat(deliveryLng))) ? parseFloat(deliveryLng) : null
 
+  // Road distance (kitchen→customer) for navigation + boy payout, if location set.
+  let distanceKm = null
+  if (lat != null && lng != null && branchId) {
+    const [br] = await sql`SELECT lat, lng FROM branches WHERE id = ${branchId}::uuid`.catch(() => [])
+    if (br?.lat && br?.lng) {
+      const rd = await roadDistanceKm(parseFloat(br.lat), parseFloat(br.lng), lat, lng)
+      distanceKm = rd.km
+    }
+  }
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
+  const boyPayout = await getBoyPayout(distanceKm)
+
   const [order] = await sql`
-    INSERT INTO orders (user_id, status, subtotal, discount_amount, delivery_charge, total, delivery_address, delivery_lat, delivery_lng, notes, branch_id)
-    VALUES (${userId || null}, 'confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${lat}, ${lng}, ${orderNotes}, ${branchId || null})
+    INSERT INTO orders (user_id, status, subtotal, discount_amount, delivery_charge, total, delivery_address, delivery_lat, delivery_lng, distance_km, boy_payout, notes, branch_id)
+    VALUES (${userId || null}, 'confirmed', ${subtotal}, 0, ${charge}, ${total}, ${address}, ${lat}, ${lng}, ${distanceKm}, ${boyPayout}, ${orderNotes}, ${branchId || null})
     RETURNING *
   `
 

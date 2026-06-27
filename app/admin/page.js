@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [stockItems, setStockItems] = useState([])
   const [stockLoading, setStockLoading] = useState(false)
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99 })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7 })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -486,7 +486,7 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99 }
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7 }
     setKitchenSettings(ks)
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
@@ -1615,6 +1615,38 @@ export default function AdminPage() {
                   <label>Estimated Delivery Time (min)</label>
                   <input type="number" value={kitchenSettings.estimated_time} onChange={e => setKitchenSettings({...kitchenSettings, estimated_time:e.target.value})} />
                 </div>
+              </div>
+
+              <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1.5px solid #16a34a', gridColumn:'1/-1' }}>
+                <h3 style={{ fontSize:14, fontWeight:700, marginBottom:6 }}>🛵 Delivery Boy Payout</h3>
+                <p style={{ fontSize:11, color:'var(--t3)', marginBottom:14 }}>
+                  Boy ka payout customer ke delivery charge se ALAG hai (free delivery pe bhi boy ko pura milega — gap FoodFi bharega). Kitchen se distance pe calculate hota hai.
+                </p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+                  <div className="field">
+                    <label>Minimum Payout (₹)</label>
+                    <input type="number" value={kitchenSettings.boy_min_payout} onChange={e => setKitchenSettings({...kitchenSettings, boy_min_payout:e.target.value})} />
+                  </div>
+                  <div className="field">
+                    <label>Base km (min mein included)</label>
+                    <input type="number" value={kitchenSettings.boy_base_km} onChange={e => setKitchenSettings({...kitchenSettings, boy_base_km:e.target.value})} />
+                  </div>
+                  <div className="field">
+                    <label>Per km (base ke baad ₹)</label>
+                    <input type="number" value={kitchenSettings.boy_per_km} onChange={e => setKitchenSettings({...kitchenSettings, boy_per_km:e.target.value})} />
+                  </div>
+                </div>
+                {(() => {
+                  const m = parseFloat(kitchenSettings.boy_min_payout)||0
+                  const b = parseFloat(kitchenSettings.boy_base_km)||0
+                  const k = parseFloat(kitchenSettings.boy_per_km)||0
+                  const calc = (d) => Math.round(m + Math.max(0, d - b) * k)
+                  return (
+                    <div style={{ fontSize:12, color:'var(--gr-d)', marginTop:6, lineHeight:1.7 }}>
+                      Example: 1.4 km → <b>₹{calc(1.4)}</b> · 3 km → <b>₹{calc(3)}</b> · 5 km → <b>₹{calc(5)}</b>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1px solid var(--bdr)' }}>

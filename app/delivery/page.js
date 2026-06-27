@@ -362,6 +362,14 @@ export default function DeliveryPage() {
         if (!user || user.role !== 'delivery') { router.push('/login'); return }
         setUser(user)
         loadData()
+        // Register the app's FCM token (injected by the native app) so order
+        // alerts reach this boy even when the app is closed/minimised.
+        const sendFcm = () => {
+          const t = typeof window !== 'undefined' ? window.foodfiFcmToken : null
+          if (t) fetch('/api/delivery/fcm-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t }) }).catch(() => {})
+        }
+        sendFcm()
+        if (typeof window !== 'undefined') window.addEventListener('foodfi-fcm-ready', sendFcm)
       })
 
     pollRef.current = setInterval(async () => {

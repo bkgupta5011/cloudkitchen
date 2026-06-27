@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { sendPushToUser } from '@/lib/push'
 import { getBoyPayout } from '@/lib/utils'
+import { sendFcmToTokens } from '@/lib/fcm'
 
 // Helper: find next eligible boy and assign
 async function reassignOrder(sql, orderId, orderInfo) {
@@ -128,20 +129,17 @@ export async function POST(request) {
     if (released.length) {
       try {
         const others = await sql`
-          SELECT id FROM delivery_boys
+          SELECT id, fcm_token FROM delivery_boys
           WHERE is_online = true AND status = 'approved' AND id != ${user.id}
             AND NOT EXISTS (SELECT 1 FROM order_rejections r WHERE r.order_id = ${orderId} AND r.delivery_boy_id = delivery_boys.id)
         `
         const distTxt = cur.distance_km ? `${Math.round(parseFloat(cur.distance_km) * 10) / 10} km` : ''
+        const title = '🔔 Order phir se available! Accept karo'
+        const body  = `#${cur.order_number} — ₹${Math.round(cur.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo`
         for (const b of others) {
-          sendPushToUser(String(b.id), {
-            title: '🔔 Order phir se available! Accept karo',
-            body:  `#${cur.order_number} — ₹${Math.round(cur.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo`,
-            url:   '/delivery',
-            tag:   `new-order-${orderId}`,
-            requireInteraction: true,
-          }, 'delivery').catch(() => {})
+          sendPushToUser(String(b.id), { title, body, url: '/delivery', tag: `new-order-${orderId}`, requireInteraction: true }, 'delivery').catch(() => {})
         }
+        sendFcmToTokens(others.map(b => b.fcm_token), { title, body, orderId, tag: `new-order-${orderId}` }).catch(() => {})
       } catch {}
     }
   }

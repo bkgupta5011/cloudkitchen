@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, applyOffer, getBoyPayout } from '@/lib/utils'
 import { roadDistanceKm } from '@/lib/distance'
+import { sendFcmToTokens } from '@/lib/fcm'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
 import { sendOrderConfirmationEmail, sendOrderCancelEmail, sendNewOrderAdminEmail } from '@/lib/email'
 import { sendOrderConfirmedSms, sendOrderDeliveredSms, sendNewOrderSignal } from '@/lib/sms'
@@ -643,17 +644,17 @@ export async function POST(request) {
   // The first boy to tap Accept claims it (race-safe in /api/delivery/respond).
   const assignedBoy = null
   try {
-    const onlineBoys = await sql`SELECT id FROM delivery_boys WHERE is_online = true AND status = 'approved'`
+    try { await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS fcm_token TEXT` } catch {}
+    const onlineBoys = await sql`SELECT id, fcm_token FROM delivery_boys WHERE is_online = true AND status = 'approved'`
     const distTxt = serverDistanceKm ? `${Math.round(serverDistanceKm * 10) / 10} km` : ''
+    const title = '🔔 Naya Order! Pehle accept karo'
+    const body  = `#${order.order_number} — ₹${Math.round(order.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo aur accept karo`
+    // Web push (works when the page is open in a browser)
     for (const b of onlineBoys) {
-      sendPushToUser(String(b.id), {
-        title: '🔔 Naya Order! Pehle accept karo',
-        body:  `#${order.order_number} — ₹${Math.round(order.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo aur accept karo`,
-        url:   '/delivery',
-        tag:   `new-order-${order.id}`,
-        requireInteraction: true,
-      }, 'delivery').catch(() => {})
+      sendPushToUser(String(b.id), { title, body, url: '/delivery', tag: `new-order-${order.id}`, requireInteraction: true }, 'delivery').catch(() => {})
     }
+    // FCM to the mobile app — reaches boys even when the app is closed/minimised
+    sendFcmToTokens(onlineBoys.map(b => b.fcm_token), { title, body, orderId: order.id, tag: `new-order-${order.id}` }).catch(() => {})
   } catch (e) {
     console.error('Broadcast error:', e)
   }

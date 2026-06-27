@@ -185,11 +185,10 @@ function OrderCard({ order, onPickup, onDeliver, onAccept, onReject, pickingUp, 
           <span style={{ fontSize:18, marginTop:1 }}>📍</span>
           <div style={{ flex:1 }}>
             <div style={{ fontSize:13, fontWeight:600, color:'#1a1a1a', lineHeight:1.4 }}>{order.delivery_address}</div>
-            {order.distance_km && (
-              <div style={{ fontSize:11, color:'#64748b', marginTop:3 }}>
-                {pf(order.distance_km).toFixed(1)} km kitchen se
-              </div>
-            )}
+            <div style={{ fontSize:11, color:'#64748b', marginTop:4, lineHeight:1.6 }}>
+              {order.boy_to_kitchen_km != null && <div>🛵 Aap se kitchen: <b style={{ color:'#1a1a1a' }}>{pf(order.boy_to_kitchen_km).toFixed(1)} km</b></div>}
+              {order.distance_km != null && <div>🍳 Kitchen se customer: <b style={{ color:'#1a1a1a' }}>{pf(order.distance_km).toFixed(1)} km</b></div>}
+            </div>
           </div>
           <button onClick={openMap}
             style={{ background:'#1e40af', color:'#fff', border:'none', borderRadius:10, padding:'8px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
@@ -228,8 +227,8 @@ function OrderCard({ order, onPickup, onDeliver, onAccept, onReject, pickingUp, 
         {isUnaccepted && (
           <div>
             <div style={{ background:'#fef2f2', border:'2px solid #f87171', borderRadius:14, padding:'10px 14px', textAlign:'center', marginBottom:12, animation:'pulseRed 1.5s ease-in-out infinite' }}>
-              <div style={{ fontSize:15, fontWeight:800, color:'#dc2626' }}>⚠️ Jaldi Action Lo!</div>
-              <div style={{ fontSize:11, color:'#b91c1c', marginTop:2 }}>5 min mein accept nahi kiya to order kisi aur ko jayega</div>
+              <div style={{ fontSize:15, fontWeight:800, color:'#dc2626' }}>⚠️ Jaldi Accept Karo!</div>
+              <div style={{ fontSize:11, color:'#b91c1c', marginTop:2 }}>Jo pehle accept karega usko ye order milega</div>
             </div>
             <div style={{ display:'flex', gap:10 }}>
               <button
@@ -262,6 +261,14 @@ function OrderCard({ order, onPickup, onDeliver, onAccept, onReject, pickingUp, 
             disabled={pickingUp === order.id}
             style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#2563eb,#3b82f6)', color:'#fff', border:'none', borderRadius:14, fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, opacity: pickingUp===order.id ? 0.7 : 1 }}>
             {pickingUp === order.id ? '⏳ Updating...' : '📦 Kitchen se Pick Up Kar Liya'}
+          </button>
+        )}
+        {needsPickup && (
+          <button
+            onClick={() => onReject(order.id)}
+            disabled={rejecting === order.id}
+            style={{ width:'100%', padding:'9px', marginTop:8, background:'#fff', border:'1.5px solid #cbd5e1', color:'#64748b', borderRadius:12, fontSize:12, fontWeight:600, cursor:'pointer', opacity: rejecting===order.id?0.6:1 }}>
+            {rejecting === order.id ? '⏳...' : '↩️ Release karo — kisi aur delivery boy ko de do'}
           </button>
         )}
 
@@ -615,16 +622,19 @@ export default function DeliveryPage() {
       })
       const data = await res.json()
       if (data.success) {
-        // Mark accepted locally — no re-fetch needed
-        setOrders(p => p.map(o => o.id === orderId ? { ...o, boy_accepted_at: new Date().toISOString() } : o))
-        showToast(`✅ Order #${data.orderNumber} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
-      } else {
-        // Order was auto-reassigned away — refresh so stale order disappears
+        // Refetch so the claimed order shows correctly + orders taken by others disappear
         fetch('/api/orders').then(r => r.json()).then(d => {
           setOrders(d.orders || [])
           lastOrderIds.current = new Set((d.orders || []).map(o => o.id))
         }).catch(() => {})
-        showToast('⚠️ Order kisi aur ko assign ho gaya — list refresh ho rahi hai')
+        showToast(`✅ Order ${data.orderNumber ? '#'+data.orderNumber : ''} accept kar liya! Kitchen confirmation ka wait karo 🍳`)
+      } else {
+        // Someone else accepted first — refresh so the order disappears
+        fetch('/api/orders').then(r => r.json()).then(d => {
+          setOrders(d.orders || [])
+          lastOrderIds.current = new Set((d.orders || []).map(o => o.id))
+        }).catch(() => {})
+        showToast('⚠️ Kisi aur ne pehle accept kar liya — agla order dekho')
       }
     } catch {
       showToast('❌ Network error — dobara try karo')

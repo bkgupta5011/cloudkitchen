@@ -365,9 +365,12 @@ export async function GET(request) {
       }, 'delivery').catch(() => {})
     }
 
+    // Broadcast feed: OPEN orders (unclaimed, not rejected by me) + my own active orders.
     orders = await sql`
       SELECT o.*,
         u.name as customer_name, u.phone as customer_phone, u.address as customer_address,
+        bb.lat as branch_lat, bb.lng as branch_lng,
+        (o.delivery_boy_id IS NULL) as is_open,
         (
           SELECT COALESCE(
             JSON_AGG(
@@ -381,10 +384,29 @@ export async function GET(request) {
         ) as items
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
-      WHERE o.delivery_boy_id = ${user.id}
-        AND o.status IN ('pending', 'confirmed', 'preparing', 'out_for_delivery')
+      LEFT JOIN branches bb ON o.branch_id = bb.id
+      WHERE o.status IN ('pending', 'confirmed', 'preparing', 'out_for_delivery')
+        AND (
+          o.delivery_boy_id = ${user.id}
+          OR (
+            o.delivery_boy_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM order_rejections r WHERE r.order_id = o.id AND r.delivery_boy_id = ${user.id})
+          )
+        )
       ORDER BY o.created_at DESC
     `
+    // boy→kitchen distance (from this boy's current GPS) for the accept decision.
+    try {
+      const [me] = await sql`SELECT current_lat, current_lng FROM delivery_boys WHERE id = ${user.id}`
+      const myLat = me?.current_lat ? parseFloat(me.current_lat) : null
+      const myLng = me?.current_lng ? parseFloat(me.current_lng) : null
+      orders = orders.map(o => ({
+        ...o,
+        boy_to_kitchen_km: (myLat != null && myLng != null && o.branch_lat && o.branch_lng)
+          ? Math.round(haversineKm(myLat, myLng, parseFloat(o.branch_lat), parseFloat(o.branch_lng)) * 10) / 10
+          : null
+      }))
+    } catch {}
   }
 
   return NextResponse.json({ orders })
@@ -616,82 +638,30 @@ export async function POST(request) {
     }).catch(() => {})
   } catch {}
 
-  // ── AUTO-ASSIGN TO NEAREST AVAILABLE ONLINE DELIVERY BOY ────────
-  let assignedBoy = null
+  // ── BROADCAST TO ALL ONLINE DELIVERY BOYS (first to accept wins) ──
+  // No pre-assignment: the order stays OPEN and every online boy gets a ring.
+  // The first boy to tap Accept claims it (race-safe in /api/delivery/respond).
+  const assignedBoy = null
   try {
-    // Get branch lat/lng for proximity calculation
-    let branchLat = null, branchLng = null
-    if (branchId) {
-      try {
-        const [br] = await sql`SELECT lat, lng FROM branches WHERE id = ${branchId}::uuid`
-        branchLat = br?.lat ? parseFloat(br.lat) : null
-        branchLng = br?.lng ? parseFloat(br.lng) : null
-      } catch {}
-    }
-
-    // Fetch all eligible delivery boys WITH their current GPS location
-    const availableBoys = await sql`
-      SELECT db.id, db.name, db.phone, db.current_lat, db.current_lng,
-        COUNT(o.id) FILTER (WHERE o.status IN ('confirmed','preparing')) AS active_orders
-      FROM delivery_boys db
-      LEFT JOIN orders o ON o.delivery_boy_id = db.id
-        AND o.status IN ('confirmed', 'preparing', 'out_for_delivery')
-      WHERE db.is_online = true
-        AND db.status = 'approved'
-        AND NOT EXISTS (
-          SELECT 1 FROM orders
-          WHERE delivery_boy_id = db.id AND status = 'out_for_delivery'
-        )
-      GROUP BY db.id, db.name, db.phone, db.current_lat, db.current_lng
-    `
-
-    if (availableBoys.length > 0) {
-      let selectedBoy = null
-
-      if (branchLat && branchLng) {
-        // Sort by distance from branch → nearest boy first
-        const boysWithDist = availableBoys.map(b => ({
-          ...b,
-          dist: (b.current_lat && b.current_lng)
-            ? haversineKm(branchLat, branchLng, parseFloat(b.current_lat), parseFloat(b.current_lng))
-            : Infinity   // no GPS → put at end
-        }))
-        boysWithDist.sort((a, b) =>
-          a.dist !== b.dist
-            ? a.dist - b.dist                              // nearest first
-            : parseInt(a.active_orders) - parseInt(b.active_orders)  // tie → least busy
-        )
-        selectedBoy = boysWithDist[0]
-      } else {
-        // No branch location → fallback: least active + random tiebreak
-        availableBoys.sort((a, b) => parseInt(a.active_orders) - parseInt(b.active_orders))
-        const minActive = parseInt(availableBoys[0].active_orders)
-        const leastBusy = availableBoys.filter(b => parseInt(b.active_orders) === minActive)
-        selectedBoy = leastBusy[Math.floor(Math.random() * leastBusy.length)]
-      }
-
-      assignedBoy = selectedBoy
-      const boyPayout = await getBoyPayout(serverDistanceKm)
-      await sql`UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout}, boy_assigned_at = NOW() WHERE id = ${order.id}`
-      // Notify assigned boy — order waiting for kitchen confirmation
-      sendPushToUser(String(assignedBoy.id), {
-        title: '📦 Naya Order Assign Hua!',
-        body:  `#${order.order_number} — ₹${Math.round(order.total)} · Kitchen confirm karega tab pickup karna`,
+    const onlineBoys = await sql`SELECT id FROM delivery_boys WHERE is_online = true AND status = 'approved'`
+    const distTxt = serverDistanceKm ? `${Math.round(serverDistanceKm * 10) / 10} km` : ''
+    for (const b of onlineBoys) {
+      sendPushToUser(String(b.id), {
+        title: '🔔 Naya Order! Pehle accept karo',
+        body:  `#${order.order_number} — ₹${Math.round(order.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo aur accept karo`,
         url:   '/delivery',
-        tag:   `delivery-${order.id}`,
+        tag:   `new-order-${order.id}`,
         requireInteraction: true,
       }, 'delivery').catch(() => {})
     }
   } catch (e) {
-    console.error('Auto-assign error:', e)
+    console.error('Broadcast error:', e)
   }
 
   // Notify all admins — new order arrived
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,
-    body: assignedBoy
-      ? `🛵 ${assignedBoy.name} ko assign kiya — ₹${Math.round(order.total)}`
-      : `⚠️ Koi delivery boy available nahi — manually assign karo · ₹${Math.round(order.total)}`,
+    body: `₹${Math.round(order.total)} · Sab online delivery boys ko bhej diya (jo pehle accept karega usko milega)`,
     url: '/admin',
     tag: `new-order-${order.id}`,
     requireInteraction: true,

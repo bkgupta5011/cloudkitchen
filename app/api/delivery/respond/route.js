@@ -81,74 +81,70 @@ export async function POST(request) {
     )
   `.catch(() => {})
 
-  // ── ACCEPT ──────────────────────────────────────────────────────────
+  // ── ACCEPT (claim an OPEN order — first boy to accept wins) ──────────
   if (action === 'accept') {
-    const updated = await sql`
+    const [ord] = await sql`SELECT distance_km, delivery_boy_id, status FROM orders WHERE id = ${orderId}`.catch(() => [])
+    if (!ord) return NextResponse.json({ success: false, reason: 'order_not_found' })
+    if (['delivered', 'cancelled'].includes(ord.status)) return NextResponse.json({ success: false, reason: 'order_closed' })
+    if (ord.delivery_boy_id && String(ord.delivery_boy_id) === String(user.id)) {
+      return NextResponse.json({ success: true, action: 'accepted' }) // already mine
+    }
+    const boyPayout = await getBoyPayout(ord.distance_km)
+    const claimed = await sql`
       UPDATE orders
-      SET boy_accepted_at = NOW()
+      SET delivery_boy_id = ${user.id}, boy_accepted_at = NOW(), boy_assigned_at = NOW(), boy_payout = ${boyPayout}
       WHERE id              = ${orderId}
-        AND delivery_boy_id = ${user.id}
-        AND boy_accepted_at IS NULL
+        AND delivery_boy_id IS NULL
         AND status NOT IN ('delivered', 'cancelled')
       RETURNING id, order_number
     `
-    if (!updated.length) {
-      // Check why it failed — already accepted, wrong boy, or completed/cancelled
-      const [check] = await sql`
-        SELECT id, delivery_boy_id, boy_accepted_at, status
-        FROM orders WHERE id = ${orderId}
-      `.catch(() => [])
-
-      if (!check) return NextResponse.json({ success: false, reason: 'order_not_found' })
-      if (check.boy_accepted_at) return NextResponse.json({ success: false, reason: 'already_accepted' })
-      if (['delivered','cancelled'].includes(check.status)) return NextResponse.json({ success: false, reason: 'order_closed' })
-      return NextResponse.json({ success: false, reason: 'not_assigned_to_you' })
+    if (!claimed.length) {
+      return NextResponse.json({ success: false, reason: 'already_taken' }) // someone else got it first
     }
-    return NextResponse.json({
-      success: true,
-      action: 'accepted',
-      orderNumber: updated[0].order_number,
-    })
+    return NextResponse.json({ success: true, action: 'accepted', orderNumber: claimed[0].order_number })
   }
 
-  // ── REJECT ──────────────────────────────────────────────────────────
-  // Fetch current order — must be assigned to this boy, not yet accepted
-  const [current] = await sql`
-    SELECT id, order_number, boy_accepted_at, status,
-           distance_km, total, delivery_address
-    FROM orders
-    WHERE id = ${orderId} AND delivery_boy_id = ${user.id}
-  `
-  if (!current)               return NextResponse.json({ error: 'Order not found' }, { status: 404 })
-  if (current.boy_accepted_at) return NextResponse.json({ success: false, reason: 'already_accepted' })
-
-  // Record rejection so this boy won't get it again
+  // ── REJECT (broadcast model) ────────────────────────────────────────
+  // Hide this order from MY feed. If I had already claimed it (and not yet
+  // out for delivery), release it back to OPEN and re-ring all other online boys.
   await sql`
     INSERT INTO order_rejections (order_id, delivery_boy_id)
     VALUES (${orderId}, ${user.id})
     ON CONFLICT DO NOTHING
-  `
+  `.catch(() => {})
 
-  // Atomically clear assignment (only if still ours & not accepted)
-  const cleared = await sql`
-    UPDATE orders
-    SET delivery_boy_id = NULL, boy_payout = NULL
-    WHERE id              = ${orderId}
-      AND delivery_boy_id = ${user.id}
-      AND boy_accepted_at IS NULL
-    RETURNING id
-  `
-  if (!cleared.length) {
-    return NextResponse.json({ success: true, action: 'rejected' }) // already gone
+  const [cur] = await sql`
+    SELECT order_number, total, distance_km, delivery_boy_id, status
+    FROM orders WHERE id = ${orderId}
+  `.catch(() => [])
+
+  if (cur && String(cur.delivery_boy_id) === String(user.id)
+      && !['out_for_delivery', 'delivered', 'cancelled'].includes(cur.status)) {
+    const released = await sql`
+      UPDATE orders SET delivery_boy_id = NULL, boy_accepted_at = NULL, boy_payout = NULL
+      WHERE id = ${orderId} AND delivery_boy_id = ${user.id}
+      RETURNING id
+    `.catch(() => [])
+    if (released.length) {
+      try {
+        const others = await sql`
+          SELECT id FROM delivery_boys
+          WHERE is_online = true AND status = 'approved' AND id != ${user.id}
+            AND NOT EXISTS (SELECT 1 FROM order_rejections r WHERE r.order_id = ${orderId} AND r.delivery_boy_id = delivery_boys.id)
+        `
+        const distTxt = cur.distance_km ? `${Math.round(parseFloat(cur.distance_km) * 10) / 10} km` : ''
+        for (const b of others) {
+          sendPushToUser(String(b.id), {
+            title: '🔔 Order phir se available! Accept karo',
+            body:  `#${cur.order_number} — ₹${Math.round(cur.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo`,
+            url:   '/delivery',
+            tag:   `new-order-${orderId}`,
+            requireInteraction: true,
+          }, 'delivery').catch(() => {})
+        }
+      } catch {}
+    }
   }
 
-  // Find & assign next eligible boy
-  const nextBoy = await reassignOrder(sql, orderId, current)
-
-  return NextResponse.json({
-    success:    true,
-    action:     'rejected',
-    reassigned: !!nextBoy,
-    nextBoy:    nextBoy?.name || null,
-  })
+  return NextResponse.json({ success: true, action: 'rejected' })
 }

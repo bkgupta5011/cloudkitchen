@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { sendPushToUser } from '@/lib/push'
+import { getBoyPayout } from '@/lib/utils'
 
 // Helper: find next eligible boy and assign
 async function reassignOrder(sql, orderId, orderInfo) {
@@ -30,9 +31,8 @@ async function reassignOrder(sql, orderId, orderInfo) {
   if (!eligibleBoys.length) return null
 
   const nextBoy = eligibleBoys[0]
-  const perKm    = parseFloat(nextBoy.per_km_earning || 0)
-  const distKm   = orderInfo.distance_km ? parseFloat(orderInfo.distance_km) : null
-  const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+  // Centralized payout (Kitchen Settings: min + per-km from kitchen) — same for all boys.
+  const boyPayout = await getBoyPayout(orderInfo.distance_km)
 
   const assigned = await sql`
     UPDATE orders

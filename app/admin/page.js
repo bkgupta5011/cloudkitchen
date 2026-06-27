@@ -3542,7 +3542,9 @@ export default function AdminPage() {
               <div>
                 <div className="field"><label>Name</label><input value={boyEditForm.name} onChange={e => setBoyEditForm({...boyEditForm, name:e.target.value})} /></div>
                 <div className="field"><label>Phone</label><input value={boyEditForm.phone} onChange={e => setBoyEditForm({...boyEditForm, phone:e.target.value})} /></div>
-                <div className="field"><label>Per KM Earning (₹)</label><input type="number" value={boyEditForm.per_km_earning} onChange={e => setBoyEditForm({...boyEditForm, per_km_earning:e.target.value})} /></div>
+                <div style={{ fontSize:12, color:'var(--t2)', background:'var(--bg)', padding:'10px 12px', borderRadius:8, lineHeight:1.5 }}>
+                  💡 Delivery payout ab <b>centralized</b> hai — sabke liye ek hi rate <b>Kitchen Settings → 🛵 Delivery Boy Payout</b> se set hota hai (per-boy rate hata diya).
+                </div>
                 <button className="btn btn-primary btn-full" onClick={saveBoyEdit}>💾 Save Changes</button>
               </div>
             ) : (

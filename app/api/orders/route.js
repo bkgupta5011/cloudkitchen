@@ -339,9 +339,8 @@ export async function GET(request) {
       }
 
       const nextBoy   = eligible[0]
-      const perKm     = parseFloat(nextBoy.per_km_earning || 0)
-      const distKm    = order.distance_km ? parseFloat(order.distance_km) : null
-      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+      // Centralized payout (Kitchen Settings) — same for all boys, not per-boy rate
+      const boyPayout = await getBoyPayout(order.distance_km)
 
       // Atomic reassign — WHERE delivery_boy_id = prev_boy_id ensures only one
       // concurrent poller succeeds (race-safe). If already reassigned → skip.
@@ -672,10 +671,7 @@ export async function POST(request) {
       }
 
       assignedBoy = selectedBoy
-      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${assignedBoy.id}`
-      const perKm  = parseFloat(boyRate?.per_km_earning || 0)
-      const distKm = distanceKm ? parseFloat(distanceKm) : null
-      const boyPayout = perKm > 0 ? perKm * (distKm ?? 3) : null
+      const boyPayout = await getBoyPayout(serverDistanceKm)
       await sql`UPDATE orders SET delivery_boy_id = ${assignedBoy.id}, boy_payout = ${boyPayout}, boy_assigned_at = NOW() WHERE id = ${order.id}`
       // Notify assigned boy — order waiting for kitchen confirmation
       sendPushToUser(String(assignedBoy.id), {
@@ -825,13 +821,10 @@ export async function PATCH(request) {
 
     // Update earnings ONLY if it wasn't already delivered (prevent double counting)
     if (status === 'delivered' && !wasAlreadyDelivered && order.delivery_boy_id) {
-      // Use boy_payout if set, else fallback to per_km_earning * distance_km (or 3km default)
-      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${order.delivery_boy_id}`
-      const perKm = parseFloat(boyRate?.per_km_earning || 0)
-      const distKm = order.distance_km ? parseFloat(order.distance_km) : null
+      // Use stored boy_payout (centralized), else compute from Kitchen Settings
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)
-        : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
+        : await getBoyPayout(order.distance_km)
       // Always store boy_payout so history queries show correct earnings (fixes NULL boy_payout bug)
       if (!order.boy_payout) {
         await sql`UPDATE orders SET boy_payout = ${earned} WHERE id = ${orderId}`
@@ -869,13 +862,10 @@ export async function PATCH(request) {
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
     if (status === 'delivered' && !wasAlreadyDelivered) {
-      // Update earnings — use boy_payout if set, else per_km_earning * distance_km (or 3km fallback)
-      const [boyRate] = await sql`SELECT per_km_earning FROM delivery_boys WHERE id = ${user.id}`
-      const perKm = parseFloat(boyRate?.per_km_earning || 0)
-      const distKm = order.distance_km ? parseFloat(order.distance_km) : null
+      // Use stored boy_payout (centralized), else compute from Kitchen Settings
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)
-        : perKm > 0 ? perKm * (distKm ?? 3) : parseFloat(order.delivery_charge || 0) * 0.7
+        : await getBoyPayout(order.distance_km)
       // Always store boy_payout so history queries show correct earnings (fixes NULL boy_payout bug)
       if (!order.boy_payout) {
         await sql`UPDATE orders SET boy_payout = ${earned} WHERE id = ${orderId}`

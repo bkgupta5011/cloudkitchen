@@ -295,15 +295,15 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
       setGpsLoading(false)
       // Warn if the fix is coarse (e.g. desktop/IP-based) so the user verifies the pin.
       if (typeof accuracy === 'number' && accuracy > 100) {
-        alert('Aapki location thodi exact nahi hai (' + Math.round(accuracy) + 'm). Map pe pin ko apne ghar pe sahi se set karein.')
+        alert('Your location isn\'t very precise (' + Math.round(accuracy) + 'm). Please drag the pin to set your exact address on the map.')
       }
     }
     const onFail = (err) => {
       setGpsLoading(false)
       if (err && err.code === 1) {
-        alert('Location permission band hai. App/Browser settings me location ON karke dobara try karo — ya map pe pin set karo.')
+        alert('Location permission is off. Turn it on in your app/browser settings and try again — or set the pin on the map.')
       } else {
-        alert('GPS nahi mil paya. Map pe apni location pin karo ya search box me address daalo.')
+        alert('Couldn\'t get GPS. Pin your location on the map, or enter your address in the search box.')
       }
     }
     // High-accuracy first; if it fails/times out (common inside the app WebView),
@@ -342,8 +342,8 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
         {/* Header */}
         <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--bd)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div>
-            <div style={{ fontWeight:700, fontSize:15 }}>📍 Delivery Location Select Karo</div>
-            <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Map pe click karo ya pin drag karo</div>
+            <div style={{ fontWeight:700, fontSize:15 }}>📍 Select Delivery Location</div>
+            <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>Tap the map or drag the pin</div>
           </div>
           <button onClick={onClose} style={{ background:'none', border:'none', fontSize:22, cursor:'pointer', color:'var(--t2)', lineHeight:1 }}>✕</button>
         </div>
@@ -352,7 +352,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
         <div style={{ padding:'10px 14px', borderBottom:'1px solid var(--bd)', display:'flex', gap:8 }}>
           <input
             ref={searchRef}
-            placeholder="🔍 Address search karo..."
+            placeholder="🔍 Search address…"
             style={{ flex:1, padding:'9px 12px', border:'1.5px solid var(--bd2)', borderRadius:10, fontSize:13, outline:'none', background:'var(--bg)', color:'var(--t1)' }}
           />
           <button onClick={useGPS} disabled={gpsLoading}
@@ -372,14 +372,14 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
             <>
               {!userSelected ? (
                 <div style={{ fontSize:13, color:'#92400e', background:'#fff7ed', border:'1.5px solid #fed7aa', borderRadius:8, padding:'10px 12px', marginBottom:10, textAlign:'center' }}>
-                  📍 Map pe click karo, pin drag karo ya GPS use karo apni location select karne ke liye
+                  📍 Tap the map, drag the pin, or use GPS to set your location
                 </div>
               ) : (
                 <div style={{ fontSize:12, color: effOut ? '#dc2626' : 'var(--t2)', marginBottom:8, lineHeight:1.4 }}>
                   {!branchesLoaded
                     ? '⏳ Branch info load ho rahi hai...'
                     : effOut
-                    ? `⚠️ Ye location delivery zone se bahar hai — nearest branch (${effBranch || ''}) sirf ${effRadius ?? '?'} km tak deliver karta hai, aap ${effDist != null ? Number(effDist).toFixed(1) : '?'} km door hain`
+                    ? `⚠️ This location is outside our delivery zone — the nearest outlet (${effBranch || ''}) delivers up to ${effRadius ?? '?'} km, and you're ${effDist != null ? Number(effDist).toFixed(1) : '?'} km away`
                     : `✅ ${effDist != null ? Number(effDist).toFixed(1) : '?'} km ${effBranch ? effBranch + ' branch' : ''} se · ${pickedAddress || 'Location selected'}`
                   }
                 </div>
@@ -397,7 +397,7 @@ function MapPickerModal({ initialLat, initialLng, kitchenLat, kitchenLng, maxKm,
                   disabled={!userSelected || effOut}
                   onClick={() => onConfirm({ address: pickedAddress, lat: pickedLat, lng: pickedLng })}
                   style={{ flex:2, padding:'10px', background: (!userSelected || effOut) ? '#d1d5db' : 'var(--or)', color:'#fff', border:'none', borderRadius:10, fontSize:13, fontWeight:700, cursor: (!userSelected || effOut) ? 'not-allowed' : 'pointer' }}>
-                  ✅ Ye Location Use Karo
+                  ✅ Use This Location
                 </button>
               </div>
             </>
@@ -805,7 +805,7 @@ export default function CartPage() {
       const data = await res.json()
       if (!data.valid) { setOfferError(data.error || 'Invalid offer code'); return }
       setOfferResult({ discount: data.discount, freeDelivery: data.freeDelivery, code: data.code })
-    } catch { setOfferError('Offer check nahi ho paya') }
+    } catch { setOfferError('Couldn\'t verify the offer') }
   }
 
   const saveName = async () => {
@@ -820,12 +820,12 @@ export default function CartPage() {
   }
 
   const placeOrder = async () => {
-    if (needsName) { setError('Pehle apna naam batao 👆'); return }
+    if (needsName) { setError('Please enter your name first 👆'); return }
     if (!address.trim()) { setError('Please enter delivery address'); return }
     if (!cartEntries.length) { setError('Cart is empty'); return }
     // Require Flat/House for fresh locations (saved addresses are already detailed)
     const isSavedAddr = savedAddresses.some(a => a.address_text === address)
-    if (!isSavedAddr && !building.trim()) { setError('Flat / House / Building No. likhna zaroori hai 🏠'); return }
+    if (!isSavedAddr && !building.trim()) { setError('Flat / House / Building No. is required 🏠'); return }
     const deliveryAddress = isSavedAddr
       ? address.trim()
       : [building.trim(), address.trim(), landmark.trim() ? `Near ${landmark.trim()}` : '']
@@ -833,7 +833,7 @@ export default function CartPage() {
     if (outOfRange) { setError(`Sorry, we only deliver within ${nearestBranchRadius ?? maxKm} km of our nearest branch`); return }
     // If no GPS coords, open map picker to confirm location (needed for branch & delivery charge)
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setError('📍 Pehle map pe apni location confirm karo')
+      setError('📍 Please confirm your location on the map first')
       setShowMapPicker(true)
       return
     }
@@ -887,7 +887,7 @@ export default function CartPage() {
         <p>Order #{orderNum} confirmed</p>
         {deliveryBoyName && (
           <p style={{ fontSize:14, color:'#16a34a', fontWeight:600, margin:'4px 0 8px' }}>
-            🛵 {deliveryBoyName} aapka order deliver karenge
+            🛵 {deliveryBoyName} will deliver your order
           </p>
         )}
         <p className={styles.eta}>Estimated delivery: {estimatedTime}–{estimatedTime + 10} mins</p>
@@ -1001,7 +1001,7 @@ export default function CartPage() {
               {/* Map picker button */}
               <button className={styles.gpsBtn} onClick={() => setShowMapPicker(true)}
                 style={{ background:'linear-gradient(135deg,#e85d04,#f97316)', color:'#fff', border:'none', marginBottom:8 }}>
-                🗺️ Map se Location Select Karo
+                🗺️ Select Location on Map
               </button>
 
               {/* Location status */}
@@ -1042,7 +1042,7 @@ export default function CartPage() {
                 <textarea
                   value={address}
                   onChange={e => setAddress(e.target.value)}
-                  placeholder="Map se select karo ya manually likhein — Street, Area, City, Pincode"
+                  placeholder="Select on the map or type it — Street, Area, City, Pincode"
                   rows={2}
                   style={{ resize:'vertical' }}
                 />
@@ -1079,7 +1079,7 @@ export default function CartPage() {
             {/* Free Delivery Festival banner */}
             {festivalFree && (
               <div style={{ margin:'0 0 10px', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
-                <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>🎉 Free Delivery Festival — sab orders pe FREE delivery!</span>
+                <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>🎉 Free Delivery Festival — FREE delivery on every order!</span>
               </div>
             )}
 
@@ -1087,7 +1087,7 @@ export default function CartPage() {
             {!festivalFree && amountForFreeDelivery > 0 && Number.isFinite(deliveryCharge) && (
               <div style={{ margin:'0 0 10px', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:10, padding:'10px 12px' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#9a3412' }}>
-                  🎉 Bas ₹{amountForFreeDelivery} aur — FREE delivery!
+                  🎉 Add ₹{amountForFreeDelivery} more for FREE delivery!
                 </div>
                 <div style={{ height:6, background:'#fde6cf', borderRadius:4, marginTop:7, overflow:'hidden' }}>
                   <div style={{ height:'100%', width:`${Math.min(100, Math.round((subtotal / deliveryInfo.freeMin) * 100))}%`, background:'#e85d04', borderRadius:4, transition:'width 0.3s' }} />
@@ -1107,19 +1107,19 @@ export default function CartPage() {
                   {freeDelivery
                     ? <span style={{ color:'var(--gr-d)', fontWeight:600 }}>{Number.isFinite(deliveryCharge) && deliveryCharge > 0 ? <><span style={{ textDecoration:'line-through', color:'var(--t3)', fontWeight:400, marginRight:5 }}>₹{Math.round(deliveryCharge)}</span>FREE 🎉</> : 'FREE 🎉'}</span>
                     : !Number.isFinite(deliveryCharge)
-                      ? <span style={{ color:'var(--t2)', fontSize:12 }}>🗺️ Map se location select karo</span>
+                      ? <span style={{ color:'var(--t2)', fontSize:12 }}>🗺️ Select your location on the map</span>
                       : `₹${Math.round(deliveryCharge)}`
                   }
                 </span>
               </div>
               {deliverySaved > 0 && (
                 <div className={styles.billRow} style={{ color:'var(--gr-d)' }}>
-                  <span>🎉 Delivery bachat</span><span>Aapne ₹{deliverySaved} bachaye!</span>
+                  <span>🎉 Delivery savings</span><span>You saved ₹{deliverySaved}!</span>
                 </div>
               )}
               {smallOrderFee > 0 && (
                 <div className={styles.billRow}>
-                  <span>Small order fee <span style={{ fontSize:11, color:'var(--t3)' }}>(₹{deliveryInfo.mov} se kam)</span></span>
+                  <span>Small order fee <span style={{ fontSize:11, color:'var(--t3)' }}>(below ₹{deliveryInfo.mov})</span></span>
                   <span>₹{smallOrderFee}</span>
                 </div>
               )}
@@ -1133,7 +1133,7 @@ export default function CartPage() {
 
             <div className={styles.codNotice}>
               {!freeDelivery && !Number.isFinite(deliveryCharge)
-                ? '🗺️ Pehle map se apni location select karo — delivery charge calculate hoga'
+                ? '🗺️ Select your location on the map first — we\'ll calculate the delivery charge'
                 : `💵 Cash on Delivery — Pay ₹${total} when food arrives`}
             </div>
 
@@ -1145,10 +1145,10 @@ export default function CartPage() {
                 padding: '16px', marginBottom: 14,
               }}>
                 <p style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 700, color: '#92400e' }}>
-                  👋 Aapka naam kya hai?
+                  👋 What&apos;s your name?
                 </p>
                 <p style={{ margin: '0 0 10px', fontSize: 12, color: '#b45309' }}>
-                  Order ke liye ek baar naam batao — hum save kar lenge 😊
+                  Tell us your name once to order — we&apos;ll save it for next time 😊
                 </p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input

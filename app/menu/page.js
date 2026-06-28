@@ -56,17 +56,17 @@ function NotificationDrawer({ onClose }) {
             {unread>0&&<span style={{fontSize:11,color:'#e85d04',fontWeight:600}}>{unread} naye hain</span>}
           </div>
           <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            {unread>0&&<button onClick={markAllRead} style={{fontSize:11,color:'#6b7280',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>Sab read karo</button>}
+            {unread>0&&<button onClick={markAllRead} style={{fontSize:11,color:'#6b7280',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>Mark all read</button>}
             {notifs.some(n=>n.is_read)&&<button onClick={clearRead} style={{fontSize:11,color:'#ef4444',background:'none',border:'none',cursor:'pointer',fontWeight:600}}>Clear</button>}
             <button onClick={onClose} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#6b7280'}}>✕</button>
           </div>
         </div>
         <div style={{overflowY:'auto',flex:1,padding:'8px 0'}}>
-          {loading&&<div style={{textAlign:'center',padding:32,color:'#9ca3af',fontSize:14}}>⏳ Load ho raha hai...</div>}
+          {loading&&<div style={{textAlign:'center',padding:32,color:'#9ca3af',fontSize:14}}>⏳ Loading…</div>}
           {!loading&&notifs.length===0&&(
             <div style={{textAlign:'center',padding:48}}>
               <div style={{fontSize:40,marginBottom:8}}>🔕</div>
-              <div style={{fontSize:14,color:'#9ca3af'}}>Koi notification nahi hai abhi</div>
+              <div style={{fontSize:14,color:'#9ca3af'}}>No notifications yet</div>
             </div>
           )}
           {notifs.map(n=>(
@@ -268,7 +268,7 @@ function ItemDetailModal({ item, qty, onAdd, onRemove, onClose, kitchenOpen, dp,
               borderRadius: 10, padding: '8px 14px',
               fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 14,
             }}>
-              ⚡ Sirf {item.stock_count} bacha hai — jaldi order karo!
+              ⚡ Only {item.stock_count} left — order soon!
             </div>
           )}
 
@@ -331,7 +331,7 @@ function ItemDetailModal({ item, qty, onAdd, onRemove, onClose, kitchenOpen, dp,
                 }}>+</button>
               </div>
               <div style={{ flex: 1, fontSize: 14, color: '#6b7280', fontWeight: 600 }}>
-                Cart mein hai · ₹{dp * qty} total
+                In cart · ₹{dp * qty} total
               </div>
             </div>
           )}
@@ -566,7 +566,7 @@ function MenuPageContent() {
 
   // Gate action: use device GPS to set the location.
   const useGateGPS = () => {
-    if (!navigator.geolocation) { alert('GPS support nahi hai — address daalo.'); return }
+    if (!navigator.geolocation) { alert('GPS is not supported — please enter your address instead.'); return }
     setLocBusy(true)
     const ok = async (pos) => {
       const { latitude: lat, longitude: lng } = pos.coords
@@ -576,7 +576,7 @@ function MenuPageContent() {
     }
     const fail = () => {
       setLocBusy(false)
-      alert('Location nahi mili. Permission ON karo ya neeche address daalo.')
+      alert('Couldn\'t get your location. Turn on location permission, or enter your address below.')
     }
     navigator.geolocation.getCurrentPosition(
       ok,
@@ -597,9 +597,9 @@ function MenuPageContent() {
       if (g) {
         await applyLocation({ lat: g.lat, lng: g.lng, address: d.results[0].formatted_address }, allBranches, globalMaxKm)
       } else {
-        alert('Ye address nahi mila. Thoda detail me likho (area, city).')
+        alert('We couldn\'t find that address. Add more detail (area, city).')
       }
-    } catch { alert('Address check nahi ho paya, dobara try karo.') }
+    } catch { alert('Couldn\'t verify the address. Please try again.') }
     setLocBusy(false)
   }
 
@@ -808,7 +808,7 @@ function MenuPageContent() {
           <span style={{ fontSize:16 }}>📍</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:11, color:'#9a3412', fontWeight:700, lineHeight:1.1 }}>
-              {branchInfo?.count > 1 ? `${branchInfo.count} outlets aapke paas` : 'Delivering here'}{branchInfo?.dist != null ? ` · ${branchInfo.dist.toFixed(1)} km` : ''}
+              {branchInfo?.count > 1 ? `${branchInfo.count} outlets near you` : 'Delivering to'}{branchInfo?.dist != null ? ` · ${branchInfo.dist.toFixed(1)} km` : ''}
             </div>
             <div style={{ fontSize:12, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {custLoc.address || 'Aapki location'}
@@ -824,13 +824,13 @@ function MenuPageContent() {
           <span style={{ fontSize:16 }}>🎟️</span>
           <div style={{ flex:1, minWidth:0 }}>
             {loyalty.availableReward > 0 ? (
-              <div style={{ fontSize:12.5, fontWeight:700, color:'#92400e' }}>🎉 ₹{loyalty.availableReward} reward ready — agle order pe auto-apply!</div>
+              <div style={{ fontSize:12.5, fontWeight:700, color:'#92400e' }}>🎉 ₹{loyalty.availableReward} reward ready — auto-applies on your next order!</div>
             ) : (
               <>
                 <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>
                   {loyalty.ordersToGo === 1
-                    ? `Bas 1 aur order — fir ₹${loyalty.reward} off! 🎁`
-                    : `${loyalty.ordersToGo} aur order pe ₹${loyalty.reward} off!`}
+                    ? `Just 1 more order to unlock ₹${loyalty.reward} off! 🎁`
+                    : `${loyalty.ordersToGo} more orders to unlock ₹${loyalty.reward} off!`}
                 </div>
                 <div style={{ display:'flex', gap:4, marginTop:5 }}>
                   {Array.from({ length: loyalty.threshold }).map((_, i) => (
@@ -848,7 +848,7 @@ function MenuPageContent() {
         <div style={{ background: freeDelInfo.festival ? '#16a34a' : '#fff7ed', color: freeDelInfo.festival ? '#fff' : '#9a3412', textAlign:'center', padding:'7px 12px', fontSize:12.5, fontWeight:700, borderBottom: freeDelInfo.festival ? 'none' : '1px solid #fed7aa' }}>
           {freeDelInfo.festival
             ? '🎉 Free Delivery Festival — sab orders pe FREE delivery!'
-            : `🛵 ₹${freeDelInfo.freeMin}+ ke order pe FREE delivery`}
+            : `🛵 FREE delivery on orders over ₹${freeDelInfo.freeMin}`}
         </div>
       )}
 
@@ -859,23 +859,23 @@ function MenuPageContent() {
             <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
             <div style={{ textAlign:'center', marginBottom:20 }}>
               <div style={{ fontSize:42, marginBottom:6 }}>📍</div>
-              <h2 style={{ fontSize:19, fontWeight:800, color:'#1a1a1a', margin:'0 0 6px' }}>Apni location batao</h2>
-              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>Taaki aapke area ke hisaab se sahi menu, price aur stock dikha sakein.</p>
+              <h2 style={{ fontSize:19, fontWeight:800, color:'#1a1a1a', margin:'0 0 6px' }}>Set your location</h2>
+              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>So we can show the right menu, prices and stock for your area.</p>
             </div>
             <button onClick={useGateGPS} disabled={locBusy}
               style={{ width:'100%', padding:'13px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer', marginBottom:14, opacity: locBusy?0.7:1 }}>
-              {locBusy ? 'Location le rahe hain…' : '🎯 Meri current location use karo'}
+              {locBusy ? 'Getting your location…' : '🎯 Use my current location'}
             </button>
             <div style={{ display:'flex', alignItems:'center', gap:8, margin:'4px 0 12px' }}>
               <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
-              <span style={{ fontSize:11, color:'#9ca3af' }}>YA address daalo</span>
+              <span style={{ fontSize:11, color:'#9ca3af' }}>OR ENTER ADDRESS</span>
               <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
             </div>
             <div style={{ display:'flex', gap:8 }}>
               <input
                 value={gateAddr} onChange={e => setGateAddr(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') useGateAddress() }}
-                placeholder="Area, city — jaise Boring Road, Patna"
+                placeholder="Area, city — e.g. Boring Road, Patna"
                 style={{ flex:1, padding:'11px 12px', border:'1px solid #e5e7eb', borderRadius:10, fontSize:13, outline:'none' }}
               />
               <button onClick={useGateAddress} disabled={locBusy || !gateAddr.trim()}
@@ -889,16 +889,16 @@ function MenuPageContent() {
       {locResolved && !serviceable && !showLocGate && (
         <div style={{ position:'fixed', inset:0, zIndex:100000, background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', textAlign:'center' }}>
           <div style={{ fontSize:60, marginBottom:14 }}>🛵💨</div>
-          <h2 style={{ fontSize:21, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>Abhi yahan delivery nahi</h2>
+          <h2 style={{ fontSize:21, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>We don&apos;t deliver here yet</h2>
           <p style={{ fontSize:14, color:'#6b7280', margin:'0 0 4px', maxWidth:340 }}>
-            Aapki location {branchInfo?.dist != null ? `(sabse paas wali branch ${branchInfo.dist.toFixed(1)} km dur)` : ''} humari delivery range se bahar hai.
+            Your location {branchInfo?.dist != null ? `(nearest outlet is ${branchInfo.dist.toFixed(1)} km away)` : ''} is outside our delivery range.
           </p>
           <p style={{ fontSize:13, color:'#9ca3af', margin:'0 0 24px', maxWidth:340 }}>
-            Hum jald hi aapke area me aa rahe hain. Tab tak doosri location try kar sakte ho.
+            We&apos;re expanding to your area soon. Until then, try a different location.
           </p>
           <button onClick={changeLocation}
             style={{ padding:'13px 26px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>
-            📍 Doosri location daalo
+            📍 Try another location
           </button>
         </div>
       )}
@@ -909,15 +909,15 @@ function MenuPageContent() {
           onClick={e => { if (e.target === e.currentTarget) setSwitchPrompt(null) }}>
           <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:380, padding:'26px 22px', textAlign:'center' }}>
             <div style={{ fontSize:40, marginBottom:10 }}>🛍️</div>
-            <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>Doosre outlet pe switch karein?</h3>
+            <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>Switch to another outlet?</h3>
             <p style={{ fontSize:13, color:'#6b7280', margin:'0 0 20px' }}>
-              Aapke cart me <strong>{cartOutlet?.name}</strong> ke items hain. Ek order ek hi outlet se hota hai — <strong>{switchPrompt.branch.name}</strong> pe jaane ke liye cart khaali ho jayega.
+              Your cart has items from <strong>{cartOutlet?.name}</strong>. An order can only be from one outlet — switching to <strong>{switchPrompt.branch.name}</strong> will empty your cart.
             </p>
             <div style={{ display:'flex', gap:10 }}>
               <button onClick={() => setSwitchPrompt(null)}
-                style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid #e5e7eb', background:'#fff', color:'#374151', fontSize:14, fontWeight:700, cursor:'pointer' }}>Rehne do</button>
+                style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid #e5e7eb', background:'#fff', color:'#374151', fontSize:14, fontWeight:700, cursor:'pointer' }}>Keep cart</button>
               <button onClick={confirmSwitch}
-                style={{ flex:1, padding:'12px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>Cart clear karo</button>
+                style={{ flex:1, padding:'12px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>Clear &amp; switch</button>
             </div>
           </div>
         </div>
@@ -939,13 +939,13 @@ function MenuPageContent() {
             <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 44, marginBottom: 8 }}>👋</div>
-              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>FoodFi mein Welcome!</h2>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Bas naam batao — order karo! Address baad mein bhi de sakte ho.</p>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>Welcome to FoodFi!</h2>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Just tell us your name to start ordering — you can add your address later.</p>
             </div>
 
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
-                Aapka Naam <span style={{ color: '#e85d04' }}>*</span>
+                Your Name <span style={{ color: '#e85d04' }}>*</span>
               </label>
               <input
                 ref={welcomeNameRef}
@@ -953,7 +953,7 @@ function MenuPageContent() {
                 value={welcomeName}
                 onChange={e => setWelcomeName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && saveWelcomeInfo()}
-                placeholder="Jaise: Rahul Kumar"
+                placeholder="e.g. Rahul Kumar"
                 autoComplete="name"
                 style={{
                   width: '100%', padding: '13px 14px',
@@ -972,7 +972,7 @@ function MenuPageContent() {
               <textarea
                 value={welcomeAddress}
                 onChange={e => setWelcomeAddress(e.target.value)}
-                placeholder="Ghar / office ka address..."
+                placeholder="Home / office address…"
                 rows={2}
                 style={{
                   width: '100%', padding: '12px 14px',
@@ -997,7 +997,7 @@ function MenuPageContent() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                 boxShadow: welcomeName.trim() ? '0 4px 20px rgba(232,93,4,0.35)' : 'none',
               }}>
-              {welcomeSaving ? <><span className="spinner" /> Saving...</> : 'FoodFi pe Chalo! 🍛'}
+              {welcomeSaving ? <><span className="spinner" /> Saving…</> : 'Let\'s go! 🍛'}
             </button>
           </div>
         </div>
@@ -1054,8 +1054,8 @@ function MenuPageContent() {
       {showInstallBanner && !isInstalled && !isIOS && (
         <div style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
           <div>
-            <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
-            <div style={{ fontSize:11, color:'#fed7aa' }}>Home screen pe add karo — faster ordering!</div>
+            <div style={{ fontSize:13, fontWeight:700 }}>📱 Install the FoodFi App</div>
+            <div style={{ fontSize:11, color:'#fed7aa' }}>Add to your home screen for faster ordering!</div>
           </div>
           <div style={{ display:'flex', gap:8, flexShrink:0 }}>
             <button onClick={handleInstall}
@@ -1073,13 +1073,13 @@ function MenuPageContent() {
         <div onClick={() => setShowIOSModal(true)}
           style={{ background:'#431407', color:'#fff', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, cursor:'pointer' }}>
           <div>
-            <div style={{ fontSize:13, fontWeight:700 }}>📱 FoodFi App Install Karo</div>
-            <div style={{ fontSize:11, color:'#fed7aa' }}>Yahan tap karo — step by step guide dekhein</div>
+            <div style={{ fontSize:13, fontWeight:700 }}>📱 Install the FoodFi App</div>
+            <div style={{ fontSize:11, color:'#fed7aa' }}>Tap here for a step-by-step guide</div>
           </div>
           <div style={{ display:'flex', gap:8, flexShrink:0 }}>
             <button onClick={(e) => { e.stopPropagation(); setShowIOSModal(true) }}
               style={{ background:'#e85d04', color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
-              Kaise? 👆
+              How? 👆
             </button>
             <button onClick={(e) => { e.stopPropagation(); setShowInstallBanner(false) }}
               style={{ background:'none', border:'none', color:'#fed7aa', fontSize:18, cursor:'pointer' }}>✕</button>
@@ -1097,15 +1097,15 @@ function MenuPageContent() {
             <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
             <div style={{ textAlign:'center', marginBottom:20 }}>
               <div style={{ fontSize:36 }}>📱</div>
-              <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'8px 0 4px' }}>FoodFi Install Karo</h3>
-              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>iPhone / iPad pe App jaisi feel ke liye</p>
+              <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'8px 0 4px' }}>Install FoodFi</h3>
+              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>Get an app-like experience on iPhone / iPad</p>
             </div>
 
             {/* Steps */}
             {[
-              { num:'1', icon:'⬆️', title:'Share Button Dabaao', desc:'Safari browser mein — address bar ke bilkul right side mein ek box + arrow (↑) icon hai, woh dabaao' },
-              { num:'2', icon:'📋', title:'"Add to Home Screen" Select Karo', desc:'Neeche scroll karo aur "Add to Home Screen" option pe tap karo' },
-              { num:'3', icon:'✅', title:'"Add" Pe Tap Karo', desc:'Name confirm karke upar right side mein "Add" button dabaao — bas!' },
+              { num:'1', icon:'⬆️', title:'Tap the Share button', desc:'In Safari — the box with an up-arrow (↑) icon on the right of the address bar.' },
+              { num:'2', icon:'📋', title:'Select "Add to Home Screen"', desc:'Scroll down and tap the "Add to Home Screen" option.' },
+              { num:'3', icon:'✅', title:'Tap "Add"', desc:'Confirm the name and tap "Add" at the top right — that\'s it!' },
             ].map(s => (
               <div key={s.num} style={{ display:'flex', gap:14, marginBottom:16, alignItems:'flex-start' }}>
                 <div style={{ width:36, height:36, borderRadius:'50%', background:'#e85d04', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:14, flexShrink:0 }}>{s.num}</div>
@@ -1119,12 +1119,12 @@ function MenuPageContent() {
             {/* Visual hint for Share button location */}
             <div style={{ background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:12, padding:'10px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'center' }}>
               <span style={{ fontSize:22 }}>💡</span>
-              <span style={{ fontSize:12, color:'#92400e' }}>Share button (↑) address bar ke right side mein hota hai — <strong>page ko thoda scroll karo</strong>, address bar visible ho jayega</span>
+              <span style={{ fontSize:12, color:'#92400e' }}>The Share button (↑) sits to the right of the address bar — <strong>scroll the page a little</strong> and the address bar will appear.</span>
             </div>
 
             <button onClick={() => setShowIOSModal(false)}
               style={{ width:'100%', background:'#e85d04', color:'#fff', border:'none', borderRadius:12, padding:'14px', fontSize:15, fontWeight:700, cursor:'pointer' }}>
-              Samajh Gaya — Close ✓
+              Got it — Close ✓
             </button>
           </div>
         </div>
@@ -1189,7 +1189,7 @@ function MenuPageContent() {
             {fitnessLive === false && <span style={{ background:'#fbbf24', color:'#7c2d12', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>COMING SOON</span>}
             {fitnessLive === true && <span style={{ background:'#bbf7d0', color:'#065f46', fontSize:9.5, fontWeight:800, padding:'2px 7px', borderRadius:20 }}>● LIVE</span>}
           </div>
-          <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>High-protein healthy meals · calories & macros ke saath 💪</div>
+          <div style={{ fontSize:11.5, opacity:0.92, marginTop:2 }}>High-protein healthy meals · with calories & macros 💪</div>
         </div>
         <div style={{ color:'#fff', fontSize:22, flexShrink:0 }}>›</div>
       </div>
@@ -1357,7 +1357,7 @@ function MenuPageContent() {
         <div>
           {freeDelGap > 0 && (
             <div style={{ background:'#9a3412', color:'#fff', textAlign:'center', fontSize:12, fontWeight:600, padding:'5px 12px' }}>
-              🎉 Bas ₹{freeDelGap} aur add karo — FREE delivery!
+              🎉 Add ₹{freeDelGap} more for FREE delivery!
             </div>
           )}
           {freeDelInfo?.festival && (
@@ -1398,7 +1398,7 @@ function MenuPageContent() {
           fontSize: 13, gap: 10,
           boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
         }}>
-          <span style={{ fontWeight: 600 }}>👀 Guest mode — Browse karo, order ke liye login karo</span>
+          <span style={{ fontWeight: 600 }}>👀 Guest mode — browse freely, log in to order</span>
           <button
             onClick={() => router.push('/login')}
             style={{

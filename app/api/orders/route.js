@@ -601,6 +601,10 @@ export async function POST(request) {
     await sql`UPDATE offers SET used_count = used_count + 1 WHERE id = ${offerId}`
   }
 
+  // Grant any loyalty reward earned so far BEFORE applying, so it can be used on
+  // this very order even if the customer never opened the loyalty card.
+  await reconcileLoyalty(sql, user.id)
+
   // ── Reward auto-apply (review reward + loyalty reward share one pipeline) ──
   // One available reward per order; amount/eligibility from DB only.
   let rewardDiscount = 0
@@ -609,29 +613,30 @@ export async function POST(request) {
     const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled FROM kitchen_settings WHERE id = 1`
     const rewardsActive = rcfg?.review_reward_enabled || rcfg?.loyalty_enabled
     if (rewardsActive) {
-      let r = null
+      let rows = []
       try {
-        ;[r] = await sql`
+        rows = await sql`
           SELECT id, amount, source FROM review_rewards
           WHERE customer_id = ${user.id} AND status = 'available'
-          ORDER BY created_at ASC LIMIT 1
+          ORDER BY created_at ASC
         `
       } catch {
         // `source` column may not exist yet on older DBs — fall back without it.
-        ;[r] = await sql`
+        rows = await sql`
           SELECT id, amount FROM review_rewards
           WHERE customer_id = ${user.id} AND status = 'available'
-          ORDER BY created_at ASC LIMIT 1
+          ORDER BY created_at ASC
         `
       }
-      if (r) {
-        // Loyalty rewards apply on ANY order (the customer earned it over N orders);
-        // review rewards keep the min-order requirement. Cap so it never exceeds subtotal.
+      // Pick the first reward usable on this order. Loyalty rewards apply on ANY
+      // order (earned over N orders); review rewards keep the min-order rule.
+      for (const r of rows) {
         const isLoyalty = r.source === 'loyalty'
         const minNeeded = isLoyalty ? 0 : (parseInt(rcfg.review_reward_min_order) || 0)
         if (subtotal >= minNeeded) {
           rewardToUse = r.id
           rewardDiscount = Math.min(parseInt(r.amount) || 0, subtotal)
+          break
         }
       }
     }

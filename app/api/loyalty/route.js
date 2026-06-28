@@ -26,10 +26,11 @@ export async function GET(request) {
     const [c] = await sql`SELECT COUNT(*)::int AS count FROM orders WHERE user_id = ${user.id} AND status = 'delivered'`
     const delivered = c?.count || 0
 
+    // One reward at a time — show a single reward's amount (not a stacked sum).
     let available = 0
     try {
-      const [a] = await sql`SELECT COALESCE(SUM(amount),0)::int AS amt FROM review_rewards WHERE customer_id = ${user.id} AND status = 'available'`
-      available = a?.amt || 0
+      const [a] = await sql`SELECT amount FROM review_rewards WHERE customer_id = ${user.id} AND status = 'available' ORDER BY created_at ASC LIMIT 1`
+      available = a?.amount || 0
     } catch {}
 
     const inCycle   = threshold > 0 ? (delivered % threshold) : 0

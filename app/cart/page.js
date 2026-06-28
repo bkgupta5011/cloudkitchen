@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import styles from './cart.module.css'
+import LoyaltyCard from '../components/LoyaltyCard'
 
 const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
 
@@ -1094,6 +1095,9 @@ export default function CartPage() {
                 </div>
               </div>
             )}
+
+            {/* Loyalty stamp card */}
+            <LoyaltyCard />
 
             {/* Bill */}
             <div className={styles.section}>

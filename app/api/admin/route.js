@@ -915,7 +915,7 @@ export async function PATCH(request) {
       if (!data.name?.trim()) return NextResponse.json({ error: 'Branch name required' }, { status: 400 })
       // Partner = externally onboarded vendor (admin-verified); own = FoodFi's
       // own outlet. commission_percent only meaningful for partners.
-      const branchType = data.type === 'partner' ? 'partner' : 'own'
+      const branchType = data.branch_type === 'partner' ? 'partner' : 'own'
       const commission = branchType === 'partner' ? (parseFloat(data.commission_percent) || 0) : 0
       const [branch] = await sql`
         INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time, max_delivery_km, type, commission_percent)
@@ -942,7 +942,7 @@ export async function PATCH(request) {
 
     if (data.action === 'update') {
       if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
-      const branchType = data.type === 'partner' ? 'partner' : 'own'
+      const branchType = data.branch_type === 'partner' ? 'partner' : 'own'
       const commission = branchType === 'partner' ? (parseFloat(data.commission_percent) || 0) : 0
       const [branch] = await sql`
         UPDATE branches SET

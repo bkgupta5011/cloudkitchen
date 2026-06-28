@@ -3474,8 +3474,10 @@ export default function AdminPage() {
                       setBranchSaving(true)
                       try {
                         const payload = editBranch
-                          ? { type:'branch', action:'update', id:editBranch.id, ...newBranch }
-                          : { type:'branch', action:'create', ...newBranch }
+                          // newBranch.type is the vendor type (own/partner) — send it as
+                          // branch_type so it doesn't clash with the API routing `type`.
+                          ? { ...newBranch, type:'branch', branch_type:newBranch.type, action:'update', id:editBranch.id }
+                          : { ...newBranch, type:'branch', branch_type:newBranch.type, action:'create' }
                         const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
                         const d = await res.json()
                         if (!res.ok) { showToast('❌ ' + (d.error || 'Error')); return }

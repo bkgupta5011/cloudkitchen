@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [stockItems, setStockItems] = useState([])
   const [stockLoading, setStockLoading] = useState(false)
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7, min_order_value:99, small_order_fee:20 })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7, min_order_value:99, small_order_fee:20, free_delivery_all:false })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -498,7 +498,7 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7, min_order_value: s.min_order_value||99, small_order_fee: s.small_order_fee||20 }
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7, min_order_value: s.min_order_value||99, small_order_fee: s.small_order_fee||20, free_delivery_all: s.free_delivery_all||false }
     setKitchenSettings(ks)
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
@@ -1695,6 +1695,19 @@ export default function AdminPage() {
                 <div style={{ fontSize:12, color:'#e85d04', marginTop:6, lineHeight:1.7 }}>
                   ₹{kitchenSettings.min_order_value} se kam ka order → <b>₹{kitchenSettings.small_order_fee}</b> extra fee. Upar → koi fee nahi.
                 </div>
+
+                {/* Free Delivery Festival — one-click marketing promo */}
+                <div style={{ marginTop:16, paddingTop:14, borderTop:'1px dashed var(--bd2)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+                  <div>
+                    <div style={{ fontSize:13, fontWeight:700, color: kitchenSettings.free_delivery_all ? '#16a34a' : 'var(--t1)' }}>🎉 Free Delivery Festival</div>
+                    <div style={{ fontSize:11, color:'var(--t3)', marginTop:2 }}>ON karte hi <b>sabhi customers</b> ko delivery FREE (chahe order kitna bhi ho). Marketing push ke liye — boy ko fir bhi pura payout milega (FoodFi bharega).</div>
+                  </div>
+                  <div onClick={() => setKitchenSettings({...kitchenSettings, free_delivery_all: !kitchenSettings.free_delivery_all})}
+                    style={{ width:52, height:30, borderRadius:15, background: kitchenSettings.free_delivery_all ? 'var(--gr)' : 'var(--bd2)', cursor:'pointer', position:'relative', flexShrink:0, transition:'background 0.2s' }}>
+                    <div style={{ position:'absolute', width:24, height:24, background:'#fff', borderRadius:'50%', top:3, left: kitchenSettings.free_delivery_all ? 25 : 3, transition:'left 0.2s', boxShadow:'0 1px 4px rgba(0,0,0,0.25)' }} />
+                  </div>
+                </div>
+                <div style={{ fontSize:11, color:'var(--t3)', marginTop:8 }}>⚠️ Save Changes dabana mat bhoolna.</div>
               </div>
 
               <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1px solid var(--bdr)' }}>

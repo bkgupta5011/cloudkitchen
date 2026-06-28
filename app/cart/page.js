@@ -678,7 +678,7 @@ export default function CartPage() {
         if (d.radius) setNearestBranchRadius(d.radius)
         // base fee for this distance; free/small-fee computed reactively from subtotal
         setDeliveryCharge(d.outOfRange ? null : (d.deliveryBase ?? d.deliveryCharge))
-        setDeliveryInfo(d.outOfRange ? null : { base: d.deliveryBase ?? d.deliveryCharge, freeMin: d.freeDeliveryMin, mov: d.minOrderValue, sofRate: d.smallOrderFeeRate })
+        setDeliveryInfo(d.outOfRange ? null : { base: d.deliveryBase ?? d.deliveryCharge, freeMin: d.freeDeliveryMin, mov: d.minOrderValue, sofRate: d.smallOrderFeeRate, festival: !!d.festival })
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -724,10 +724,13 @@ export default function CartPage() {
     ? reviewReward.amount : 0
   // Free delivery: either a coupon, OR the subtotal crossed this distance's
   // free-delivery threshold (the "order a bit more → free delivery" offer).
+  const festivalFree = !!deliveryInfo?.festival
   const valueFreeDelivery = !!(deliveryInfo?.freeMin && deliveryInfo.freeMin > 0 && subtotal >= deliveryInfo.freeMin)
-  const freeDelivery = (offerResult?.freeDelivery || false) || valueFreeDelivery
+  const freeDelivery = (offerResult?.freeDelivery || false) || valueFreeDelivery || festivalFree
   const safeDelivery = Number.isFinite(deliveryCharge) ? deliveryCharge : 0
   const effectiveDelivery = freeDelivery ? 0 : safeDelivery
+  // Delivery the customer saved (for the "you saved" line).
+  const deliverySaved = freeDelivery && Number.isFinite(deliveryInfo?.base) ? Math.round(deliveryInfo.base) : 0
   // Small-order fee when below the minimum order value.
   const smallOrderFee = (deliveryInfo?.mov && subtotal > 0 && subtotal < deliveryInfo.mov) ? (deliveryInfo.sofRate || 0) : 0
   // How much more to add to unlock free delivery (for the nudge).
@@ -1073,8 +1076,15 @@ export default function CartPage() {
               </div>
             </div>
 
+            {/* Free Delivery Festival banner */}
+            {festivalFree && (
+              <div style={{ margin:'0 0 10px', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:10, padding:'10px 12px', textAlign:'center' }}>
+                <span style={{ fontSize:13, fontWeight:700, color:'#16a34a' }}>🎉 Free Delivery Festival — sab orders pe FREE delivery!</span>
+              </div>
+            )}
+
             {/* Free-delivery nudge — turns delivery charge into an incentive */}
-            {amountForFreeDelivery > 0 && Number.isFinite(deliveryCharge) && (
+            {!festivalFree && amountForFreeDelivery > 0 && Number.isFinite(deliveryCharge) && (
               <div style={{ margin:'0 0 10px', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:10, padding:'10px 12px' }}>
                 <div style={{ fontSize:13, fontWeight:700, color:'#9a3412' }}>
                   🎉 Bas ₹{amountForFreeDelivery} aur — FREE delivery!
@@ -1102,6 +1112,11 @@ export default function CartPage() {
                   }
                 </span>
               </div>
+              {deliverySaved > 0 && (
+                <div className={styles.billRow} style={{ color:'var(--gr-d)' }}>
+                  <span>🎉 Delivery bachat</span><span>Aapne ₹{deliverySaved} bachaye!</span>
+                </div>
+              )}
               {smallOrderFee > 0 && (
                 <div className={styles.billRow}>
                   <span>Small order fee <span style={{ fontSize:11, color:'var(--t3)' }}>(₹{deliveryInfo.mov} se kam)</span></span>

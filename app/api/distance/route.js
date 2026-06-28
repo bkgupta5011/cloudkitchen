@@ -57,6 +57,7 @@ export async function GET(request) {
     deliveryBase:   quote ? quote.baseCharge : null,       // fee when not free
     freeDeliveryMin: quote ? quote.freeDeliveryMin : null, // order this much → free
     freeDelivery:   quote ? quote.freeDelivery : false,
+    festival:       quote ? !!quote.festival : false,      // free-delivery festival ON
     minOrderValue:  fees.minOrderValue,
     smallOrderFee:  fees.smallOrderFee,
     smallOrderFeeRate: fees.smallOrderFeeRate,

@@ -123,6 +123,8 @@ async function ensureKitchenColumns(sql) {
     // Delivery-as-offer: minimum order value + small-order fee below it.
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS min_order_value NUMERIC DEFAULT 99`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS small_order_fee NUMERIC DEFAULT 20`
+    // Free Delivery Festival — one-click promo: delivery free for everyone.
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS free_delivery_all BOOLEAN DEFAULT false`
   } catch (e) {}
 }
 
@@ -506,7 +508,7 @@ export async function GET(request) {
            order_timeout_minutes, escalation_interval_sec,
            review_reward_enabled, review_reward_amount, review_reward_min_order,
            fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km,
-           min_order_value, small_order_fee
+           min_order_value, small_order_fee, free_delivery_all
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -543,6 +545,7 @@ export async function PATCH(request) {
     const bPerKm     = data.boy_per_km     != null ? parseFloat(data.boy_per_km)     : null
     const movVal     = data.min_order_value != null ? parseFloat(data.min_order_value) : null
     const sofVal     = data.small_order_fee != null ? parseFloat(data.small_order_fee) : null
+    const fdaVal     = data.free_delivery_all != null ? !!data.free_delivery_all : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -576,6 +579,7 @@ export async function PATCH(request) {
         boy_per_km              = COALESCE(${bPerKm},  boy_per_km),
         min_order_value         = COALESCE(${movVal},  min_order_value),
         small_order_fee         = COALESCE(${sofVal},  small_order_fee),
+        free_delivery_all       = COALESCE(${fdaVal},  free_delivery_all),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

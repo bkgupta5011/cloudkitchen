@@ -392,6 +392,7 @@ function MenuPageContent() {
   const [globalMaxKm, setGlobalMaxKm] = useState(0)
   const [custLoc, setCustLoc]   = useState(null)   // { lat, lng, address }
   const [branchInfo, setBranchInfo] = useState(null) // serving/nearest branch
+  const [freeDelInfo, setFreeDelInfo] = useState(null) // { freeMin, festival } for the badge/nudge
   const [servingBranches, setServingBranches] = useState([]) // all in-range outlets
   const [cartOutlet, setCartOutlet] = useState(null) // { id, name } current cart's outlet
   const [switchPrompt, setSwitchPrompt] = useState(null) // { itemId, branch } for outlet-switch confirm
@@ -555,6 +556,11 @@ function MenuPageContent() {
       }
       setMenuItems([...merged.values()])
     } catch {}
+    // Free-delivery threshold for this location (for the menu badge + nudge).
+    try {
+      const dd = await fetch(`/api/distance?lat=${loc.lat}&lng=${loc.lng}`).then(r => r.json())
+      if (dd && !dd.error) setFreeDelInfo({ freeMin: dd.freeDeliveryMin, festival: !!dd.festival, base: dd.deliveryBase })
+    } catch {}
   }
 
   // Gate action: use device GPS to set the location.
@@ -694,6 +700,13 @@ function MenuPageContent() {
     ? Math.round(item.price * (1 - item.discount_percent / 100))
     : item.price
 
+  // Live cart subtotal + how much more for FREE delivery (for the cart-bar nudge).
+  const menuSubtotal = Object.entries(cart).reduce((a, [id, qty]) => {
+    const it = menuItems.find(m => m.id === id); return it ? a + discPrice(it) * qty : a
+  }, 0)
+  const freeDelGap = (freeDelInfo && !freeDelInfo.festival && freeDelInfo.freeMin > 0 && menuSubtotal > 0 && menuSubtotal < freeDelInfo.freeMin)
+    ? Math.ceil(freeDelInfo.freeMin - menuSubtotal) : 0
+
   // 🔥 Hero deals: items whose final price is ₹99 (shown as a featured strip)
   const featured99 = menuItems.filter(m => discPrice(m) === 99)
 
@@ -795,6 +808,15 @@ function MenuPageContent() {
             </div>
           </div>
           <span style={{ fontSize:11, fontWeight:700, color:'#e85d04', flexShrink:0 }}>Change ▾</span>
+        </div>
+      )}
+
+      {/* ── Free-delivery badge (delivery-as-offer) ── */}
+      {serviceable && !showLocGate && freeDelInfo && (freeDelInfo.festival || (freeDelInfo.freeMin > 0)) && (
+        <div style={{ background: freeDelInfo.festival ? '#16a34a' : '#fff7ed', color: freeDelInfo.festival ? '#fff' : '#9a3412', textAlign:'center', padding:'7px 12px', fontSize:12.5, fontWeight:700, borderBottom: freeDelInfo.festival ? 'none' : '1px solid #fed7aa' }}>
+          {freeDelInfo.festival
+            ? '🎉 Free Delivery Festival — sab orders pe FREE delivery!'
+            : `🛵 ₹${freeDelInfo.freeMin}+ ke order pe FREE delivery`}
         </div>
       )}
 
@@ -1300,11 +1322,23 @@ function MenuPageContent() {
 
       {/* Cart sticky bar */}
       {cartCount > 0 && !isGuest && (
-        <div className={styles.cartBar}>
-          <span>{cartCount} item{cartCount > 1 ? 's' : ''} in cart</span>
-          <button className="btn btn-primary" onClick={() => router.push('/cart')}>
-            View Cart →
-          </button>
+        <div>
+          {freeDelGap > 0 && (
+            <div style={{ background:'#9a3412', color:'#fff', textAlign:'center', fontSize:12, fontWeight:600, padding:'5px 12px' }}>
+              🎉 Bas ₹{freeDelGap} aur add karo — FREE delivery!
+            </div>
+          )}
+          {freeDelInfo?.festival && (
+            <div style={{ background:'#16a34a', color:'#fff', textAlign:'center', fontSize:12, fontWeight:700, padding:'5px 12px' }}>
+              🎉 FREE delivery on this order!
+            </div>
+          )}
+          <div className={styles.cartBar}>
+            <span>{cartCount} item{cartCount > 1 ? 's' : ''} in cart</span>
+            <button className="btn btn-primary" onClick={() => router.push('/cart')}>
+              View Cart →
+            </button>
+          </div>
         </div>
       )}
 

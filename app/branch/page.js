@@ -24,6 +24,10 @@ export default function BranchPage() {
   const [newOrderBanner,  setNewOrderBanner]  = useState(false)
   const [showOrderDetail, setShowOrderDetail] = useState(false)
   const [orderDetail,     setOrderDetail]     = useState(null)
+  const [itemSearch,      setItemSearch]      = useState('')
+  const [showAddItem,     setShowAddItem]     = useState(false)
+  const [newItem,         setNewItem]         = useState({ name:'', category:'', price:'', stock_count:'', is_veg:true, description:'' })
+  const [savingItem,      setSavingItem]      = useState(false)
 
   const prevNewCount = useRef(-1)
   const audioRef     = useRef(null)
@@ -161,6 +165,58 @@ export default function BranchPage() {
     }
     showToast(anyFail ? '⚠️ Kuch items update nahi hue' : `✅ ${unavailable.length} items available kar diye!`)
     if (anyFail) fetchItems()
+  }
+
+  // ── Set this branch's own price for an item (blank = master rate) ──
+  const setItemPrice = async (item, value) => {
+    const num = value === '' ? null : Number(value)
+    if (num !== null && (!Number.isFinite(num) || num < 0)) { showToast('❌ Galat price'); return }
+    const cur = item.branch_price == null ? null : Number(item.branch_price)
+    if (num === cur) return
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, branch_price: num == null ? item.master_price : num } : i))
+    try {
+      await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'set_price', branch_id: user.branch_id, item_id: item.id, price: num }) })
+      showToast('💰 Price update ho gaya')
+    } catch { fetchItems() }
+  }
+
+  // ── Set this branch's stock for an item (blank = unlimited) ───────
+  const setItemStock = async (item, value) => {
+    const num = value === '' ? null : Math.trunc(Number(value))
+    if (num !== null && (!Number.isFinite(num) || num < 0)) { showToast('❌ Galat stock'); return }
+    if (num === (item.branch_stock ?? null)) return
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, branch_stock: num } : i))
+    try {
+      await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'set_stock', branch_id: user.branch_id, item_id: item.id, stock_count: num }) })
+      showToast('📦 Stock update ho gaya')
+    } catch { fetchItems() }
+  }
+
+  // ── Add this branch's OWN item ────────────────────────────────────
+  const addOwnItem = async () => {
+    if (!newItem.name.trim() || !newItem.category.trim() || newItem.price === '') { showToast('❌ Naam, category, price bharo'); return }
+    setSavingItem(true)
+    try {
+      const res = await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'add_item', branch_id: user.branch_id, ...newItem }) })
+      const d = await res.json()
+      if (!res.ok) { showToast('❌ ' + (d.error || 'Fail')) }
+      else { showToast('✅ Item add ho gaya'); setShowAddItem(false); setNewItem({ name:'', category:'', price:'', stock_count:'', is_veg:true, description:'' }); fetchItems() }
+    } catch { showToast('❌ Network error') }
+    setSavingItem(false)
+  }
+
+  // ── Delete this branch's own item ─────────────────────────────────
+  const deleteOwnItem = async (item) => {
+    if (!confirm(`"${item.name}" delete kare? Permanently hat jayega.`)) return
+    try {
+      const res = await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'delete_item', branch_id: user.branch_id, item_id: item.id }) })
+      if (res.ok) { setItems(prev => prev.filter(i => i.id !== item.id)); showToast('🗑 Item delete ho gaya') }
+      else { const d = await res.json(); showToast('❌ ' + (d.error || 'Fail')) }
+    } catch { showToast('❌ Network error') }
   }
 
   // ── Toggle branch open/close ──────────────────────────────────────
@@ -486,12 +542,14 @@ export default function BranchPage() {
         {section === 'items' && (
           <>
             <div className={styles.sectionHead}>
-              <h2>📦 Item Availability</h2>
+              <h2>📦 Mera Menu</h2>
               <div style={{ display: 'flex', gap: 8 }}>
-                {/* Show "Sab Available Karo" only when some items are off */}
+                <button className="btn btn-primary" style={{ fontSize: 12, background:'#16a34a' }} onClick={() => setShowAddItem(v => !v)}>
+                  {showAddItem ? '✕ Cancel' : '➕ Apna Item'}
+                </button>
                 {items.some(i => !i.branch_available) && (
-                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={markAllAvailable}>
-                    ✅ Sab Available Karo
+                  <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={markAllAvailable}>
+                    ✅ Sab Available
                   </button>
                 )}
                 <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={fetchItems}>
@@ -500,21 +558,84 @@ export default function BranchPage() {
               </div>
             </div>
             <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14 }}>
-              Jo item aaj available nahi hai use band karo — customers ko order karte waqt nahi dikhega.
+              Apna price + stock set karo, items on/off karo. Price blank = master rate. Stock blank = unlimited. Customers ko sirf ON items dikhte hain.
             </p>
+
+            {/* Add own item form */}
+            {showAddItem && (
+              <div style={{ padding: 14, border: '1px solid var(--bd2)', borderRadius: 12, background: 'var(--card)', marginBottom: 16, maxWidth: 560 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>➕ Apna naya item</div>
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 10 }}>Ye item sirf aapki branch me dikhega.</div>
+                <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} placeholder="Item ka naam *"
+                  style={{ width: '100%', padding: '9px 11px', marginBottom: 8, border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))} placeholder="Category *"
+                    style={{ flex: 1, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
+                  <input type="number" min="0" value={newItem.price} onChange={e => setNewItem(p => ({ ...p, price: e.target.value }))} placeholder="₹ Price *"
+                    style={{ width: 100, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
+                  <input type="number" min="0" value={newItem.stock_count} onChange={e => setNewItem(p => ({ ...p, stock_count: e.target.value }))} placeholder="Stock"
+                    style={{ width: 80, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="radio" checked={newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: true }))} /> 🟢 Veg
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
+                    <input type="radio" checked={!newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: false }))} /> 🔴 Non-veg
+                  </label>
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%', fontSize: 14 }} disabled={savingItem} onClick={addOwnItem}>
+                  {savingItem ? 'Adding…' : '✅ Add Item'}
+                </button>
+              </div>
+            )}
+
+            {/* Search */}
+            <input value={itemSearch} onChange={e => setItemSearch(e.target.value)} placeholder="🔍 Item search karo..."
+              style={{ width: '100%', maxWidth: 560, padding: '9px 12px', marginBottom: 14, border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
             <div className={styles.menuGrid}>
-              {items.map(item => (
+              {items
+                .filter(item => !itemSearch || item.name.toLowerCase().includes(itemSearch.toLowerCase()) || (item.category || '').toLowerCase().includes(itemSearch.toLowerCase()))
+                .map(item => {
+                const isOwned = item.owner_branch_id && item.owner_branch_id === user?.branch_id
+                const priceOverridden = item.branch_price != null && Number(item.branch_price) !== Number(item.master_price)
+                return (
                 <div key={item.id} className={styles.menuCard} style={{ opacity: item.branch_available ? 1 : 0.55 }}>
                   <div className={styles.menuCardImg}>
                     {item.image_url
                       ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
                       : <span style={{ fontSize: 28 }}>🍛</span>}
                   </div>
-                  <div className={styles.catTag}>{item.category}</div>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
+                    <div className={styles.catTag}>{item.category}</div>
+                    {isOwned && <span style={{ fontSize: 9, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 5 }}>🏠 OWN</span>}
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
                     {item.is_veg ? '🟢' : '🔴'} {item.name}
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--t2)', marginBottom: 10 }}>₹{item.price}</div>
+
+                  {/* Per-branch price + stock */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>PRICE ₹</div>
+                      <input type="number" min="0" inputMode="numeric"
+                        defaultValue={item.branch_price ?? ''}
+                        placeholder={String(item.master_price ?? '')}
+                        onBlur={e => setItemPrice(item, e.target.value)}
+                        style={{ width: '100%', padding: '6px 8px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
+                          border: `1px solid ${priceOverridden ? 'var(--or)' : 'var(--bd2)'}`, background: 'var(--bg)', color: priceOverridden ? 'var(--or)' : 'var(--t1)', fontWeight: priceOverridden ? 700 : 400 }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>STOCK</div>
+                      <input type="number" min="0" inputMode="numeric"
+                        defaultValue={item.branch_stock ?? ''}
+                        placeholder="∞"
+                        onBlur={e => setItemStock(item, e.target.value)}
+                        style={{ width: '100%', padding: '6px 8px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
+                          border: `1px solid ${item.branch_stock != null && item.branch_stock <= 0 ? 'var(--rd)' : 'var(--bd2)'}`, background: 'var(--bg)', color: item.branch_stock != null && item.branch_stock <= 0 ? 'var(--rd)' : 'var(--t1)' }} />
+                    </div>
+                  </div>
+
                   <div className={styles.availToggle}>
                     <div
                       onClick={() => toggleItem(item.id, item.branch_available)}
@@ -533,9 +654,14 @@ export default function BranchPage() {
                     <span style={{ fontSize: 12, color: item.branch_available ? 'var(--gr-d)' : 'var(--rd)', fontWeight: 600 }}>
                       {item.branch_available ? 'Available' : 'Unavailable'}
                     </span>
+                    {isOwned && (
+                      <button onClick={() => deleteOwnItem(item)} title="Delete"
+                        style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, color: 'var(--rd)', padding: '2px 4px' }}>🗑</button>
+                    )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
               {items.length === 0 && (
                 <div style={{ color: 'var(--t2)', fontSize: 13 }}>Koi item nahi mila</div>
               )}

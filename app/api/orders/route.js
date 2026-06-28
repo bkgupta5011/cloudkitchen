@@ -71,6 +71,22 @@ async function findNearestBranch(sql, lat, lng) {
   } catch { return null }
 }
 
+// True if `branchId` is an active branch whose delivery zone covers (lat,lng).
+// Used to honour the customer's chosen outlet only when it really serves them.
+async function branchCovers(sql, branchId, lat, lng) {
+  if (!branchId || lat == null || lng == null) return false
+  try {
+    const [b] = await sql`SELECT lat, lng, max_delivery_km FROM branches WHERE id = ${branchId}::uuid AND is_active = true`
+    if (!b?.lat || !b?.lng) return false
+    const [s] = await sql`SELECT max_delivery_km FROM kitchen_settings WHERE id = 1`
+    const globalKm = parseFloat(s?.max_delivery_km) || 0
+    const bKm = parseFloat(b.max_delivery_km) || 0
+    const radius = bKm > 0 ? bKm : globalKm
+    const d = haversineKm(parseFloat(lat), parseFloat(lng), parseFloat(b.lat), parseFloat(b.lng))
+    return radius > 0 && d <= radius
+  } catch { return false }
+}
+
 // ── Ensure branch_id column on orders ───────────────────────────
 async function ensureOrderBranchColumn(sql) {
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
@@ -432,7 +448,7 @@ export async function POST(request) {
   await checkAndResetDailyStock()
 
   const body = await request.json()
-  const { items, deliveryAddress, deliveryLat, deliveryLng, distanceKm, offerCode, notes } = body
+  const { items, deliveryAddress, deliveryLat, deliveryLng, distanceKm, offerCode, notes, branchId: claimedBranchId } = body
 
   if (!items?.length || !deliveryAddress) {
     return NextResponse.json({ error: 'Items and delivery address required' }, { status: 400 })
@@ -446,7 +462,12 @@ export async function POST(request) {
   // THAT branch (branch_inventory). When a branch has no override for an item we
   // fall back to the master menu_items value, so behaviour is unchanged unless a
   // branch-specific price/stock is actually set.
-  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
+  // Honour the customer's chosen outlet only if it actually serves this address
+  // (server-authoritative); otherwise fall back to the nearest serving branch.
+  let branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
+  if (claimedBranchId && await branchCovers(sql, claimedBranchId, deliveryLat, deliveryLng)) {
+    branchId = claimedBranchId
+  }
   const branchInv = {}
   if (branchId) {
     try {

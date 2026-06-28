@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
-import { findNearestServingBranch, findNearestBranchClient } from '@/lib/branchSelect'
+import { findNearestBranchClient, findServingBranches } from '@/lib/branchSelect'
 
 const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
 
@@ -392,6 +392,9 @@ function MenuPageContent() {
   const [globalMaxKm, setGlobalMaxKm] = useState(0)
   const [custLoc, setCustLoc]   = useState(null)   // { lat, lng, address }
   const [branchInfo, setBranchInfo] = useState(null) // serving/nearest branch
+  const [servingBranches, setServingBranches] = useState([]) // all in-range outlets
+  const [cartOutlet, setCartOutlet] = useState(null) // { id, name } current cart's outlet
+  const [switchPrompt, setSwitchPrompt] = useState(null) // { itemId, branch } for outlet-switch confirm
   const [locResolved, setLocResolved] = useState(false)
   const [serviceable, setServiceable] = useState(true)
   const [showLocGate, setShowLocGate] = useState(false)
@@ -422,6 +425,7 @@ function MenuPageContent() {
     // Restore cart from localStorage first (instant, no flash)
     const saved = localStorage.getItem('ck_cart')
     if (saved) { try { setCart(JSON.parse(saved)) } catch {} }
+    try { const o = JSON.parse(localStorage.getItem('ck_outlet') || 'null'); if (o?.id) setCartOutlet(o) } catch {}
 
     Promise.all([
       fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'me' }) }).then(r => r.json()),
@@ -461,61 +465,95 @@ function MenuPageContent() {
       setAllBranches(branches)
       setGlobalMaxKm(gKm)
       setLoading(false)
-      // Resolve the customer's branch from their location (Phase 3).
-      resolveLocation(branches, gKm, authData.user)
+      // Auto-detect the customer's location the moment the app opens (Phase 3).
+      autoLocate(branches, gKm, authData.user)
     })
   }, [])
 
-  // ── Phase 3: figure out the customer's serving branch ───────────────
-  // Location source priority: cached (ck_loc) → saved default address.
-  // No location → show the location gate. Out of range → not-serviceable.
-  const resolveLocation = async (branches, gKm, authUser) => {
-    let loc = null
+  // ── Phase 3: auto-detect location on open ───────────────────────────
+  // 1) Instant: if we have a cached/saved location, apply it right away.
+  // 2) Live: silently ask the device GPS and refine to the real position.
+  // Only if we have NOTHING and GPS is unavailable/denied do we show the gate.
+  const autoLocate = async (branches, gKm, authUser) => {
+    let cached = null
     try {
       const c = JSON.parse(localStorage.getItem('ck_loc') || 'null')
-      if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) loc = c
+      if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) cached = c
     } catch {}
-    if (!loc && authUser) {
+    if (!cached && authUser) {
       try {
         const ad = await fetch('/api/addresses').then(r => r.json())
         const list = ad.addresses || []
         const def = list.find(a => a.is_default) || list[0]
         if (def && def.lat != null && def.lng != null) {
-          loc = { lat: parseFloat(def.lat), lng: parseFloat(def.lng), address: def.address_text }
+          cached = { lat: parseFloat(def.lat), lng: parseFloat(def.lng), address: def.address_text }
         }
       } catch {}
     }
-    if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) {
-      setShowLocGate(true)
-      setLocResolved(true)
-      return
+    // Show the cached/saved menu instantly so the screen is never empty.
+    if (cached) applyLocation(cached, branches, gKm)
+
+    // Then try live GPS in the background for an accurate fix.
+    if (navigator.geolocation) {
+      const onPos = async (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords
+        const address = await reverseGeocode(lat, lng)
+        applyLocation({ lat, lng, address }, branches, gKm)
+      }
+      const onErr = () => { if (!cached) { setShowLocGate(true); setLocResolved(true) } }
+      navigator.geolocation.getCurrentPosition(
+        onPos,
+        () => navigator.geolocation.getCurrentPosition(onPos, onErr, { enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 }),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      )
+    } else if (!cached) {
+      setShowLocGate(true); setLocResolved(true)
     }
-    applyLocation(loc, branches, gKm)
   }
 
-  // Apply a chosen location: pick the serving branch + load its branch-wise menu.
+  // Apply a location: find ALL in-range outlets and show their MERGED menu.
+  // Same dish in two outlets → keep the cheaper one (nearest breaks ties).
+  // Every item is tagged with its outlet (_branchId/_branchName) so the cart
+  // can keep an order to a single outlet.
   const applyLocation = async (loc, branches, gKm) => {
     const list = branches || allBranches
     const km = gKm != null ? gKm : globalMaxKm
-    const serving = findNearestServingBranch(list, loc.lat, loc.lng, km)
-    const nearest = findNearestBranchClient(list, loc.lat, loc.lng, km)
+    const serving = findServingBranches(list, loc.lat, loc.lng, km)
     setCustLoc(loc)
     try { localStorage.setItem('ck_loc', JSON.stringify(loc)) } catch {}
-    if (!serving) {
+    if (!serving.length) {
+      const nearest = findNearestBranchClient(list, loc.lat, loc.lng, km)
       setServiceable(false)
+      setServingBranches([])
       setBranchInfo(nearest ? { name: nearest.name, dist: nearest.dist } : null)
       setShowLocGate(false)
       setLocResolved(true)
       return
     }
     setServiceable(true)
-    setBranchInfo({ id: serving.id, name: serving.name, dist: serving.dist })
+    setServingBranches(serving)
+    setBranchInfo({ id: serving[0].id, name: serving[0].name, dist: serving[0].dist, count: serving.length })
     setShowLocGate(false)
     setLocResolved(true)
-    // Swap in this branch's own menu (price + stock + availability).
+    // Fetch each serving outlet's own menu, then merge (cheapest wins).
     try {
-      const md = await fetch(`/api/menu?branch_id=${serving.id}`).then(r => r.json())
-      if (md.items) setMenuItems(md.items)
+      const menus = await Promise.all(
+        serving.map(b =>
+          fetch(`/api/menu?branch_id=${b.id}`).then(r => r.json())
+            .then(d => ({ branch: b, items: d.items || [] }))
+            .catch(() => ({ branch: b, items: [] }))
+        )
+      )
+      const merged = new Map()
+      // serving is nearest-first, so on a price tie the nearer outlet is kept.
+      for (const { branch, items } of menus) {
+        for (const it of items) {
+          const tagged = { ...it, _branchId: branch.id, _branchName: branch.name }
+          const prev = merged.get(it.id)
+          if (!prev || Number(it.price) < Number(prev.price)) merged.set(it.id, tagged)
+        }
+      }
+      setMenuItems([...merged.values()])
     } catch {}
   }
 
@@ -596,12 +634,28 @@ function MenuPageContent() {
     syncCartToDB(newCart)
   }
 
+  // Remember which outlet the current cart belongs to (one outlet per order).
+  const setOutlet = (branch) => {
+    setCartOutlet(branch)
+    try {
+      if (branch?.id) localStorage.setItem('ck_outlet', JSON.stringify(branch))
+      else localStorage.removeItem('ck_outlet')
+    } catch {}
+  }
+
   const addItem = (id) => {
     if (!kitchenOpen) return
     const item = menuItems.find(m => m.id === id)
+    if (!item) return
+    const itemBranch = item._branchId ? { id: item._branchId, name: item._branchName } : null
+    // One outlet per order: if cart already has another outlet's items, confirm switch.
+    if (itemBranch && Object.keys(cart).length > 0 && cartOutlet?.id && cartOutlet.id !== itemBranch.id) {
+      setSwitchPrompt({ itemId: id, branch: itemBranch })
+      return
+    }
     const currentQty = cart[id] || 0
     // Stock limit check — only if stock_count is set (not null)
-    if (item && item.stock_count !== null && item.stock_count !== undefined) {
+    if (item.stock_count !== null && item.stock_count !== undefined) {
       if (currentQty >= item.stock_count) {
         setStockPopup({ itemName: item.name, available: item.stock_count })
         return
@@ -609,6 +663,16 @@ function MenuPageContent() {
     }
     const nc = { ...cart, [id]: currentQty + 1 }
     saveCart(nc)
+    if (itemBranch && !cartOutlet?.id) setOutlet(itemBranch)
+  }
+
+  // Clear the cart and start fresh at the new outlet (from the switch prompt).
+  const confirmSwitch = () => {
+    if (!switchPrompt) return
+    const { itemId, branch } = switchPrompt
+    saveCart({ [itemId]: 1 })
+    setOutlet(branch)
+    setSwitchPrompt(null)
   }
 
   const removeItem = (id) => {
@@ -616,6 +680,7 @@ function MenuPageContent() {
     if (nc[id] > 1) nc[id]--
     else delete nc[id]
     saveCart(nc)
+    if (Object.keys(nc).length === 0) setOutlet(null)
   }
 
   const cartCount = Object.values(cart).reduce((a, b) => a + b, 0)
@@ -723,7 +788,7 @@ function MenuPageContent() {
           <span style={{ fontSize:16 }}>📍</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:11, color:'#9a3412', fontWeight:700, lineHeight:1.1 }}>
-              Delivering here {branchInfo?.dist != null ? `· ${branchInfo.dist.toFixed(1)} km` : ''}
+              {branchInfo?.count > 1 ? `${branchInfo.count} outlets aapke paas` : 'Delivering here'}{branchInfo?.dist != null ? ` · ${branchInfo.dist.toFixed(1)} km` : ''}
             </div>
             <div style={{ fontSize:12, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {custLoc.address || 'Aapki location'}
@@ -781,6 +846,26 @@ function MenuPageContent() {
             style={{ padding:'13px 26px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>
             📍 Doosri location daalo
           </button>
+        </div>
+      )}
+
+      {/* ── Outlet switch confirm (one outlet per order) ── */}
+      {switchPrompt && (
+        <div style={{ position:'fixed', inset:0, zIndex:100001, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}
+          onClick={e => { if (e.target === e.currentTarget) setSwitchPrompt(null) }}>
+          <div style={{ background:'#fff', borderRadius:20, width:'100%', maxWidth:380, padding:'26px 22px', textAlign:'center' }}>
+            <div style={{ fontSize:40, marginBottom:10 }}>🛍️</div>
+            <h3 style={{ fontSize:18, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>Doosre outlet pe switch karein?</h3>
+            <p style={{ fontSize:13, color:'#6b7280', margin:'0 0 20px' }}>
+              Aapke cart me <strong>{cartOutlet?.name}</strong> ke items hain. Ek order ek hi outlet se hota hai — <strong>{switchPrompt.branch.name}</strong> pe jaane ke liye cart khaali ho jayega.
+            </p>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => setSwitchPrompt(null)}
+                style={{ flex:1, padding:'12px', borderRadius:12, border:'1px solid #e5e7eb', background:'#fff', color:'#374151', fontSize:14, fontWeight:700, cursor:'pointer' }}>Rehne do</button>
+              <button onClick={confirmSwitch}
+                style={{ flex:1, padding:'12px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer' }}>Cart clear karo</button>
+            </div>
+          </div>
         </div>
       )}
 

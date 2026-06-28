@@ -541,18 +541,26 @@ export default function CartPage() {
     // can't resolve a serving branch (no saved location / out of range).
     ;(async () => {
       let branchId = null
+      // Prefer the outlet the customer actually chose on the menu (ck_outlet);
+      // fall back to the nearest serving branch for their saved location.
       try {
-        const c = JSON.parse(localStorage.getItem('ck_loc') || 'null')
-        if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
-          const [bd, sd] = await Promise.all([
-            fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
-            fetch('/api/admin').then(r => r.json()).catch(() => ({ settings: {} })),
-          ])
-          const gKm = parseFloat(sd.settings?.max_delivery_km) || 0
-          const serving = findNearestServingBranch(bd.branches || [], c.lat, c.lng, gKm)
-          if (serving) branchId = serving.id
-        }
+        const o = JSON.parse(localStorage.getItem('ck_outlet') || 'null')
+        if (o?.id) branchId = o.id
       } catch {}
+      if (!branchId) {
+        try {
+          const c = JSON.parse(localStorage.getItem('ck_loc') || 'null')
+          if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
+            const [bd, sd] = await Promise.all([
+              fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
+              fetch('/api/admin').then(r => r.json()).catch(() => ({ settings: {} })),
+            ])
+            const gKm = parseFloat(sd.settings?.max_delivery_km) || 0
+            const serving = findNearestServingBranch(bd.branches || [], c.lat, c.lng, gKm)
+            if (serving) branchId = serving.id
+          }
+        } catch {}
+      }
       const url = branchId ? `/api/menu?branch_id=${branchId}` : '/api/menu'
       try {
         const d = await fetch(url).then(r => r.json())
@@ -822,7 +830,9 @@ export default function CartPage() {
         body: JSON.stringify({
           items: cartEntries.map(e => ({ id: e.item.id, qty: e.qty, name: e.item.name })),
           deliveryAddress, deliveryLat: lat, deliveryLng: lng,
-          distanceKm, offerCode: offerResult ? offerCode : null, notes
+          distanceKm, offerCode: offerResult ? offerCode : null, notes,
+          // The outlet the customer chose on the menu (one outlet per order).
+          branchId: (() => { try { return JSON.parse(localStorage.getItem('ck_outlet') || 'null')?.id || null } catch { return null } })(),
         })
       })
       const data = await res.json()

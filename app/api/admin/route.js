@@ -805,9 +805,10 @@ export async function PATCH(request) {
       }
       const is_veg = data.is_veg !== false
       const stock = (data.stock_count === '' || data.stock_count == null) ? null : Math.trunc(Number(data.stock_count))
+      const discount = Math.min(100, Math.max(0, parseInt(data.discount_percent) || 0))
       const [item] = await sql`
-        INSERT INTO menu_items (name, description, price, category, is_veg, image_url, owner_branch_id)
-        VALUES (${name}, ${data.description || ''}, ${price}, ${category}, ${is_veg}, ${data.image_url || null}, ${branch_id}::uuid)
+        INSERT INTO menu_items (name, description, price, discount_percent, category, is_veg, image_url, owner_branch_id)
+        VALUES (${name}, ${data.description || ''}, ${price}, ${discount}, ${category}, ${is_veg}, ${data.image_url || null}, ${branch_id}::uuid)
         RETURNING id
       `
       // This branch's inventory row: ON by default + its own price/stock.

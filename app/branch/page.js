@@ -26,7 +26,8 @@ export default function BranchPage() {
   const [orderDetail,     setOrderDetail]     = useState(null)
   const [itemSearch,      setItemSearch]      = useState('')
   const [showAddItem,     setShowAddItem]     = useState(false)
-  const [newItem,         setNewItem]         = useState({ name:'', category:'', price:'', stock_count:'', is_veg:true, description:'' })
+  const [newItem,         setNewItem]         = useState({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'' })
+  const [newCatMode,      setNewCatMode]      = useState(false)   // true = typing a brand-new category
   const [savingItem,      setSavingItem]      = useState(false)
 
   const prevNewCount = useRef(-1)
@@ -203,7 +204,7 @@ export default function BranchPage() {
         body: JSON.stringify({ type: 'branch_inventory', action: 'add_item', branch_id: user.branch_id, ...newItem }) })
       const d = await res.json()
       if (!res.ok) { showToast('❌ ' + (d.error || 'Fail')) }
-      else { showToast('✅ Item add ho gaya'); setShowAddItem(false); setNewItem({ name:'', category:'', price:'', stock_count:'', is_veg:true, description:'' }); fetchItems() }
+      else { showToast('✅ Item add ho gaya'); setShowAddItem(false); setNewCatMode(false); setNewItem({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'' }); fetchItems() }
     } catch { showToast('❌ Network error') }
     setSavingItem(false)
   }
@@ -565,25 +566,76 @@ export default function BranchPage() {
             {showAddItem && (
               <div style={{ padding: 14, border: '1px solid var(--bd2)', borderRadius: 12, background: 'var(--card)', marginBottom: 16, maxWidth: 560 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>➕ Apna naya item</div>
-                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 10 }}>Ye item sirf aapki branch me dikhega.</div>
-                <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} placeholder="Item ka naam *"
-                  style={{ width: '100%', padding: '9px 11px', marginBottom: 8, border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                  <input value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))} placeholder="Category *"
-                    style={{ flex: 1, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
-                  <input type="number" min="0" value={newItem.price} onChange={e => setNewItem(p => ({ ...p, price: e.target.value }))} placeholder="₹ Price *"
-                    style={{ width: 100, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
-                  <input type="number" min="0" value={newItem.stock_count} onChange={e => setNewItem(p => ({ ...p, stock_count: e.target.value }))} placeholder="Stock"
-                    style={{ width: 80, padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 10 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
-                    <input type="radio" checked={newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: true }))} /> 🟢 Veg
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
-                    <input type="radio" checked={!newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: false }))} /> 🔴 Non-veg
-                  </label>
-                </div>
+                <div style={{ fontSize: 11, color: 'var(--t2)', marginBottom: 12 }}>Ye item sirf aapki branch me dikhega.</div>
+
+                {(() => {
+                  const fld = { padding: '9px 11px', border: '1px solid var(--bd2)', borderRadius: 8, background: 'var(--bg)', color: 'var(--t1)', fontSize: 13, boxSizing: 'border-box' }
+                  const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--t2)', display: 'block', marginBottom: 4 }
+                  // Category options = categories already in this branch's menu
+                  const cats = [...new Set(items.map(i => i.category).filter(Boolean))].sort()
+                  return (
+                  <>
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={lbl}>Item Name *</label>
+                      <input value={newItem.name} onChange={e => setNewItem(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Special Thali"
+                        style={{ ...fld, width: '100%' }} />
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={lbl}>Description</label>
+                      <input value={newItem.description} onChange={e => setNewItem(p => ({ ...p, description: e.target.value }))} placeholder="Chhota detail (optional)"
+                        style={{ ...fld, width: '100%' }} />
+                    </div>
+
+                    <div style={{ marginBottom: 10 }}>
+                      <label style={lbl}>Category *</label>
+                      {newCatMode ? (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <input autoFocus value={newItem.category} onChange={e => setNewItem(p => ({ ...p, category: e.target.value }))} placeholder="Nayi category ka naam"
+                            style={{ ...fld, flex: 1 }} />
+                          <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => { setNewCatMode(false); setNewItem(p => ({ ...p, category: '' })) }}>↩︎ List</button>
+                        </div>
+                      ) : (
+                        <select value={newItem.category}
+                          onChange={e => { if (e.target.value === '__new__') { setNewCatMode(true); setNewItem(p => ({ ...p, category: '' })) } else setNewItem(p => ({ ...p, category: e.target.value })) }}
+                          style={{ ...fld, width: '100%', appearance: 'auto' }}>
+                          <option value="">— Category chuno —</option>
+                          {cats.map(c => <option key={c} value={c}>{c}</option>)}
+                          <option value="__new__">➕ Nayi category…</option>
+                        </select>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Price ₹ *</label>
+                        <input type="number" min="0" value={newItem.price} onChange={e => setNewItem(p => ({ ...p, price: e.target.value }))} placeholder="0"
+                          style={{ ...fld, width: '100%' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Discount %</label>
+                        <input type="number" min="0" max="100" value={newItem.discount_percent} onChange={e => setNewItem(p => ({ ...p, discount_percent: e.target.value }))} placeholder="0"
+                          style={{ ...fld, width: '100%' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={lbl}>Stock</label>
+                        <input type="number" min="0" value={newItem.stock_count} onChange={e => setNewItem(p => ({ ...p, stock_count: e.target.value }))} placeholder="∞"
+                          style={{ ...fld, width: '100%' }} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
+                        <input type="radio" checked={newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: true }))} /> 🟢 Veg
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
+                        <input type="radio" checked={!newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: false }))} /> 🔴 Non-veg
+                      </label>
+                    </div>
+                  </>
+                  )
+                })()}
+
                 <button className="btn btn-primary" style={{ width: '100%', fontSize: 14 }} disabled={savingItem} onClick={addOwnItem}>
                   {savingItem ? 'Adding…' : '✅ Add Item'}
                 </button>

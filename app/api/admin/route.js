@@ -39,6 +39,11 @@ async function ensureBranchesTable(sql) {
     `
     // Safe column additions
     await sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS max_delivery_km DECIMAL(5,2) DEFAULT NULL`
+    // Vendor/marketplace fields — FoodFi's own outlets are vendors too (type 'own'),
+    // external restaurants/dhabas added later with a commission.
+    await sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS type VARCHAR(20) DEFAULT 'own'`
+    await sql`ALTER TABLE branches ADD COLUMN IF NOT EXISTS commission_percent NUMERIC DEFAULT 0`
+    await sql`UPDATE branches SET type = 'own' WHERE type IS NULL`
     await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS branch_id UUID`
     await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT true`
   } catch(e) {}
@@ -56,16 +61,34 @@ async function ensureBranchInventoryTable(sql) {
         UNIQUE(branch_id, menu_item_id)
       )
     `
+    // Per-branch price + stock (null price = use the master item's price).
+    // This makes the menu branch-wise: each branch its own price/stock/availability.
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS price NUMERIC`
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS stock_count INT`
   } catch(e) {}
 }
 
 // ── Auto-populate branch inventory with all existing menu items ─
 async function populateBranchInventory(sql, branchId) {
   try {
+    // Add a row for every master item this branch is missing, seeding the
+    // branch's own price + stock from the master item (so existing centralized
+    // items land in every branch with their own independent price/stock).
     await sql`
-      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
-      SELECT ${branchId}::uuid, id, true FROM menu_items
+      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, price, stock_count)
+      SELECT ${branchId}::uuid, id, true, price, stock_count FROM menu_items
       ON CONFLICT (branch_id, menu_item_id) DO NOTHING
+    `
+    // First-time backfill for rows created before per-branch price/stock existed.
+    await sql`
+      UPDATE branch_inventory bi SET price = m.price
+      FROM menu_items m
+      WHERE bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid AND bi.price IS NULL
+    `
+    await sql`
+      UPDATE branch_inventory bi SET stock_count = m.stock_count
+      FROM menu_items m
+      WHERE bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid AND bi.stock_count IS NULL AND m.stock_count IS NOT NULL
     `
   } catch(e) {}
 }
@@ -133,7 +156,10 @@ export async function GET(request) {
     const user = adminOnly(request)
     if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
     await ensureBranchesTable(sql)
+    await ensureBranchInventoryTable(sql)
     const branches = await sql`SELECT * FROM branches ORDER BY created_at ASC`
+    // Phase 1 migration: every branch gets all master items (own price/stock).
+    for (const b of branches) { await populateBranchInventory(sql, b.id) }
     return NextResponse.json({ branches })
   }
 

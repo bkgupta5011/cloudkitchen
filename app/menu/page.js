@@ -5,6 +5,7 @@ import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
 import { findNearestBranchClient, findServingBranches } from '@/lib/branchSelect'
+import LoyaltyCard from '../components/LoyaltyCard'
 
 const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
 
@@ -1136,6 +1137,9 @@ function MenuPageContent() {
           ))}
         </div>
       )}
+
+      {/* 🎟️ Loyalty stamp card — logged-in customers only */}
+      {!isGuest && <div style={{ margin: '0 16px' }}><LoyaltyCard compact /></div>}
 
       {/* ⭐ Trust badge — real aggregate rating (only when enough reviews) */}
       {ratingAgg && ratingAgg.count >= 3 && (

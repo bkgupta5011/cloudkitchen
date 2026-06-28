@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, getDeliveryQuote, getOrderFees, applyOffer, getBoyPayout } from '@/lib/utils'
+import { reconcileLoyalty } from '@/lib/loyalty'
 import { roadDistanceKm } from '@/lib/distance'
 import { sendFcmToTokens } from '@/lib/fcm'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
@@ -85,29 +86,6 @@ async function branchCovers(sql, branchId, lat, lng) {
     const d = haversineKm(parseFloat(lat), parseFloat(lng), parseFloat(b.lat), parseFloat(b.lng))
     return radius > 0 && d <= radius
   } catch { return false }
-}
-
-// Loyalty / repeat-order reward: every Nth DELIVERED order grants the customer
-// a ₹X reward that auto-applies on their next order (reuses review_rewards).
-async function grantLoyaltyReward(sql, userId, orderId) {
-  if (!userId || !orderId) return
-  try {
-    const [s] = await sql`SELECT loyalty_enabled, loyalty_threshold, loyalty_reward FROM kitchen_settings WHERE id = 1`
-    if (!s?.loyalty_enabled) return
-    const threshold = parseInt(s.loyalty_threshold) || 5
-    const reward    = parseInt(s.loyalty_reward) || 50
-    if (threshold <= 0 || reward <= 0) return
-    const [row] = await sql`SELECT COUNT(*)::int AS count FROM orders WHERE user_id = ${userId} AND status = 'delivered'`
-    const count = row?.count || 0
-    if (count > 0 && count % threshold === 0) {
-      try { await sql`ALTER TABLE review_rewards ADD COLUMN IF NOT EXISTS source VARCHAR(12) DEFAULT 'review'` } catch {}
-      await sql`
-        INSERT INTO review_rewards (customer_id, source_order_id, amount, source)
-        VALUES (${userId}, ${orderId}, ${reward}, 'loyalty')
-        ON CONFLICT (source_order_id) DO NOTHING
-      `
-    }
-  } catch {}
 }
 
 // ── Ensure branch_id column on orders ───────────────────────────
@@ -914,9 +892,9 @@ export async function PATCH(request) {
       }
     }
 
-    // Loyalty reward on every Nth delivered order (independent of delivery boy).
+    // Loyalty: grant any earned reward (self-healing).
     if (status === 'delivered' && !wasAlreadyDelivered) {
-      await grantLoyaltyReward(sql, order.user_id, order.id)
+      await reconcileLoyalty(sql, order.user_id)
     }
 
     // Update earnings ONLY if it wasn't already delivered (prevent double counting)
@@ -962,8 +940,8 @@ export async function PATCH(request) {
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
     if (status === 'delivered' && !wasAlreadyDelivered) {
-      // Loyalty reward on every Nth delivered order.
-      await grantLoyaltyReward(sql, order.user_id, order.id)
+      // Loyalty: grant any earned reward (self-healing).
+      await reconcileLoyalty(sql, order.user_id)
       // Use stored boy_payout (centralized), else compute from Kitchen Settings
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)

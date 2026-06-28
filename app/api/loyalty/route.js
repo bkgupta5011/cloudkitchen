@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { reconcileLoyalty } from '@/lib/loyalty'
 
 // Customer loyalty progress: how many delivered orders, how many more until the
 // next ₹X reward, and whether a reward is already available to use.
@@ -17,6 +18,10 @@ export async function GET(request) {
     if (!s?.loyalty_enabled) return NextResponse.json({ enabled: false })
     const threshold = parseInt(s.loyalty_threshold) || 5
     const reward    = parseInt(s.loyalty_reward) || 50
+
+    // Self-healing: grant any reward already earned (incl. orders delivered
+    // before this feature, or before the rewards table existed).
+    await reconcileLoyalty(sql, user.id)
 
     const [c] = await sql`SELECT COUNT(*)::int AS count FROM orders WHERE user_id = ${user.id} AND status = 'delivered'`
     const delivered = c?.count || 0

@@ -61,7 +61,7 @@ export default function FitnessCorner() {
           <div style={{ fontSize: 24, marginBottom: 2 }}>🔜</div>
           <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e' }}>Coming Soon!</div>
           <div style={{ fontSize: 12.5, color: '#b45309', marginTop: 3 }}>
-            Ye healthy corner abhi launch nahi hua — jald aa raha hai. Tab tak menu dekho 👇 aur nutrition explore karo!
+            This healthy corner hasn&apos;t launched yet — coming soon. Until then, browse the menu 👇 and explore the nutrition info!
           </div>
         </div>
       )}
@@ -152,7 +152,7 @@ export default function FitnessCorner() {
       )}
 
       {!loading && items.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 50, color: '#6b7280' }}>Abhi koi item nahi hai.</div>
+        <div style={{ textAlign: 'center', padding: 50, color: '#6b7280' }}>No items yet.</div>
       )}
      </div>
 

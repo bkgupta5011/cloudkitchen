@@ -29,9 +29,9 @@ function NotificationDrawer({ onClose }) {
 
   const timeAgo = (d) => {
     const s = Math.floor((Date.now() - new Date(d)) / 1000)
-    if (s < 60) return 'abhi abhi'
-    if (s < 3600) return `${Math.floor(s/60)} min pehle`
-    if (s < 86400) return `${Math.floor(s/3600)} ghante pehle`
+    if (s < 60) return 'just now'
+    if (s < 3600) return `${Math.floor(s/60)} min ago`
+    if (s < 86400) return `${Math.floor(s/3600)} hr ago`
     return new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })
   }
 
@@ -46,10 +46,10 @@ function NotificationDrawer({ onClose }) {
         <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid #f3f4f6', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
           <div>
             <h3 style={{ margin:0, fontSize:16, fontWeight:800 }}>🔔 Notifications</h3>
-            {unread > 0 && <span style={{ fontSize:11, color:'#e85d04', fontWeight:600 }}>{unread} naye hain</span>}
+            {unread > 0 && <span style={{ fontSize:11, color:'#e85d04', fontWeight:600 }}>{unread} new</span>}
           </div>
           <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-            {unread > 0 && <button onClick={markAllRead} style={{ fontSize:11, color:'#6b7280', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Sab read karo</button>}
+            {unread > 0 && <button onClick={markAllRead} style={{ fontSize:11, color:'#6b7280', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Mark all read</button>}
             {notifs.some(n => n.is_read) && <button onClick={clearRead} style={{ fontSize:11, color:'#ef4444', background:'none', border:'none', cursor:'pointer', fontWeight:600 }}>Clear</button>}
             <button onClick={onClose} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer', color:'#6b7280' }}>✕</button>
           </div>
@@ -57,11 +57,11 @@ function NotificationDrawer({ onClose }) {
 
         {/* List */}
         <div style={{ overflowY:'auto', flex:1, padding:'8px 0' }}>
-          {loading && <div style={{ textAlign:'center', padding:32, color:'#9ca3af', fontSize:14 }}>⏳ Load ho raha hai...</div>}
+          {loading && <div style={{ textAlign:'center', padding:32, color:'#9ca3af', fontSize:14 }}>⏳ Loading…</div>}
           {!loading && notifs.length === 0 && (
             <div style={{ textAlign:'center', padding:48 }}>
               <div style={{ fontSize:40, marginBottom:8 }}>🔕</div>
-              <div style={{ fontSize:14, color:'#9ca3af' }}>Koi notification nahi hai abhi</div>
+              <div style={{ fontSize:14, color:'#9ca3af' }}>No notifications yet</div>
             </div>
           )}
           {notifs.map(n => (
@@ -132,11 +132,11 @@ function StarRating({ orderId, existing, onDone }) {
 
   if (done) return (
     <div style={{ marginTop:12, padding:'10px 12px', background:'#fefce8', borderRadius:8, fontSize:13, color:'#92400e' }}>
-      {'⭐'.repeat(selected || existing?.rating || 0)} Shukriya! Aapki rating mili.
+      {'⭐'.repeat(selected || existing?.rating || 0)} Thanks! We&apos;ve recorded your rating.
       {(comment || existing?.comment) && <span style={{color:'#6b7280'}}> · "{comment || existing?.comment}"</span>}
       {reward?.amount && (
         <div style={{ marginTop:8, padding:'8px 10px', background:'#d1fae5', border:'1px solid #34d399', borderRadius:8, color:'#065f46', fontWeight:700 }}>
-          🎁 ₹{reward.amount} reward earned! Agle order pe apне aap lag jayega.
+          🎁 ₹{reward.amount} reward earned! It&apos;ll auto-apply on your next order.
         </div>
       )}
     </div>
@@ -144,7 +144,7 @@ function StarRating({ orderId, existing, onDone }) {
 
   return (
     <div style={{ marginTop:12, padding:'12px 14px', background:'#f8f7f5', borderRadius:10, border:'1px solid #e5e7eb' }}>
-      <p style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:8 }}>🌟 Is order ko rate karein</p>
+      <p style={{ fontSize:12, fontWeight:600, color:'#374151', marginBottom:8 }}>🌟 Rate this order</p>
       <div style={{ display:'flex', gap:4, marginBottom:10, alignItems:'center' }}>
         {[1,2,3,4,5].map(s => (
           <button key={s}
@@ -155,11 +155,11 @@ function StarRating({ orderId, existing, onDone }) {
               opacity:(hovered||selected)>=s?1:0.35, transition:'all 0.1s' }}>⭐</button>
         ))}
         {selected > 0 && <span style={{ fontSize:12, color:'#6b7280', marginLeft:6 }}>
-          {['','Bahut bura 😞','Bura 😕','Theek hai 😐','Achha 😊','Bahut achha! 🤩'][selected]}
+          {['','Very bad 😞','Bad 😕','Okay 😐','Good 😊','Excellent! 🤩'][selected]}
         </span>}
       </div>
       <input value={comment} onChange={e => setComment(e.target.value)}
-        placeholder="Koi comment? (optional)"
+        placeholder="Add a comment (optional)"
         style={{ width:'100%', padding:'8px 10px', border:'1px solid #e5e7eb', borderRadius:8,
           fontSize:13, marginBottom:8, fontFamily:'inherit', background:'#fff', outline:'none' }} />
       <button onClick={submit} disabled={!selected || saving}
@@ -253,7 +253,7 @@ function LiveTrackingMap({ boyLat, boyLng, customerLat, customerLng }) {
         <span style={{ fontSize:18 }}>🛵</span>
         <div>
           <div style={{ fontSize:12, fontWeight:800, color:'#92400e' }}>Live Tracking</div>
-          <div style={{ fontSize:10, color:'#b45309' }}>Delivery boy raste mein hai — har 15s mein update hota hai</div>
+          <div style={{ fontSize:10, color:'#b45309' }}>Your delivery partner is on the way — updates every 15s</div>
         </div>
         <span style={{ marginLeft:'auto', fontSize:10, color:'#16a34a', fontWeight:700, display:'flex', alignItems:'center', gap:4 }}>
           <span style={{ width:7, height:7, borderRadius:'50%', background:'#16a34a', display:'inline-block', animation:'pulse 1.5s infinite' }} />
@@ -264,13 +264,13 @@ function LiveTrackingMap({ boyLat, boyLng, customerLat, customerLng }) {
       {boyLat && boyLng
         ? <div ref={mapRef} style={{ height:220, width:'100%' }} />
         : <div style={{ height:80, display:'flex', alignItems:'center', justifyContent:'center', color:'#9ca3af', fontSize:13, background:'#f9fafb' }}>
-            ⏳ Location fetch ho rahi hai...
+            ⏳ Fetching location…
           </div>
       }
       {/* Legend */}
       <div style={{ background:'#fffbeb', padding:'6px 14px', display:'flex', gap:16, fontSize:11, color:'#78350f' }}>
         <span>🛵 Delivery Boy</span>
-        <span>🏠 Aapka Ghar</span>
+        <span>🏠 Your Home</span>
         <span style={{ marginLeft:'auto', color:'#9ca3af' }}>OpenStreetMap</span>
       </div>
     </div>
@@ -313,7 +313,7 @@ function viewBill(order, items) {
     <div class="row"><span>Delivery Charge</span><span>₹${Math.round(order.delivery_charge)}</span></div>
     <hr/>
     <div class="row total"><span>TOTAL (COD)</span><span>₹${Math.round(order.total)}</span></div>
-    <p style="margin-top:16px;font-size:12px">Shukriya aapke order ke liye! 🙏</p>
+    <p style="margin-top:16px;font-size:12px">Thank you for your order! 🙏</p>
     <button class="btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
   </body></html>`)
   w.document.close()
@@ -379,7 +379,7 @@ function OrderCard({ order, estimatedTime, expanded, items, rating, onExpand, on
 
       <button onClick={onExpand}
         style={{ background:'none', border:'none', color:'#e85d04', fontSize:13, cursor:'pointer', padding:'6px 0', fontWeight:500 }}>
-        {expanded ? '▲ Items chhupao' : '▼ Items dekho'}
+        {expanded ? '▲ Hide items' : '▼ View items'}
       </button>
 
       {expanded && items && (
@@ -562,7 +562,7 @@ export default function OrdersPage() {
   }
 
   const cancelOrder = async (orderId) => {
-    if (!confirm('Kya aap sach mein yeh order cancel karna chahte hain?')) return
+    if (!confirm('Are you sure you want to cancel this order?')) return
     setCancelLoading(orderId)
     try {
       const res = await fetch('/api/orders', {
@@ -572,7 +572,7 @@ export default function OrdersPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || 'Order cancel nahi ho saka')
+        alert(data.error || 'Couldn\'t cancel the order')
         return
       }
       // Refresh orders
@@ -623,8 +623,8 @@ export default function OrdersPage() {
 
         {orders.length === 0 ? (
           <div className={styles.empty}>
-            <p>Koi order nahi mila abhi tak.</p>
-            <button className={styles.menuBtn} onClick={() => router.push('/menu')}>Order karo →</button>
+            <p>No orders yet.</p>
+            <button className={styles.menuBtn} onClick={() => router.push('/menu')}>Order now →</button>
           </div>
         ) : (
           <>

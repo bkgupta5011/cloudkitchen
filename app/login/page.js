@@ -258,11 +258,11 @@ export default function LoginPage() {
     } catch (e) {
       console.error('Firebase OTP error:', e.code, e.message)
       cleanupFirebase()
-      const msg = e.code === 'auth/too-many-requests' ? 'Is number pe bahut zyada OTP gaye. 10-15 min baad try karo.'
-        : e.code === 'auth/invalid-phone-number' ? 'Invalid phone number. 10-digit Indian number daalo.'
-        : e.code === 'auth/captcha-check-failed' ? 'reCAPTCHA fail hua. Page reload karke dobara try karo.'
-        : e.code === 'auth/network-request-failed' ? 'Network error. Internet check karo.'
-        : 'OTP nahi bheja ja saka. Dobara try karo.'
+      const msg = e.code === 'auth/too-many-requests' ? 'Too many OTP requests on this number. Please try again in 10–15 min.'
+        : e.code === 'auth/invalid-phone-number' ? 'Invalid phone number. Enter a 10-digit Indian number.'
+        : e.code === 'auth/captcha-check-failed' ? 'reCAPTCHA failed. Reload the page and try again.'
+        : e.code === 'auth/network-request-failed' ? 'Network error. Please check your internet.'
+        : 'Couldn\'t send the OTP. Please try again.'
       setError(msg); setOtpStep('idle')
     }
   }
@@ -316,7 +316,7 @@ export default function LoginPage() {
         })
         const data = await res.json()
         if (!res.ok || !data.success) {
-          setError(data.error || 'Galat OTP. Dobara check karo.')
+          setError(data.error || 'Incorrect OTP. Please check and try again.')
           setOtpStep('sent')
           setOtpInput(['', '', '', '', '', ''])
           setTimeout(() => hiddenOtpRef.current?.focus(), 100)
@@ -324,7 +324,7 @@ export default function LoginPage() {
         }
         handleLoginSuccess(data)
       } catch (e) {
-        setError('OTP verify nahi hua. Dobara try karo.')
+        setError('OTP verification failed. Please try again.')
         setOtpStep('sent')
         setOtpInput(['', '', '', '', '', ''])
         setTimeout(() => hiddenOtpRef.current?.focus(), 100)
@@ -334,7 +334,7 @@ export default function LoginPage() {
 
     // ── Firebase path ─────────────────────────────────────────────
     if (!confirmationResultRef.current) {
-      setError('OTP bhejne ke baad fill karo. Pehle Send OTP dabaao.')
+      setError('Request an OTP first — tap Send OTP.')
       setOtpStep('sent')
       return
     }
@@ -349,22 +349,22 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error || 'Login fail hua. Dobara try karo.')
+        setError(data.error || 'Login failed. Please try again.')
         setOtpStep('sent')
         setOtpInput(['', '', '', '', '', ''])
         setTimeout(() => hiddenOtpRef.current?.focus(), 100)
         return
       }
       if (!data.user) {
-        setError('Login nahi hua. Dobara try karo.')
+        setError('Login failed. Please try again.')
         setOtpStep('sent'); setOtpInput(['','','','','',''])
         return
       }
       handleLoginSuccess(data)
     } catch (e) {
-      const msg = e.code === 'auth/invalid-verification-code' ? 'Galat OTP. Dobara check karo.'
-        : e.code === 'auth/code-expired' ? 'OTP expire ho gaya. Resend karo.'
-        : 'OTP verify nahi hua. Dobara try karo.'
+      const msg = e.code === 'auth/invalid-verification-code' ? 'Incorrect OTP. Please check and try again.'
+        : e.code === 'auth/code-expired' ? 'OTP expired. Please resend.'
+        : 'OTP verification failed. Please try again.'
       setError(msg)
       setOtpStep('sent')
       setOtpInput(['', '', '', '', '', ''])
@@ -441,8 +441,8 @@ export default function LoginPage() {
             <div style={{ width: 40, height: 4, background: '#e5e7eb', borderRadius: 4, margin: '0 auto 22px' }} />
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 44, marginBottom: 8 }}>👋</div>
-              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>FoodFi mein Welcome!</h2>
-              <p style={{ fontSize: 13, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>Bas naam aur address batao — order karo!</p>
+              <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1a1a1a', margin: '0 0 6px' }}>Welcome to FoodFi!</h2>
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>Just add your name and address to start ordering!</p>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>
@@ -499,7 +499,7 @@ export default function LoginPage() {
                 </button>
               </div>
               {newUserAddress && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✅ Address mil gaya — edit bhi kar sakte ho</div>
+                <div style={{ marginTop: 6, fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✅ Address found — you can edit it too</div>
               )}
             </div>
             <button type="button" onClick={saveNewUserInfo} disabled={!newUserName.trim() || newUserSaving}
@@ -514,11 +514,11 @@ export default function LoginPage() {
                 transition: 'all 0.2s',
               }}>
               {newUserSaving
-                ? <><span className="spinner" /> Saving...</>
-                : <>FoodFi pe Chalo! 🍛</>}
+                ? <><span className="spinner" /> Saving…</>
+                : <>Let&apos;s go! 🍛</>}
             </button>
             {!newUserName.trim() && (
-              <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>Naam zaroori hai — address baad mein bhi de sakte hain</p>
+              <p style={{ textAlign: 'center', fontSize: 12, color: '#9ca3af', marginTop: 10 }}>Name is required — you can add your address later</p>
             )}
           </div>
         </div>
@@ -604,7 +604,7 @@ export default function LoginPage() {
             fontSize: 15, color: 'rgba(255,255,255,0.78)',
             margin: '0 0 18px', fontWeight: 500, lineHeight: 1.5,
           }}>
-            Ghar jaisa swad, aapke darwaazon tak 🍛
+            Homestyle taste, delivered to your door 🍛
           </p>
 
           {/* Social proof pills */}
@@ -674,7 +674,7 @@ export default function LoginPage() {
                 ←
               </button>
               <div>
-                <div style={{ fontSize: 15, fontWeight: 800, color: '#111827' }}>OTP Verify Karo</div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#111827' }}>Verify OTP</div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>+91 {phoneDigits}</div>
               </div>
             </div>
@@ -687,7 +687,7 @@ export default function LoginPage() {
                 <div style={{ textAlign: 'center', paddingTop: 40 }}>
                   <div style={{ fontSize: 48, marginBottom: 16 }}>📲</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, fontSize: 15, color: '#6b7280' }}>
-                    <span className="spinner" /> OTP bheja ja raha hai...
+                    <span className="spinner" /> Sending OTP…
                   </div>
                 </div>
               )}
@@ -696,11 +696,11 @@ export default function LoginPage() {
               {(otpStep === 'sent' || otpStep === 'verifying') && (
                 <>
                   <p style={{ fontSize: 14, color: '#374151', margin: '0 0 6px', fontWeight: 600, textAlign: 'center' }}>
-                    OTP bheja gaya 📲
+                    OTP sent 📲
                   </p>
                   <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 32px', textAlign: 'center', lineHeight: 1.5 }}>
-                    +91 {phoneDigits} par aaye SMS ka<br/>
-                    <strong style={{ color: '#e85d04' }}>6-digit OTP</strong> enter karo — auto verify hoga ✨
+                    Enter the <strong style={{ color: '#e85d04' }}>6-digit OTP</strong><br/>
+                    from the SMS sent to +91 {phoneDigits} — it verifies automatically ✨
                   </p>
 
                   {/* OTP Boxes — hidden real input + visual divs (most reliable auto-fill) */}
@@ -779,7 +779,7 @@ export default function LoginPage() {
                     <div style={{ textAlign: 'center', marginBottom: 20 }}>
                       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 20, padding: '8px 18px' }}>
                         <span className="spinner" />
-                        <span style={{ fontSize: 13, color: '#92400e', fontWeight: 600 }}>Verify ho raha hai...</span>
+                        <span style={{ fontSize: 13, color: '#92400e', fontWeight: 600 }}>Verifying…</span>
                       </div>
                     </div>
                   )}
@@ -806,7 +806,7 @@ export default function LoginPage() {
                     <button type="button"
                       onClick={() => { setOtpStep('idle'); setOtpInput(['','','','','','']); setError(''); cleanupFirebase() }}
                       style={{ fontSize: 13, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                      Number change karna hai?
+                      Change number?
                     </button>
                   </div>
                 </>
@@ -905,7 +905,7 @@ export default function LoginPage() {
             <div>
               {!phoneReady && (
                 <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
-                  👆 Upar apna mobile number daalo
+                  👆 Enter your mobile number above
                 </div>
               )}
               {phoneReady && (
@@ -932,10 +932,10 @@ export default function LoginPage() {
                     </div>
                     <div onClick={() => setRememberMe(r => !r)} style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: rememberMe ? '#92400e' : '#374151' }}>
-                        📱 Is number ko yaad rakho
+                        📱 Remember this number
                       </div>
                       <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
-                        Next time faster signin — number auto fill hoga
+                        Faster sign-in next time — your number auto-fills
                       </div>
                     </div>
                     {savedPhone && savedPhone === phoneDigits && (
@@ -969,7 +969,7 @@ export default function LoginPage() {
             <form onSubmit={handlePasswordLogin}>
               {!phoneReady && (
                 <div style={{ textAlign: 'center', padding: '10px 0 6px', fontSize: 13, color: '#9ca3af' }}>
-                  👆 Upar apna mobile number daalo
+                  👆 Enter your mobile number above
                 </div>
               )}
               {phoneReady && (
@@ -1022,7 +1022,7 @@ export default function LoginPage() {
           {/* Divider */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
             <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
-            <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>ya phir</span>
+            <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 500 }}>or</span>
             <div style={{ flex: 1, height: 1, background: '#f3f4f6' }} />
           </div>
 
@@ -1037,21 +1037,21 @@ export default function LoginPage() {
             }}
             onMouseOver={e => { e.currentTarget.style.borderColor = '#e85d04'; e.currentTarget.style.color = '#e85d04'; e.currentTarget.style.background = '#fff7ed' }}
             onMouseOut={e => { e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#6b7280'; e.currentTarget.style.background = 'transparent' }}>
-            👀 Guest ke roop mein browse karo
+            👀 Browse as a guest
           </button>
           <p style={{ margin: '6px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
-            Login ke bina menu dekho — checkout pe naam + address dena hoga
+            Browse the menu without logging in — you&apos;ll add your name + address at checkout
           </p>
 
           {/* Footer */}
           <div style={{ borderTop: '1px solid #f3f4f6', marginTop: 18, paddingTop: 14 }}>
             <p style={{ fontSize: 11, color: '#9ca3af', textAlign: 'center', margin: '0 0 10px' }}>
-              Admin aur Delivery Boy bhi yahan login kar sakte hain
+              Admins and delivery partners can also log in here
             </p>
             <div style={{ textAlign: 'center' }}>
               <button onClick={() => router.push('/delivery/apply')}
                 style={{ background: 'none', border: '1.5px solid #e85d04', color: '#e85d04', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                🛵 Delivery Partner Apply Karo
+                🛵 Apply as a Delivery Partner
               </button>
             </div>
           </div>

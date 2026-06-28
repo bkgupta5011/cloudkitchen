@@ -172,7 +172,7 @@ export default function ProfilePage() {
   }, [addingAddr])
 
   const getCurrentLocation = () => {
-    if (!navigator.geolocation) { showMsg('GPS support nahi hai is browser me', 'err'); return }
+    if (!navigator.geolocation) { showMsg('GPS isn\'t supported in this browser', 'err'); return }
     setGpsLoading(true)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -194,7 +194,7 @@ export default function ProfilePage() {
       },
       () => {
         setGpsLoading(false)
-        showMsg('Location access deny hai. Browser settings se allow karo.', 'err')
+        showMsg('Location access is blocked. Allow it in your browser settings.', 'err')
       },
       { enableHighAccuracy: true, timeout: 10000 }
     )
@@ -227,13 +227,13 @@ export default function ProfilePage() {
   const saveProfile = async () => {
     const res = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form) })
     const data = await res.json()
-    if (data.profile) { setProfile(data.profile); setEditing(false); showMsg('✅ Profile save ho gayi!') }
+    if (data.profile) { setProfile(data.profile); setEditing(false); showMsg('✅ Profile saved!') }
     else showMsg('❌ ' + (data.error || 'Save failed'), 'err')
   }
 
   const changePassword = async (e) => {
     e.preventDefault()
-    if (pwForm.newPw !== pwForm.confirm) { showMsg('❌ Passwords match nahi kar rahe', 'err'); return }
+    if (pwForm.newPw !== pwForm.confirm) { showMsg('❌ Passwords don\'t match', 'err'); return }
     const res = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.newPw }) })
     const data = await res.json()
     showMsg(data.message || data.error || 'Done', data.success ? 'ok' : 'err')
@@ -242,7 +242,7 @@ export default function ProfilePage() {
 
   const addAddress = async (e) => {
     e.preventDefault()
-    if (!newAddr.building.trim()) { showMsg('❌ Flat/Building number zaroori hai', 'err'); return }
+    if (!newAddr.building.trim()) { showMsg('❌ Flat/Building number is required', 'err'); return }
     const fullAddr = [newAddr.building, newAddr.area, newAddr.landmark ? `Near ${newAddr.landmark}` : '', newAddr.pincode].filter(Boolean).join(', ')
     const addrText = newAddr.address_text || fullAddr
 
@@ -260,7 +260,7 @@ export default function ProfilePage() {
       setAddresses(prev => [...prev, data.address])
       setNewAddr({ label: 'Home', recipient_name: '', recipient_phone: '', building: '', area: '', landmark: '', pincode: '', address_text: '', lat: null, lng: null, is_default: false })
       setAddingAddr(false)
-      showMsg('✅ Address save ho gaya!')
+      showMsg('✅ Address saved!')
     } else showMsg('❌ ' + (data.error || 'Save failed'), 'err')
   }
 
@@ -268,14 +268,14 @@ export default function ProfilePage() {
     await fetch('/api/addresses', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, is_default: true }) })
     const d = await fetch('/api/addresses').then(r => r.json())
     setAddresses(d.addresses || [])
-    showMsg('✅ Default address set ho gaya!')
+    showMsg('✅ Default address set!')
   }
 
   const deleteAddress = async (id) => {
-    if (!confirm('Is address ko delete karna chahte ho?')) return
+    if (!confirm('Delete this address?')) return
     await fetch(`/api/addresses?id=${id}`, { method: 'DELETE' })
     setAddresses(prev => prev.filter(a => a.id !== id))
-    showMsg('Address delete ho gaya')
+    showMsg('Address deleted')
   }
 
   const statusColor = { pending: 'badge-new', confirmed: 'badge-prep', preparing: 'badge-prep', out_for_delivery: 'badge-out', delivered: 'badge-done', cancelled: 'badge-cancelled' }
@@ -401,7 +401,7 @@ export default function ProfilePage() {
             {addresses.length === 0 && !addingAddr && (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--t2)' }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>📍</div>
-                <p>Koi saved address nahi hai</p>
+                <p>No saved addresses yet</p>
                 <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => setAddingAddr(true)}>Add Address</button>
               </div>
             )}
@@ -437,7 +437,7 @@ export default function ProfilePage() {
                 <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--bd)' }}>
                   <input
                     ref={searchInputRef}
-                    placeholder="🔍 Address ya area search karo..."
+                    placeholder="🔍 Search address or area…"
                     style={{ width: '100%', padding: '10px 13px', border: '1.5px solid var(--bd2)', borderRadius: 10, fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)', boxSizing: 'border-box' }}
                   />
                 </div>
@@ -454,7 +454,7 @@ export default function ProfilePage() {
 
                 <div style={{ padding: 20 }}>
                   <div style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14, textAlign: 'center' }}>
-                    📍 Search karo, map pe tap karo, ya GPS se location lo — phir details fill karo
+                    📍 Search, tap the map, or use GPS — then fill in the details
                   </div>
 
                   {/* Save As */}
@@ -534,7 +534,7 @@ export default function ProfilePage() {
             {orders.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--t2)' }}>
                 <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
-                <p>Koi order nahi hai abhi</p>
+                <p>No orders yet</p>
                 <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => router.push('/menu')}>Order Karo</button>
               </div>
             ) : (

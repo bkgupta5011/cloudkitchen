@@ -397,8 +397,8 @@ export async function GET(request) {
       if (!reassigned.length) continue   // another poller already handled it
 
       sendPushToUser(String(nextBoy.id), {
-        title: '📦 Naya Order Assign Hua!',
-        body:  `#${order.order_number} — ₹${Math.round(order.total)} · 5 min mein accept karo`,
+        title: '📦 New Order Assigned!',
+        body:  `#${order.order_number} — ₹${Math.round(order.total)} · accept within 5 min`,
         url:   '/delivery',
         tag:   `delivery-${order.id}`,
         requireInteraction: true,
@@ -536,16 +536,16 @@ export async function POST(request) {
 
     // Branch explicitly turned this item OFF → not orderable from this branch.
     if (menuItem && binv && binv.is_available === false) {
-      return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai` }, { status: 400 })
+      return NextResponse.json({ error: `❌ ${menuItem.name} is currently unavailable` }, { status: 400 })
     }
 
     // ── Stock check (uses branch stock; null/undefined = unlimited) ────
     if (menuItem && effStock !== null && effStock !== undefined) {
       if (effStock <= 0) {
-        return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai (stock khatam)` }, { status: 400 })
+        return NextResponse.json({ error: `❌ ${menuItem.name} is out of stock` }, { status: 400 })
       }
       if (effStock < cartItem.qty) {
-        return NextResponse.json({ error: `⚠️ ${menuItem.name} ka sirf ${effStock} available hai` }, { status: 400 })
+        return NextResponse.json({ error: `⚠️ Only ${effStock} of ${menuItem.name} available` }, { status: 400 })
       }
     }
 
@@ -752,8 +752,8 @@ export async function POST(request) {
     try { await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS fcm_token TEXT` } catch {}
     const onlineBoys = await sql`SELECT id, fcm_token FROM delivery_boys WHERE is_online = true AND status = 'approved'`
     const distTxt = serverDistanceKm ? `${Math.round(serverDistanceKm * 10) / 10} km` : ''
-    const title = '🔔 Naya Order! Pehle accept karo'
-    const body  = `#${order.order_number} — ₹${Math.round(order.total)}${distTxt ? ' · ' + distTxt : ''} · App kholo aur accept karo`
+    const title = '🔔 New Order! Accept it first'
+    const body  = `#${order.order_number} — ₹${Math.round(order.total)}${distTxt ? ' · ' + distTxt : ''} · Open the app and accept`
     // Web push (works when the page is open in a browser)
     for (const b of onlineBoys) {
       sendPushToUser(String(b.id), { title, body, url: '/delivery', tag: `new-order-${order.id}`, requireInteraction: true }, 'delivery').catch(() => {})
@@ -860,8 +860,8 @@ export async function PATCH(request) {
     // Notify delivery boy when admin confirms their accepted order
     if (status === 'confirmed' && order.delivery_boy_id && before?.status === 'pending') {
       sendPushToUser(String(order.delivery_boy_id), {
-        title: '✅ Kitchen ne Order Confirm Kar Diya!',
-        body: `Order #${order.order_number} — Kitchen ja ke pickup karo 🛵`,
+        title: '✅ Kitchen Confirmed the Order!',
+        body: `Order #${order.order_number} — head to the kitchen for pickup 🛵`,
         url: '/delivery',
         tag: `order-confirmed-${order.id}`,
         requireInteraction: true,
@@ -871,11 +871,11 @@ export async function PATCH(request) {
     // Notify customer of status change (push + SMS)
     if (status && order.user_id) {
       const statusMessages = {
-        confirmed:        { title: '✅ Order Confirm Ho Gaya!', body: `Order #${order.order_number} kitchen ne accept kar liya — prepare ho raha hai` },
-        preparing:        { title: '👨‍🍳 Khana Ban Raha Hai!', body: `Order #${order.order_number} kitchen me prepare ho raha hai` },
-        out_for_delivery: { title: '🛵 Order Raste Me Hai!', body: `Order #${order.order_number} delivery boy le ja raha hai — thodi der me pahuch jayega` },
-        delivered:        { title: '🎉 Order Deliver Ho Gaya!', body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋` },
-        cancelled:        { title: '❌ Order Cancel Ho Gaya', body: `Order #${order.order_number} cancel ho gaya. Koi problem hai toh support se contact karo` },
+        confirmed:        { title: '✅ Order Confirmed!', body: `The kitchen accepted order #${order.order_number} — it's being prepared` },
+        preparing:        { title: '👨‍🍳 Your Food Is Cooking!', body: `Order #${order.order_number} is being prepared in the kitchen` },
+        out_for_delivery: { title: '🛵 Order On the Way!', body: `Order #${order.order_number} is out for delivery — it'll reach you shortly` },
+        delivered:        { title: '🎉 Order Delivered!', body: `Order #${order.order_number} has been delivered. Enjoy your meal! 😋` },
+        cancelled:        { title: '❌ Order Cancelled', body: `Order #${order.order_number} was cancelled. If there's any issue, contact support` },
       }
       const msg = statusMessages[status]
       if (msg) {
@@ -962,8 +962,8 @@ export async function PATCH(request) {
       // Notify customer — push + SMS
       if (order.user_id) {
         sendPushToUser(String(order.user_id), {
-          title: '🎉 Order Deliver Ho Gaya!',
-          body: `Order #${order.order_number} deliver ho gaya. Khana enjoy karo! 😋`,
+          title: '🎉 Order Delivered!',
+          body: `Order #${order.order_number} has been delivered. Enjoy your meal! 😋`,
           url: '/orders', tag: `order-${order.id}`
         }, 'customer').catch(() => {})
 

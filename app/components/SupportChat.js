@@ -113,7 +113,7 @@ export default function SupportChat() {
             {messages.length === 0 && (
               <div style={{ textAlign: 'center', color: 'var(--t2)', fontSize: 13, marginTop: 20 }}>
                 <div style={{ fontSize: 30, marginBottom: 8 }}>👋</div>
-                Namaste! Kaise help kar sakte hain?
+                Hi there! How can we help you?
               </div>
             )}
             {messages.map(m => (
@@ -142,7 +142,7 @@ export default function SupportChat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
-              placeholder="Message likhiye..."
+              placeholder="Type a message…"
               style={{ flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--bd)', fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)' }}
             />
             <button

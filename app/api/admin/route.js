@@ -175,11 +175,15 @@ export async function GET(request) {
     await ensureBranchInventoryTable(sql)
     // Auto-populate if empty (first time for this branch)
     await populateBranchInventory(sql, branchId)
-    // Return all menu items with their availability for this branch
+    // Return all menu items with this branch's availability + price + stock.
+    // branch_price falls back to the master price when not overridden.
     const items = await sql`
       SELECT
-        m.id, m.name, m.category, m.price, m.is_veg, m.image_url, m.is_available AS global_available,
-        COALESCE(bi.is_available, true) AS branch_available
+        m.id, m.name, m.category, m.price AS master_price, m.is_veg, m.image_url,
+        m.is_available AS global_available,
+        COALESCE(bi.is_available, true) AS branch_available,
+        COALESCE(bi.price, m.price)     AS branch_price,
+        bi.stock_count                  AS branch_stock
       FROM menu_items m
       LEFT JOIN branch_inventory bi
         ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
@@ -742,6 +746,42 @@ export async function PATCH(request) {
       await sql`
         UPDATE branch_inventory SET is_available = ${is_available}
         WHERE branch_id = ${branch_id}::uuid
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    // Set this branch's own price for one item (null/empty = fall back to master)
+    if (data.action === 'set_price') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      const raw = data.price
+      const price = (raw === null || raw === undefined || raw === '') ? null : Number(raw)
+      if (price !== null && (!Number.isFinite(price) || price < 0)) {
+        return NextResponse.json({ error: 'Invalid price' }, { status: 400 })
+      }
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, price)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, true, ${price})
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET price = ${price}
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    // Set this branch's stock count for one item (null/empty = untracked stock)
+    if (data.action === 'set_stock') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      const raw = data.stock_count
+      const stock = (raw === null || raw === undefined || raw === '') ? null : Math.trunc(Number(raw))
+      if (stock !== null && (!Number.isFinite(stock) || stock < 0)) {
+        return NextResponse.json({ error: 'Invalid stock' }, { status: 400 })
+      }
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, stock_count)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, true, ${stock})
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET stock_count = ${stock}
       `
       return NextResponse.json({ success: true })
     }

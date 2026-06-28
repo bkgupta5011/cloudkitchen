@@ -3065,8 +3065,8 @@ export default function AdminPage() {
                   <div style={{ width:40, height:4, background:'var(--bd2)', borderRadius:4, margin:'0 auto 16px' }} />
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
                     <div>
-                      <div style={{ fontSize:16, fontWeight:800, color:'var(--t1)' }}>📦 {inventoryBranch.name}</div>
-                      <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>Items toggle karo — OFF = is branch pe available nahi</div>
+                      <div style={{ fontSize:16, fontWeight:800, color:'var(--t1)' }}>📦 {inventoryBranch.name} — Menu</div>
+                      <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>Is branch ka apna price + stock + on/off. Price blank = master rate. Stock blank = ∞ (no limit)</div>
                     </div>
                     <button className="btn btn-secondary" style={{ fontSize:11 }} onClick={() => setShowInventory(false)}>✕ Close</button>
                   </div>
@@ -3108,16 +3108,60 @@ export default function AdminPage() {
                         <div style={{ fontSize:11, fontWeight:700, color:'var(--t2)', textTransform:'uppercase', letterSpacing:0.8, marginBottom:8, paddingBottom:6, borderBottom:'1px solid var(--bd)' }}>
                           {cat} ({filtered.filter(x => x.category===cat).length})
                         </div>
-                        {filtered.filter(x => x.category===cat).map(item => (
-                          <div key={item.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0', borderBottom:'1px solid var(--bd)' }}>
+                        {filtered.filter(x => x.category===cat).map(item => {
+                          const priceOverridden = item.branch_price != null && Number(item.branch_price) !== Number(item.master_price)
+                          return (
+                          <div key={item.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 0', borderBottom:'1px solid var(--bd)' }}>
                             {item.image_url && <img src={item.image_url} alt="" style={{ width:40, height:40, borderRadius:8, objectFit:'cover', flexShrink:0 }} />}
                             <div style={{ flex:1, minWidth:0 }}>
                               <div style={{ fontSize:13, fontWeight:600, color: item.branch_available ? 'var(--t1)' : 'var(--t3)', display:'flex', alignItems:'center', gap:6 }}>
                                 <span style={{ width:7, height:7, borderRadius:'50%', background: item.is_veg ? 'var(--gr)' : 'var(--rd)', flexShrink:0, display:'inline-block' }} />
-                                {item.name}
+                                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</span>
                               </div>
-                              <div style={{ fontSize:11, color:'var(--t2)' }}>₹{item.price}</div>
+                              <div style={{ fontSize:10, color:'var(--t3)' }}>master ₹{item.master_price}</div>
                             </div>
+
+                            {/* Per-branch price */}
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, flexShrink:0 }}>
+                              <span style={{ fontSize:9, color:'var(--t3)', fontWeight:600 }}>PRICE</span>
+                              <div style={{ display:'flex', alignItems:'center', gap:2 }}>
+                                <span style={{ fontSize:12, color:'var(--t2)' }}>₹</span>
+                                <input
+                                  type="number" min="0" inputMode="numeric"
+                                  defaultValue={item.branch_price ?? ''}
+                                  placeholder={String(item.master_price)}
+                                  onBlur={async (e) => {
+                                    const v = e.target.value
+                                    const num = v === '' ? null : Number(v)
+                                    if (num === Number(item.branch_price)) return
+                                    setInventoryItems(prev => prev.map(x => x.id===item.id ? {...x, branch_price: (num==null? item.master_price : num)} : x))
+                                    await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'},
+                                      body:JSON.stringify({ type:'branch_inventory', action:'set_price', branch_id:inventoryBranch.id, item_id:item.id, price: num }) })
+                                  }}
+                                  style={{ width:52, padding:'4px 6px', fontSize:13, textAlign:'center', borderRadius:6, border:`1px solid ${priceOverridden ? 'var(--or)' : 'var(--bd2)'}`, background:'var(--bg)', color: priceOverridden ? 'var(--or)' : 'var(--t1)', fontWeight: priceOverridden ? 700 : 400 }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Per-branch stock */}
+                            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:2, flexShrink:0 }}>
+                              <span style={{ fontSize:9, color:'var(--t3)', fontWeight:600 }}>STOCK</span>
+                              <input
+                                type="number" min="0" inputMode="numeric"
+                                defaultValue={item.branch_stock ?? ''}
+                                placeholder="∞"
+                                onBlur={async (e) => {
+                                  const v = e.target.value
+                                  const num = v === '' ? null : Math.trunc(Number(v))
+                                  if (num === (item.branch_stock ?? null)) return
+                                  setInventoryItems(prev => prev.map(x => x.id===item.id ? {...x, branch_stock: num} : x))
+                                  await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'},
+                                    body:JSON.stringify({ type:'branch_inventory', action:'set_stock', branch_id:inventoryBranch.id, item_id:item.id, stock_count: num }) })
+                                }}
+                                style={{ width:46, padding:'4px 6px', fontSize:13, textAlign:'center', borderRadius:6, border:`1px solid ${item.branch_stock!=null && item.branch_stock<=0 ? 'var(--rd)' : 'var(--bd2)'}`, background:'var(--bg)', color: item.branch_stock!=null && item.branch_stock<=0 ? 'var(--rd)' : 'var(--t1)' }}
+                              />
+                            </div>
+
                             {/* Toggle switch */}
                             <div
                               onClick={async () => {
@@ -3130,7 +3174,8 @@ export default function AdminPage() {
                               <div style={{ position:'absolute', width:20, height:20, background:'#fff', borderRadius:'50%', top:3, left: item.branch_available ? 21 : 3, transition:'left 0.2s', boxShadow:'0 1px 4px rgba(0,0,0,0.25)' }} />
                             </div>
                           </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     ))
                   })()}

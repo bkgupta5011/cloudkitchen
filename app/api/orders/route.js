@@ -630,13 +630,32 @@ export async function POST(request) {
   try {
     const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled FROM kitchen_settings WHERE id = 1`
     const rewardsActive = rcfg?.review_reward_enabled || rcfg?.loyalty_enabled
-    if (rewardsActive && subtotal >= (rcfg.review_reward_min_order || 0)) {
-      const [r] = await sql`
-        SELECT id, amount FROM review_rewards
-        WHERE customer_id = ${user.id} AND status = 'available'
-        ORDER BY created_at ASC LIMIT 1
-      `
-      if (r) { rewardToUse = r.id; rewardDiscount = parseInt(r.amount) || 0 }
+    if (rewardsActive) {
+      let r = null
+      try {
+        ;[r] = await sql`
+          SELECT id, amount, source FROM review_rewards
+          WHERE customer_id = ${user.id} AND status = 'available'
+          ORDER BY created_at ASC LIMIT 1
+        `
+      } catch {
+        // `source` column may not exist yet on older DBs — fall back without it.
+        ;[r] = await sql`
+          SELECT id, amount FROM review_rewards
+          WHERE customer_id = ${user.id} AND status = 'available'
+          ORDER BY created_at ASC LIMIT 1
+        `
+      }
+      if (r) {
+        // Loyalty rewards apply on ANY order (the customer earned it over N orders);
+        // review rewards keep the min-order requirement. Cap so it never exceeds subtotal.
+        const isLoyalty = r.source === 'loyalty'
+        const minNeeded = isLoyalty ? 0 : (parseInt(rcfg.review_reward_min_order) || 0)
+        if (subtotal >= minNeeded) {
+          rewardToUse = r.id
+          rewardDiscount = Math.min(parseInt(r.amount) || 0, subtotal)
+        }
+      }
     }
   } catch (e) {}
 

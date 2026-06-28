@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { getDeliveryCharge } from '@/lib/utils'
+import { getDeliveryQuote, getOrderFees } from '@/lib/utils'
 import { roadDistanceKm, haversineKm } from '@/lib/distance'
 
 // Customer cart preview: given a delivery lat/lng, return the real road
@@ -16,6 +16,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const lat = parseFloat(searchParams.get('lat'))
   const lng = parseFloat(searchParams.get('lng'))
+  const subtotal = parseFloat(searchParams.get('subtotal')) || 0
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({ error: 'lat/lng required' }, { status: 400 })
   }
@@ -41,15 +42,23 @@ export async function GET(request) {
 
   const { km, source } = await roadDistanceKm(parseFloat(nearest.lat), parseFloat(nearest.lng), lat, lng)
   const outOfRange = radius > 0 ? km > radius : false
-  const deliveryCharge = outOfRange ? null : await getDeliveryCharge(km)
+  const quote = outOfRange ? null : await getDeliveryQuote(km, subtotal)
+  const fees = await getOrderFees(subtotal)
 
   return NextResponse.json({
     distanceKm: km,
     source,
     outOfRange,
-    deliveryCharge,
     branchId: nearest.id,
     branchName: nearest.name,
     radius,
+    // delivery-as-offer fields
+    deliveryCharge: quote ? quote.deliveryCharge : null,   // 0 if free for this subtotal
+    deliveryBase:   quote ? quote.baseCharge : null,       // fee when not free
+    freeDeliveryMin: quote ? quote.freeDeliveryMin : null, // order this much → free
+    freeDelivery:   quote ? quote.freeDelivery : false,
+    minOrderValue:  fees.minOrderValue,
+    smallOrderFee:  fees.smallOrderFee,
+    smallOrderFeeRate: fees.smallOrderFeeRate,
   })
 }

@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [stockItems, setStockItems] = useState([])
   const [stockLoading, setStockLoading] = useState(false)
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7 })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7, min_order_value:99, small_order_fee:20 })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -498,7 +498,7 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7 }
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7, min_order_value: s.min_order_value||99, small_order_fee: s.small_order_fee||20 }
     setKitchenSettings(ks)
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
@@ -1677,6 +1677,26 @@ export default function AdminPage() {
                 })()}
               </div>
 
+              <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1.5px solid #e85d04', gridColumn:'1/-1' }}>
+                <h3 style={{ fontSize:14, fontWeight:700, marginBottom:6 }}>🧾 Minimum Order & Small-Order Fee</h3>
+                <p style={{ fontSize:11, color:'var(--t3)', marginBottom:14 }}>
+                  Chhote order pe loss rokne ke liye: order is value se kam ho to ek chhota fee lagta hai. (Free-delivery threshold "KM Pricing" tab me set hota hai.)
+                </p>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                  <div className="field">
+                    <label>Minimum Order Value (₹)</label>
+                    <input type="number" value={kitchenSettings.min_order_value} onChange={e => setKitchenSettings({...kitchenSettings, min_order_value:e.target.value})} />
+                  </div>
+                  <div className="field">
+                    <label>Small-Order Fee (₹)</label>
+                    <input type="number" value={kitchenSettings.small_order_fee} onChange={e => setKitchenSettings({...kitchenSettings, small_order_fee:e.target.value})} />
+                  </div>
+                </div>
+                <div style={{ fontSize:12, color:'#e85d04', marginTop:6, lineHeight:1.7 }}>
+                  ₹{kitchenSettings.min_order_value} se kam ka order → <b>₹{kitchenSettings.small_order_fee}</b> extra fee. Upar → koi fee nahi.
+                </div>
+              </div>
+
               <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1px solid var(--bdr)' }}>
                 <h3 style={{ fontSize:14, fontWeight:700, marginBottom:14 }}>⏰ Kitchen Timing</h3>
                 <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
@@ -1741,14 +1761,18 @@ export default function AdminPage() {
         {section === 'pricing' && (
           <>
             <div className={styles.sectionHead}><h2>Delivery Pricing</h2><button className="btn btn-primary" onClick={savePricing}>Save Changes</button></div>
+            <p style={{ fontSize:12, color:'var(--t2)', margin:'0 0 12px' }}>
+              <strong>Base Charge</strong> = delivery fee jab order chhota ho. <strong>FREE Above ₹</strong> = itne ka order karne pe delivery FREE (offer). Blank = is range me free delivery nahi.
+            </p>
             <div className={styles.table}>
-              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}><span>Range</span><span>Min KM</span><span>Base Charge (₹)</span><span>Per Extra KM (₹)</span></div>
+              <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'1.2fr 0.8fr 1fr 1fr 1.1fr' }}><span>Range</span><span>Min KM</span><span>Base Charge (₹)</span><span>Per Extra KM (₹)</span><span>FREE Above ₹</span></div>
               {pricing.map((row, i) => (
-                <div key={row.id} className={styles.tRow} style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}>
+                <div key={row.id} className={styles.tRow} style={{ gridTemplateColumns:'1.2fr 0.8fr 1fr 1fr 1.1fr' }}>
                   <span style={{ fontWeight:500, fontSize:12 }}>{row.min_km} – {row.max_km??'∞'} km</span>
                   <span style={{ fontSize:12, color:'var(--t2)' }}>{row.min_km} km</span>
                   <input type="number" defaultValue={row.base_charge} className={styles.priceInput} onChange={e => { const p=[...pricing]; p[i]={...p[i],base_charge:e.target.value}; setPricing(p) }} />
                   <input type="number" defaultValue={row.per_km_charge} className={styles.priceInput} onChange={e => { const p=[...pricing]; p[i]={...p[i],per_km_charge:e.target.value}; setPricing(p) }} />
+                  <input type="number" defaultValue={row.free_delivery_min ?? ''} placeholder="—" className={styles.priceInput} onChange={e => { const p=[...pricing]; p[i]={...p[i],free_delivery_min:e.target.value}; setPricing(p) }} />
                 </div>
               ))}
             </div>

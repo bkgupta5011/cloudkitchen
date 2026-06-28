@@ -473,6 +473,8 @@ export default function CartPage() {
   const [lng, setLng] = useState(null)
   const [distanceKm, setDistanceKm] = useState(null)
   const [deliveryCharge, setDeliveryCharge] = useState(null)
+  // { base, freeMin, mov, sofRate } — delivery-as-offer thresholds for this distance
+  const [deliveryInfo, setDeliveryInfo] = useState(null)
   const [offerCode, setOfferCode] = useState('')
   const [offerResult, setOfferResult] = useState(null)
   const [offerError, setOfferError] = useState('')
@@ -674,7 +676,9 @@ export default function CartPage() {
         setDistanceKm(d.distanceKm)
         setOutOfRange(!!d.outOfRange)
         if (d.radius) setNearestBranchRadius(d.radius)
-        setDeliveryCharge(d.outOfRange ? null : d.deliveryCharge)
+        // base fee for this distance; free/small-fee computed reactively from subtotal
+        setDeliveryCharge(d.outOfRange ? null : (d.deliveryBase ?? d.deliveryCharge))
+        setDeliveryInfo(d.outOfRange ? null : { base: d.deliveryBase ?? d.deliveryCharge, freeMin: d.freeDeliveryMin, mov: d.minOrderValue, sofRate: d.smallOrderFeeRate })
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -718,10 +722,17 @@ export default function CartPage() {
   // Server re-validates this on order placement — this is just the live preview.
   const rewardDiscount = (reviewReward && subtotal >= (reviewReward.minOrder || 0))
     ? reviewReward.amount : 0
-  const freeDelivery = offerResult?.freeDelivery || false
+  // Free delivery: either a coupon, OR the subtotal crossed this distance's
+  // free-delivery threshold (the "order a bit more → free delivery" offer).
+  const valueFreeDelivery = !!(deliveryInfo?.freeMin && deliveryInfo.freeMin > 0 && subtotal >= deliveryInfo.freeMin)
+  const freeDelivery = (offerResult?.freeDelivery || false) || valueFreeDelivery
   const safeDelivery = Number.isFinite(deliveryCharge) ? deliveryCharge : 0
   const effectiveDelivery = freeDelivery ? 0 : safeDelivery
-  const total = Math.max(0, subtotal - discount - rewardDiscount) + effectiveDelivery
+  // Small-order fee when below the minimum order value.
+  const smallOrderFee = (deliveryInfo?.mov && subtotal > 0 && subtotal < deliveryInfo.mov) ? (deliveryInfo.sofRate || 0) : 0
+  // How much more to add to unlock free delivery (for the nudge).
+  const amountForFreeDelivery = (deliveryInfo?.freeMin && !freeDelivery) ? Math.max(0, Math.ceil(deliveryInfo.freeMin - subtotal)) : 0
+  const total = Math.max(0, subtotal - discount - rewardDiscount) + effectiveDelivery + smallOrderFee
 
   // Map picker confirm — Dominos model: per-branch radius only
   const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
@@ -1062,6 +1073,18 @@ export default function CartPage() {
               </div>
             </div>
 
+            {/* Free-delivery nudge — turns delivery charge into an incentive */}
+            {amountForFreeDelivery > 0 && Number.isFinite(deliveryCharge) && (
+              <div style={{ margin:'0 0 10px', background:'#fff7ed', border:'1px solid #fed7aa', borderRadius:10, padding:'10px 12px' }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#9a3412' }}>
+                  🎉 Bas ₹{amountForFreeDelivery} aur — FREE delivery!
+                </div>
+                <div style={{ height:6, background:'#fde6cf', borderRadius:4, marginTop:7, overflow:'hidden' }}>
+                  <div style={{ height:'100%', width:`${Math.min(100, Math.round((subtotal / deliveryInfo.freeMin) * 100))}%`, background:'#e85d04', borderRadius:4, transition:'width 0.3s' }} />
+                </div>
+              </div>
+            )}
+
             {/* Bill */}
             <div className={styles.section}>
               <h3>Bill Summary</h3>
@@ -1072,13 +1095,19 @@ export default function CartPage() {
                 <span>Delivery {Number.isFinite(distanceKm) ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
                 <span>
                   {freeDelivery
-                    ? <span style={{ color:'var(--gr-d)', fontWeight:600 }}>FREE 🎉</span>
+                    ? <span style={{ color:'var(--gr-d)', fontWeight:600 }}>{Number.isFinite(deliveryCharge) && deliveryCharge > 0 ? <><span style={{ textDecoration:'line-through', color:'var(--t3)', fontWeight:400, marginRight:5 }}>₹{Math.round(deliveryCharge)}</span>FREE 🎉</> : 'FREE 🎉'}</span>
                     : !Number.isFinite(deliveryCharge)
                       ? <span style={{ color:'var(--t2)', fontSize:12 }}>🗺️ Map se location select karo</span>
                       : `₹${Math.round(deliveryCharge)}`
                   }
                 </span>
               </div>
+              {smallOrderFee > 0 && (
+                <div className={styles.billRow}>
+                  <span>Small order fee <span style={{ fontSize:11, color:'var(--t3)' }}>(₹{deliveryInfo.mov} se kam)</span></span>
+                  <span>₹{smallOrderFee}</span>
+                </div>
+              )}
               <div className={`${styles.billRow} ${styles.total}`}>
                 <span>Total</span>
                 <span style={{ color:'var(--or)' }}>

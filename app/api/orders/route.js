@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
-import { getDeliveryCharge, getMinDeliveryCharge, applyOffer, getBoyPayout } from '@/lib/utils'
+import { getDeliveryCharge, getMinDeliveryCharge, getDeliveryQuote, getOrderFees, applyOffer, getBoyPayout } from '@/lib/utils'
 import { roadDistanceKm } from '@/lib/distance'
 import { sendFcmToTokens } from '@/lib/fcm'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
@@ -572,10 +572,18 @@ export async function POST(request) {
     }
   }
 
-  // Delivery charge — from the server road distance (not the client value)
-  const deliveryCharge = (serverDistanceKm != null && serverDistanceKm >= 0)
-    ? await getDeliveryCharge(serverDistanceKm)
-    : await getMinDeliveryCharge()
+  // Delivery charge — server road distance + free-delivery-above-threshold.
+  // Free delivery kicks in when the food subtotal crosses this tier's threshold.
+  let deliveryCharge, valueFreeDelivery = false
+  if (serverDistanceKm != null && serverDistanceKm >= 0) {
+    const q = await getDeliveryQuote(serverDistanceKm, subtotal)
+    deliveryCharge = q.deliveryCharge
+    valueFreeDelivery = q.freeDelivery
+  } else {
+    deliveryCharge = await getMinDeliveryCharge()
+  }
+  // Small-order fee when the subtotal is below the minimum order value.
+  const { smallOrderFee } = await getOrderFees(subtotal)
 
   // Offer
   let discountAmount = 0
@@ -608,12 +616,14 @@ export async function POST(request) {
     }
   } catch (e) {}
 
-  const finalDelivery = freeDelivery ? 0 : deliveryCharge
-  const total = Math.max(0, subtotal - discountAmount - rewardDiscount) + finalDelivery
+  // Coupon free-delivery OR value-based free delivery both make it free.
+  const finalDelivery = (freeDelivery || valueFreeDelivery) ? 0 : deliveryCharge
+  const total = Math.max(0, subtotal - discountAmount - rewardDiscount) + finalDelivery + smallOrderFee
 
   // Ensure columns exist
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS boy_payout DECIMAL(10,2)` } catch {}
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS review_reward_discount DECIMAL(10,2) DEFAULT 0` } catch {}
+  try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS small_order_fee DECIMAL(10,2) DEFAULT 0` } catch {}
   await ensureOrderBranchColumn(sql)
 
   // Delivery boy payout — from kitchen distance, independent of what the
@@ -625,12 +635,12 @@ export async function POST(request) {
   const [order] = await sql`
     INSERT INTO orders (
       user_id, offer_id, status, subtotal, discount_amount, review_reward_discount,
-      delivery_charge, total, delivery_address, delivery_lat,
+      delivery_charge, small_order_fee, total, delivery_address, delivery_lat,
       delivery_lng, distance_km, boy_payout, notes, branch_id
     )
     VALUES (
       ${user.id}, ${offerId}, 'pending', ${subtotal}, ${discountAmount}, ${rewardDiscount},
-      ${finalDelivery}, ${total}, ${deliveryAddress},
+      ${finalDelivery}, ${smallOrderFee}, ${total}, ${deliveryAddress},
       ${deliveryLat || null}, ${deliveryLng || null},
       ${serverDistanceKm || null}, ${boyPayout}, ${notes || null}, ${branchId || null}
     )

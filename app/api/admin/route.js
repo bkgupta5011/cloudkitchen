@@ -120,6 +120,22 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_min_payout NUMERIC DEFAULT 25`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_base_km NUMERIC DEFAULT 2`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_per_km NUMERIC DEFAULT 7`
+    // Delivery-as-offer: minimum order value + small-order fee below it.
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS min_order_value NUMERIC DEFAULT 99`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS small_order_fee NUMERIC DEFAULT 20`
+  } catch (e) {}
+}
+
+// km_pricing: add free-delivery threshold per tier + seed recommended values once.
+async function ensureKmPricingDelivery(sql) {
+  try {
+    await sql`ALTER TABLE km_pricing ADD COLUMN IF NOT EXISTS free_delivery_min NUMERIC`
+    // One-time seed (only rows not yet configured) — fee + free-delivery threshold
+    // by distance tier: 0-2km ₹25/free@149, 2-5 ₹35/249, 5-10 ₹45/349, 10+ ₹55/349.
+    await sql`UPDATE km_pricing SET base_charge = 25, free_delivery_min = 149 WHERE free_delivery_min IS NULL AND min_km < 2`
+    await sql`UPDATE km_pricing SET base_charge = 35, free_delivery_min = 249 WHERE free_delivery_min IS NULL AND min_km >= 2 AND min_km < 5`
+    await sql`UPDATE km_pricing SET base_charge = 45, free_delivery_min = 349 WHERE free_delivery_min IS NULL AND min_km >= 5 AND min_km < 10`
+    await sql`UPDATE km_pricing SET base_charge = 55, per_km_charge = 6, free_delivery_min = 349 WHERE free_delivery_min IS NULL AND min_km >= 10`
   } catch (e) {}
 }
 
@@ -313,6 +329,7 @@ export async function GET(request) {
   }
 
   if (type === 'pricing') {
+    await ensureKmPricingDelivery(sql)
     const rows = await sql`SELECT * FROM km_pricing ORDER BY min_km`
     return NextResponse.json({ pricing: rows })
   }
@@ -488,7 +505,8 @@ export async function GET(request) {
            max_delivery_km, open_time, close_time, estimated_time, auto_schedule,
            order_timeout_minutes, escalation_interval_sec,
            review_reward_enabled, review_reward_amount, review_reward_min_order,
-           fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km
+           fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km,
+           min_order_value, small_order_fee
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -523,6 +541,8 @@ export async function PATCH(request) {
     const bMin       = data.boy_min_payout != null ? parseFloat(data.boy_min_payout) : null
     const bBaseKm    = data.boy_base_km    != null ? parseFloat(data.boy_base_km)    : null
     const bPerKm     = data.boy_per_km     != null ? parseFloat(data.boy_per_km)     : null
+    const movVal     = data.min_order_value != null ? parseFloat(data.min_order_value) : null
+    const sofVal     = data.small_order_fee != null ? parseFloat(data.small_order_fee) : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -554,6 +574,8 @@ export async function PATCH(request) {
         boy_min_payout          = COALESCE(${bMin},    boy_min_payout),
         boy_base_km             = COALESCE(${bBaseKm}, boy_base_km),
         boy_per_km              = COALESCE(${bPerKm},  boy_per_km),
+        min_order_value         = COALESCE(${movVal},  min_order_value),
+        small_order_fee         = COALESCE(${sofVal},  small_order_fee),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `
@@ -617,8 +639,10 @@ export async function PATCH(request) {
 
   if (type === 'pricing') {
     if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
+    await ensureKmPricingDelivery(sql)
     for (const row of data.rows) {
-      await sql`UPDATE km_pricing SET base_charge = ${row.base_charge}, per_km_charge = ${row.per_km_charge} WHERE id = ${row.id}`
+      const freeMin = (row.free_delivery_min === '' || row.free_delivery_min == null) ? null : parseFloat(row.free_delivery_min)
+      await sql`UPDATE km_pricing SET base_charge = ${row.base_charge}, per_km_charge = ${row.per_km_charge}, free_delivery_min = ${freeMin} WHERE id = ${row.id}`
     }
     return NextResponse.json({ success: true })
   }

@@ -26,9 +26,11 @@ export default function BranchPage() {
   const [orderDetail,     setOrderDetail]     = useState(null)
   const [itemSearch,      setItemSearch]      = useState('')
   const [showAddItem,     setShowAddItem]     = useState(false)
-  const [newItem,         setNewItem]         = useState({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'' })
+  const [newItem,         setNewItem]         = useState({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'', image_url:'' })
   const [newCatMode,      setNewCatMode]      = useState(false)   // true = typing a brand-new category
   const [savingItem,      setSavingItem]      = useState(false)
+  const [uploadingImg,    setUploadingImg]    = useState(false)
+  const [uploadingFor,    setUploadingFor]    = useState(null)    // item id whose photo is uploading
 
   const prevNewCount = useRef(-1)
   const audioRef     = useRef(null)
@@ -168,6 +170,56 @@ export default function BranchPage() {
     if (anyFail) fetchItems()
   }
 
+  // ── Image upload — client-side resize → base64 → /api/upload ──────
+  const uploadImage = (file, onDone) => {
+    setUploadingImg(true)
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement('canvas')
+        const MAX = 700
+        let { width, height } = img
+        if (width > MAX) { height = Math.round(height * MAX / width); width = MAX }
+        if (height > MAX) { width = Math.round(width * MAX / height); height = MAX }
+        canvas.width = width; canvas.height = height
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+        const base64 = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+        fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ base64, mimeType: 'image/jpeg' }) })
+          .then(r => r.json()).then(d => {
+            setUploadingImg(false); setUploadingFor(null)
+            if (d.url) onDone(d.url); else showToast('❌ Upload fail')
+          }).catch(() => { setUploadingImg(false); setUploadingFor(null); showToast('❌ Upload fail') })
+      }
+      img.src = ev.target.result
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // ── Set this branch's discount % for an item (blank = master) ─────
+  const setItemDiscount = async (item, value) => {
+    const num = value === '' ? null : Number(value)
+    if (num !== null && (!Number.isFinite(num) || num < 0 || num > 100)) { showToast('❌ Discount 0–100'); return }
+    if (num === (item.branch_discount == null ? null : Number(item.branch_discount))) return
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, branch_discount: num ?? 0 } : i))
+    try {
+      await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'set_discount', branch_id: user.branch_id, item_id: item.id, discount_percent: num }) })
+      showToast('🏷️ Discount update ho gaya')
+    } catch { fetchItems() }
+  }
+
+  // ── Set this branch's photo for an item ───────────────────────────
+  const setItemImage = async (item, url) => {
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, image_url: url } : i))
+    try {
+      await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'set_image', branch_id: user.branch_id, item_id: item.id, image_url: url }) })
+      showToast('📷 Photo update ho gayi')
+    } catch { fetchItems() }
+  }
+
   // ── Set this branch's own price for an item (blank = master rate) ──
   const setItemPrice = async (item, value) => {
     const num = value === '' ? null : Number(value)
@@ -204,7 +256,7 @@ export default function BranchPage() {
         body: JSON.stringify({ type: 'branch_inventory', action: 'add_item', branch_id: user.branch_id, ...newItem }) })
       const d = await res.json()
       if (!res.ok) { showToast('❌ ' + (d.error || 'Fail')) }
-      else { showToast('✅ Item add ho gaya'); setShowAddItem(false); setNewCatMode(false); setNewItem({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'' }); fetchItems() }
+      else { showToast('✅ Item add ho gaya'); setShowAddItem(false); setNewCatMode(false); setNewItem({ name:'', category:'', price:'', discount_percent:'', stock_count:'', is_veg:true, description:'', image_url:'' }); fetchItems() }
     } catch { showToast('❌ Network error') }
     setSavingItem(false)
   }
@@ -632,6 +684,19 @@ export default function BranchPage() {
                         <input type="radio" checked={!newItem.is_veg} onChange={() => setNewItem(p => ({ ...p, is_veg: false }))} /> 🔴 Non-veg
                       </label>
                     </div>
+
+                    {/* Photo */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+                      {newItem.image_url
+                        ? <img src={newItem.image_url} alt="" style={{ width: 56, height: 44, objectFit: 'cover', borderRadius: 8 }} />
+                        : <div style={{ width: 56, height: 44, borderRadius: 8, background: 'var(--bg)', border: '1px dashed var(--bd2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🍛</div>}
+                      <label className="btn btn-secondary" style={{ fontSize: 12, cursor: 'pointer' }}>
+                        📷 {uploadingImg && !uploadingFor ? 'Uploading…' : (newItem.image_url ? 'Photo badlo' : 'Photo lagao')}
+                        <input type="file" accept="image/jpeg,image/png" style={{ display: 'none' }} disabled={uploadingImg}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f, url => setNewItem(p => ({ ...p, image_url: url }))) }} />
+                      </label>
+                      {newItem.image_url && <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => setNewItem(p => ({ ...p, image_url: '' }))}>✕</button>}
+                    </div>
                   </>
                   )
                 })()}
@@ -653,10 +718,15 @@ export default function BranchPage() {
                 const priceOverridden = item.branch_price != null && Number(item.branch_price) !== Number(item.master_price)
                 return (
                 <div key={item.id} className={styles.menuCard} style={{ opacity: item.branch_available ? 1 : 0.55 }}>
-                  <div className={styles.menuCardImg}>
+                  <div className={styles.menuCardImg} style={{ position: 'relative' }}>
                     {item.image_url
                       ? <img src={item.image_url} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8 }} />
                       : <span style={{ fontSize: 28 }}>🍛</span>}
+                    <label style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 10, fontWeight: 600, padding: '3px 7px', borderRadius: 6, cursor: 'pointer' }}>
+                      📷 {uploadingFor === item.id ? '⏳' : 'Photo'}
+                      <input type="file" accept="image/jpeg,image/png" style={{ display: 'none' }} disabled={uploadingImg}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) { setUploadingFor(item.id); uploadImage(f, url => setItemImage(item, url)) } }} />
+                    </label>
                   </div>
                   <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
                     <div className={styles.catTag}>{item.category}</div>
@@ -666,16 +736,25 @@ export default function BranchPage() {
                     {item.is_veg ? '🟢' : '🔴'} {item.name}
                   </div>
 
-                  {/* Per-branch price + stock */}
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  {/* Per-branch price + discount + stock */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>PRICE ₹</div>
                       <input type="number" min="0" inputMode="numeric"
                         defaultValue={item.branch_price ?? ''}
                         placeholder={String(item.master_price ?? '')}
                         onBlur={e => setItemPrice(item, e.target.value)}
-                        style={{ width: '100%', padding: '6px 8px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
+                        style={{ width: '100%', padding: '6px 4px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
                           border: `1px solid ${priceOverridden ? 'var(--or)' : 'var(--bd2)'}`, background: 'var(--bg)', color: priceOverridden ? 'var(--or)' : 'var(--t1)', fontWeight: priceOverridden ? 700 : 400 }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>OFF %</div>
+                      <input type="number" min="0" max="100" inputMode="numeric"
+                        defaultValue={Number(item.branch_discount) > 0 ? item.branch_discount : ''}
+                        placeholder="0"
+                        onBlur={e => setItemDiscount(item, e.target.value)}
+                        style={{ width: '100%', padding: '6px 4px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
+                          border: `1px solid ${Number(item.branch_discount) > 0 ? 'var(--gr)' : 'var(--bd2)'}`, background: 'var(--bg)', color: Number(item.branch_discount) > 0 ? 'var(--gr-d)' : 'var(--t1)', fontWeight: Number(item.branch_discount) > 0 ? 700 : 400 }} />
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--t3)', marginBottom: 2 }}>STOCK</div>
@@ -683,7 +762,7 @@ export default function BranchPage() {
                         defaultValue={item.branch_stock ?? ''}
                         placeholder="∞"
                         onBlur={e => setItemStock(item, e.target.value)}
-                        style={{ width: '100%', padding: '6px 8px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
+                        style={{ width: '100%', padding: '6px 4px', fontSize: 13, textAlign: 'center', borderRadius: 6, boxSizing: 'border-box',
                           border: `1px solid ${item.branch_stock != null && item.branch_stock <= 0 ? 'var(--rd)' : 'var(--bd2)'}`, background: 'var(--bg)', color: item.branch_stock != null && item.branch_stock <= 0 ? 'var(--rd)' : 'var(--t1)' }} />
                     </div>
                   </div>

@@ -41,8 +41,10 @@ export async function GET(request) {
     if (category && category !== 'All') {
       items = await sql`
         SELECT m.*,
-          COALESCE(bi.price, m.price) AS eff_price,
-          bi.stock_count              AS eff_stock
+          COALESCE(bi.price, m.price)                  AS eff_price,
+          bi.stock_count                               AS eff_stock,
+          COALESCE(bi.discount_percent, m.discount_percent) AS eff_disc,
+          COALESCE(bi.image_url, m.image_url)          AS eff_image
         FROM menu_items m
         LEFT JOIN branch_inventory bi
           ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
@@ -55,8 +57,10 @@ export async function GET(request) {
     } else {
       items = await sql`
         SELECT m.*,
-          COALESCE(bi.price, m.price) AS eff_price,
-          bi.stock_count              AS eff_stock
+          COALESCE(bi.price, m.price)                  AS eff_price,
+          bi.stock_count                               AS eff_stock,
+          COALESCE(bi.discount_percent, m.discount_percent) AS eff_disc,
+          COALESCE(bi.image_url, m.image_url)          AS eff_image
         FROM menu_items m
         LEFT JOIN branch_inventory bi
           ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
@@ -66,10 +70,12 @@ export async function GET(request) {
         ORDER BY m.sort_order, m.name
       `
     }
-    items = items.map(({ eff_price, eff_stock, ...it }) => ({
+    items = items.map(({ eff_price, eff_stock, eff_disc, eff_image, ...it }) => ({
       ...it,
       price: eff_price != null ? Number(eff_price) : it.price,
       stock_count: eff_stock,   // null = unlimited (UI already treats null as no limit)
+      discount_percent: eff_disc != null ? Number(eff_disc) : it.discount_percent,
+      image_url: eff_image ?? it.image_url,
     }))
   } else if (category && category !== 'All') {
     items = await sql`

@@ -65,6 +65,9 @@ async function ensureBranchInventoryTable(sql) {
     // This makes the menu branch-wise: each branch its own price/stock/availability.
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS price NUMERIC`
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS stock_count INT`
+    // Per-branch discount % + photo override (null = use the master item's value).
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS discount_percent NUMERIC`
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS image_url TEXT`
     // Phase 4: a branch can own its OWN unique items. owner_branch_id NULL =
     // shared master item (all branches); set = belongs only to that branch.
     await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS owner_branch_id UUID`
@@ -183,11 +186,13 @@ export async function GET(request) {
     // branch's owned items. owner_branch_id marks branch-owned items.
     const items = await sql`
       SELECT
-        m.id, m.name, m.category, m.price AS master_price, m.is_veg, m.image_url,
+        m.id, m.name, m.category, m.price AS master_price, m.is_veg,
         m.is_available AS global_available, m.owner_branch_id,
-        COALESCE(bi.is_available, true) AS branch_available,
-        COALESCE(bi.price, m.price)     AS branch_price,
-        bi.stock_count                  AS branch_stock
+        COALESCE(bi.is_available, true)              AS branch_available,
+        COALESCE(bi.price, m.price)                  AS branch_price,
+        bi.stock_count                               AS branch_stock,
+        COALESCE(bi.discount_percent, m.discount_percent, 0) AS branch_discount,
+        COALESCE(bi.image_url, m.image_url)          AS image_url
       FROM menu_items m
       LEFT JOIN branch_inventory bi
         ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
@@ -818,6 +823,36 @@ export async function PATCH(request) {
         ON CONFLICT (branch_id, menu_item_id) DO NOTHING
       `
       return NextResponse.json({ success: true, id: item.id })
+    }
+
+    // Set this branch's discount % for one item (null/empty = use master)
+    if (data.action === 'set_discount') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      const raw = data.discount_percent
+      const disc = (raw === null || raw === undefined || raw === '') ? null : Math.min(100, Math.max(0, Number(raw)))
+      if (disc !== null && !Number.isFinite(disc)) return NextResponse.json({ error: 'Invalid discount' }, { status: 400 })
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, discount_percent)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, true, ${disc})
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET discount_percent = ${disc}
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    // Set this branch's own photo for one item (null/empty = use master photo)
+    if (data.action === 'set_image') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      const url = data.image_url || null
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, image_url)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, true, ${url})
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET image_url = ${url}
+      `
+      return NextResponse.json({ success: true })
     }
 
     // Phase 4 — delete a branch-owned item (only the owning branch may delete).

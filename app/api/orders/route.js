@@ -472,7 +472,7 @@ export async function POST(request) {
   if (branchId) {
     try {
       const invRows = await sql`
-        SELECT menu_item_id, price, stock_count, is_available
+        SELECT menu_item_id, price, stock_count, is_available, discount_percent
         FROM branch_inventory
         WHERE branch_id = ${branchId}::uuid AND menu_item_id = ANY(${itemIds})
       `
@@ -526,8 +526,12 @@ export async function POST(request) {
       }
     }
 
-    const discountedPrice = src.discount_percent > 0
-      ? effPrice * (1 - src.discount_percent / 100)
+    // Branch discount overrides master discount when set.
+    const effDiscount = menuItem
+      ? (binv && binv.discount_percent != null ? Number(binv.discount_percent) : Number(src.discount_percent || 0))
+      : Number(src.discount_percent || 0)
+    const discountedPrice = effDiscount > 0
+      ? effPrice * (1 - effDiscount / 100)
       : effPrice
 
     const lineTotal = discountedPrice * cartItem.qty

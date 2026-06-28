@@ -442,6 +442,23 @@ export async function POST(request) {
   const itemIds = items.map(i => i.id)
   const menuItems = await sql`SELECT * FROM menu_items WHERE id = ANY(${itemIds}) AND is_available = true`
 
+  // Phase 3 — resolve the customer's branch up-front so price + stock come from
+  // THAT branch (branch_inventory). When a branch has no override for an item we
+  // fall back to the master menu_items value, so behaviour is unchanged unless a
+  // branch-specific price/stock is actually set.
+  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
+  const branchInv = {}
+  if (branchId) {
+    try {
+      const invRows = await sql`
+        SELECT menu_item_id, price, stock_count, is_available
+        FROM branch_inventory
+        WHERE branch_id = ${branchId}::uuid AND menu_item_id = ANY(${itemIds})
+      `
+      for (const r of invRows) branchInv[r.menu_item_id] = r
+    } catch (e) {}
+  }
+
   // Fitness Corner items — orderable ONLY when the corner is enabled + item available
   let fitRows = []
   try {
@@ -460,19 +477,37 @@ export async function POST(request) {
     const src = menuItem || fitItem
     if (!src) return NextResponse.json({ error: `Item not available: ${cartItem.name}` }, { status: 400 })
 
-    // ── Stock check (menu items only; fitness items have no stock) ────
-    if (menuItem && menuItem.stock_count !== null && menuItem.stock_count !== undefined) {
-      if (menuItem.stock_count <= 0) {
+    // Branch-aware effective price + stock for menu items (master fallback).
+    const binv = menuItem ? branchInv[menuItem.id] : null
+    const effPrice = menuItem
+      ? (binv && binv.price != null ? parseFloat(binv.price) : parseFloat(menuItem.price))
+      : parseFloat(src.price)
+    // stock: prefer this branch's stock; if branch row has none, fall back to
+    // the master stock (null on either = untracked / unlimited).
+    const effStock = menuItem
+      ? (binv && binv.stock_count != null ? binv.stock_count : menuItem.stock_count)
+      : null
+    const stockScope = (binv && binv.stock_count != null) ? 'branch'
+      : (menuItem && menuItem.stock_count != null ? 'master' : null)
+
+    // Branch explicitly turned this item OFF → not orderable from this branch.
+    if (menuItem && binv && binv.is_available === false) {
+      return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai` }, { status: 400 })
+    }
+
+    // ── Stock check (uses branch stock; null/undefined = unlimited) ────
+    if (menuItem && effStock !== null && effStock !== undefined) {
+      if (effStock <= 0) {
         return NextResponse.json({ error: `❌ ${menuItem.name} abhi available nahi hai (stock khatam)` }, { status: 400 })
       }
-      if (menuItem.stock_count < cartItem.qty) {
-        return NextResponse.json({ error: `⚠️ ${menuItem.name} ka sirf ${menuItem.stock_count} available hai` }, { status: 400 })
+      if (effStock < cartItem.qty) {
+        return NextResponse.json({ error: `⚠️ ${menuItem.name} ka sirf ${effStock} available hai` }, { status: 400 })
       }
     }
 
     const discountedPrice = src.discount_percent > 0
-      ? src.price * (1 - src.discount_percent / 100)
-      : parseFloat(src.price)
+      ? effPrice * (1 - src.discount_percent / 100)
+      : effPrice
 
     const lineTotal = discountedPrice * cartItem.qty
     subtotal += lineTotal
@@ -483,14 +518,14 @@ export async function POST(request) {
       price: discountedPrice,
       quantity: cartItem.qty,
       subtotal: lineTotal,
-      has_stock: !!(menuItem && menuItem.stock_count !== null && menuItem.stock_count !== undefined),
+      has_stock: !!(menuItem && effStock !== null && effStock !== undefined),
+      stock_scope: stockScope,
     })
   }
 
   // ── Server-authoritative branch + ROAD distance + radius enforcement ──
   // Never trust the client's distanceKm. Recompute road distance to the
-  // assigned branch and reject orders outside the delivery radius.
-  const branchId = await findNearestBranch(sql, deliveryLat, deliveryLng)
+  // assigned branch (resolved above) and reject orders outside the radius.
   let serverDistanceKm = (distanceKm != null && distanceKm >= 0) ? parseFloat(distanceKm) : null
   const dLatNum = parseFloat(deliveryLat), dLngNum = parseFloat(deliveryLng)
   if (Number.isFinite(dLatNum) && Number.isFinite(dLngNum) && branchId) {
@@ -593,14 +628,25 @@ export async function POST(request) {
       INSERT INTO order_items (order_id, menu_item_id, fitness_item_id, name, price, quantity, subtotal)
       VALUES (${order.id}, ${oi.menu_item_id}, ${oi.fitness_item_id || null}, ${oi.name}, ${oi.price}, ${oi.quantity}, ${oi.subtotal})
     `
-    // Deduct stock if item has stock tracking
+    // Deduct stock if item has stock tracking — from the branch's stock when
+    // the branch tracks it, otherwise from the master menu_items stock.
     if (oi.has_stock) {
-      const [updated] = await sql`
-        UPDATE menu_items
-        SET stock_count = GREATEST(0, stock_count - ${oi.quantity})
-        WHERE id = ${oi.menu_item_id} AND stock_count IS NOT NULL
-        RETURNING stock_count
-      `
+      let updated
+      if (oi.stock_scope === 'branch' && branchId) {
+        ;[updated] = await sql`
+          UPDATE branch_inventory
+          SET stock_count = GREATEST(0, stock_count - ${oi.quantity})
+          WHERE branch_id = ${branchId}::uuid AND menu_item_id = ${oi.menu_item_id} AND stock_count IS NOT NULL
+          RETURNING stock_count
+        `
+      } else {
+        ;[updated] = await sql`
+          UPDATE menu_items
+          SET stock_count = GREATEST(0, stock_count - ${oi.quantity})
+          WHERE id = ${oi.menu_item_id} AND stock_count IS NOT NULL
+          RETURNING stock_count
+        `
+      }
       if (updated) {
         // Fire-and-forget low stock notification
         notifyLowStock(oi.name, updated.stock_count).catch(() => {})

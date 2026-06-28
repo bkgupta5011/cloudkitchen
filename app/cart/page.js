@@ -536,10 +536,30 @@ export default function CartPage() {
     }).catch(() => {})
 
     // cart already loaded from localStorage via lazy initializer — no read needed here
-    fetch('/api/menu').then(r => r.json()).then(d => {
-      setMenuItems(d.items || [])
+    // Phase 3: load THIS customer's branch menu (price/stock) so the cart total
+    // matches what they saw on the menu. Falls back to the master menu when we
+    // can't resolve a serving branch (no saved location / out of range).
+    ;(async () => {
+      let branchId = null
+      try {
+        const c = JSON.parse(localStorage.getItem('ck_loc') || 'null')
+        if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
+          const [bd, sd] = await Promise.all([
+            fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
+            fetch('/api/admin').then(r => r.json()).catch(() => ({ settings: {} })),
+          ])
+          const gKm = parseFloat(sd.settings?.max_delivery_km) || 0
+          const serving = findNearestServingBranch(bd.branches || [], c.lat, c.lng, gKm)
+          if (serving) branchId = serving.id
+        }
+      } catch {}
+      const url = branchId ? `/api/menu?branch_id=${branchId}` : '/api/menu'
+      try {
+        const d = await fetch(url).then(r => r.json())
+        setMenuItems(d.items || [])
+      } catch {}
       setMenuLoading(false)
-    })
+    })()
     // Fitness Corner items — so the cart can resolve & total them too
     fetch('/api/fitness').then(r => r.json()).then(d => setFitnessItems(d.items || [])).catch(() => {})
     // Fetch customer info — check if name is missing

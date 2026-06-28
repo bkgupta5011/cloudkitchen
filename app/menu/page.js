@@ -4,6 +4,19 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import styles from './menu.module.css'
 import SupportChat from '../components/SupportChat'
 import { usePWAInstall } from '@/lib/usePWAInstall'
+import { findNearestServingBranch, findNearestBranchClient } from '@/lib/branchSelect'
+
+const GMAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY
+
+// GPS coords → a short readable address (best-effort; falls back to coords).
+async function reverseGeocode(lat, lng) {
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GMAPS_KEY}&language=en&region=IN`)
+    const d = await r.json()
+    if (d.results?.[0]) return d.results[0].formatted_address
+  } catch {}
+  return `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}`
+}
 
 // ── Notification Drawer (shared) ─────────────────────────────────────
 function NotificationDrawer({ onClose }) {
@@ -374,6 +387,16 @@ function MenuPageContent() {
   const [stockPopup, setStockPopup] = useState(null)   // { itemName, available }
   const [selectedItem, setSelectedItem] = useState(null) // item detail modal
   const [greetingBanner, setGreetingBanner] = useState(null) // time-based banner
+  // ── Phase 3: branch-aware (location-gated) menu ──
+  const [allBranches, setAllBranches] = useState([])
+  const [globalMaxKm, setGlobalMaxKm] = useState(0)
+  const [custLoc, setCustLoc]   = useState(null)   // { lat, lng, address }
+  const [branchInfo, setBranchInfo] = useState(null) // serving/nearest branch
+  const [locResolved, setLocResolved] = useState(false)
+  const [serviceable, setServiceable] = useState(true)
+  const [showLocGate, setShowLocGate] = useState(false)
+  const [locBusy, setLocBusy] = useState(false)
+  const [gateAddr, setGateAddr] = useState('')
   const notifPollRef  = useRef(null)
   const lastUnreadRef = useRef(-1)
   const syncTimerRef  = useRef(null) // debounce DB sync
@@ -408,7 +431,8 @@ function MenuPageContent() {
       fetch('/api/ratings?type=menu').then(r => r.json()).catch(() => ({ itemRatings: {} })),
       fetch('/api/cart').then(r => r.json()).catch(() => ({ cart: {} })),
       fetch('/api/fitness').then(r => r.json()).catch(() => ({ cornerEnabled: false })),
-    ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData, fitnessData]) => {
+      fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] })),
+    ]).then(([authData, menuData, settingsData, offersData, ratingsData, cartData, fitnessData, branchData]) => {
       // Guest mode: skip auth redirect — guests can browse menu freely
       if (!isGuest) {
         if (!authData.user || authData.user.role !== 'customer') { router.push('/login'); return }
@@ -432,9 +456,110 @@ function MenuPageContent() {
       setOffers(offersData.offers || [])
       setItemRatings(ratingsData.itemRatings || {})
       setFitnessLive(!!fitnessData.cornerEnabled)
+      const branches = branchData.branches || []
+      const gKm = parseFloat(settingsData.settings?.max_delivery_km) || 0
+      setAllBranches(branches)
+      setGlobalMaxKm(gKm)
       setLoading(false)
+      // Resolve the customer's branch from their location (Phase 3).
+      resolveLocation(branches, gKm, authData.user)
     })
   }, [])
+
+  // ── Phase 3: figure out the customer's serving branch ───────────────
+  // Location source priority: cached (ck_loc) → saved default address.
+  // No location → show the location gate. Out of range → not-serviceable.
+  const resolveLocation = async (branches, gKm, authUser) => {
+    let loc = null
+    try {
+      const c = JSON.parse(localStorage.getItem('ck_loc') || 'null')
+      if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) loc = c
+    } catch {}
+    if (!loc && authUser) {
+      try {
+        const ad = await fetch('/api/addresses').then(r => r.json())
+        const list = ad.addresses || []
+        const def = list.find(a => a.is_default) || list[0]
+        if (def && def.lat != null && def.lng != null) {
+          loc = { lat: parseFloat(def.lat), lng: parseFloat(def.lng), address: def.address_text }
+        }
+      } catch {}
+    }
+    if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) {
+      setShowLocGate(true)
+      setLocResolved(true)
+      return
+    }
+    applyLocation(loc, branches, gKm)
+  }
+
+  // Apply a chosen location: pick the serving branch + load its branch-wise menu.
+  const applyLocation = async (loc, branches, gKm) => {
+    const list = branches || allBranches
+    const km = gKm != null ? gKm : globalMaxKm
+    const serving = findNearestServingBranch(list, loc.lat, loc.lng, km)
+    const nearest = findNearestBranchClient(list, loc.lat, loc.lng, km)
+    setCustLoc(loc)
+    try { localStorage.setItem('ck_loc', JSON.stringify(loc)) } catch {}
+    if (!serving) {
+      setServiceable(false)
+      setBranchInfo(nearest ? { name: nearest.name, dist: nearest.dist } : null)
+      setShowLocGate(false)
+      setLocResolved(true)
+      return
+    }
+    setServiceable(true)
+    setBranchInfo({ id: serving.id, name: serving.name, dist: serving.dist })
+    setShowLocGate(false)
+    setLocResolved(true)
+    // Swap in this branch's own menu (price + stock + availability).
+    try {
+      const md = await fetch(`/api/menu?branch_id=${serving.id}`).then(r => r.json())
+      if (md.items) setMenuItems(md.items)
+    } catch {}
+  }
+
+  // Gate action: use device GPS to set the location.
+  const useGateGPS = () => {
+    if (!navigator.geolocation) { alert('GPS support nahi hai — address daalo.'); return }
+    setLocBusy(true)
+    const ok = async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords
+      const address = await reverseGeocode(lat, lng)
+      await applyLocation({ lat, lng, address }, allBranches, globalMaxKm)
+      setLocBusy(false)
+    }
+    const fail = () => {
+      setLocBusy(false)
+      alert('Location nahi mili. Permission ON karo ya neeche address daalo.')
+    }
+    navigator.geolocation.getCurrentPosition(
+      ok,
+      () => navigator.geolocation.getCurrentPosition(ok, fail, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
+
+  // Gate action: geocode a typed address.
+  const useGateAddress = async () => {
+    const q = gateAddr.trim()
+    if (!q) return
+    setLocBusy(true)
+    try {
+      const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${GMAPS_KEY}&region=IN`)
+      const d = await r.json()
+      const g = d.results?.[0]?.geometry?.location
+      if (g) {
+        await applyLocation({ lat: g.lat, lng: g.lng, address: d.results[0].formatted_address }, allBranches, globalMaxKm)
+      } else {
+        alert('Ye address nahi mila. Thoda detail me likho (area, city).')
+      }
+    } catch { alert('Address check nahi ho paya, dobara try karo.') }
+    setLocBusy(false)
+  }
+
+  // Let the customer change their location again (reopen the gate).
+  const changeLocation = () => { setServiceable(true); setShowLocGate(true) }
 
   // Time-based greeting banner
   useEffect(() => {
@@ -585,6 +710,79 @@ function MenuPageContent() {
 
   return (
     <div className={styles.page}>
+
+      {/* ── Phase 3: Location bar (Blinkit-style) — shows serving branch ── */}
+      {serviceable && custLoc && !showLocGate && (
+        <div
+          onClick={changeLocation}
+          style={{
+            display:'flex', alignItems:'center', gap:8, padding:'8px 14px',
+            background:'#fff7ed', borderBottom:'1px solid #fed7aa', cursor:'pointer',
+            position:'sticky', top:0, zIndex:50,
+          }}>
+          <span style={{ fontSize:16 }}>📍</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:11, color:'#9a3412', fontWeight:700, lineHeight:1.1 }}>
+              Delivering here {branchInfo?.dist != null ? `· ${branchInfo.dist.toFixed(1)} km` : ''}
+            </div>
+            <div style={{ fontSize:12, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              {custLoc.address || 'Aapki location'}
+            </div>
+          </div>
+          <span style={{ fontSize:11, fontWeight:700, color:'#e85d04', flexShrink:0 }}>Change ▾</span>
+        </div>
+      )}
+
+      {/* ── Location Gate — ask for location before showing the menu ── */}
+      {showLocGate && (
+        <div style={{ position:'fixed', inset:0, zIndex:100000, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)', display:'flex', alignItems:'flex-end', justifyContent:'center' }}>
+          <div style={{ background:'#fff', borderRadius:'24px 24px 0 0', width:'100%', maxWidth:480, padding:'26px 22px 40px', animation:'slideUpSheet 0.38s cubic-bezier(0.34,1.1,0.64,1)' }}>
+            <div style={{ width:40, height:4, background:'#e5e7eb', borderRadius:4, margin:'0 auto 20px' }} />
+            <div style={{ textAlign:'center', marginBottom:20 }}>
+              <div style={{ fontSize:42, marginBottom:6 }}>📍</div>
+              <h2 style={{ fontSize:19, fontWeight:800, color:'#1a1a1a', margin:'0 0 6px' }}>Apni location batao</h2>
+              <p style={{ fontSize:13, color:'#6b7280', margin:0 }}>Taaki aapke area ke hisaab se sahi menu, price aur stock dikha sakein.</p>
+            </div>
+            <button onClick={useGateGPS} disabled={locBusy}
+              style={{ width:'100%', padding:'13px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer', marginBottom:14, opacity: locBusy?0.7:1 }}>
+              {locBusy ? 'Location le rahe hain…' : '🎯 Meri current location use karo'}
+            </button>
+            <div style={{ display:'flex', alignItems:'center', gap:8, margin:'4px 0 12px' }}>
+              <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+              <span style={{ fontSize:11, color:'#9ca3af' }}>YA address daalo</span>
+              <div style={{ flex:1, height:1, background:'#e5e7eb' }} />
+            </div>
+            <div style={{ display:'flex', gap:8 }}>
+              <input
+                value={gateAddr} onChange={e => setGateAddr(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') useGateAddress() }}
+                placeholder="Area, city — jaise Boring Road, Patna"
+                style={{ flex:1, padding:'11px 12px', border:'1px solid #e5e7eb', borderRadius:10, fontSize:13, outline:'none' }}
+              />
+              <button onClick={useGateAddress} disabled={locBusy || !gateAddr.trim()}
+                style={{ padding:'0 16px', borderRadius:10, border:'none', background:'#1a1a1a', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:(locBusy||!gateAddr.trim())?0.5:1 }}>Go</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Not serviceable — location is outside every branch's range ── */}
+      {locResolved && !serviceable && !showLocGate && (
+        <div style={{ position:'fixed', inset:0, zIndex:100000, background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', textAlign:'center' }}>
+          <div style={{ fontSize:60, marginBottom:14 }}>🛵💨</div>
+          <h2 style={{ fontSize:21, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>Abhi yahan delivery nahi</h2>
+          <p style={{ fontSize:14, color:'#6b7280', margin:'0 0 4px', maxWidth:340 }}>
+            Aapki location {branchInfo?.dist != null ? `(sabse paas wali branch ${branchInfo.dist.toFixed(1)} km dur)` : ''} humari delivery range se bahar hai.
+          </p>
+          <p style={{ fontSize:13, color:'#9ca3af', margin:'0 0 24px', maxWidth:340 }}>
+            Hum jald hi aapke area me aa rahe hain. Tab tak doosri location try kar sakte ho.
+          </p>
+          <button onClick={changeLocation}
+            style={{ padding:'13px 26px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+            📍 Doosri location daalo
+          </button>
+        </div>
+      )}
 
       {/* ── New Customer Welcome Modal ── */}
       {showWelcomeModal && (

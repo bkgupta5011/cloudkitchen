@@ -26,11 +26,20 @@ export async function GET(request) {
     // Admin: full menu, no branch filter
     items = await sql`SELECT * FROM menu_items ORDER BY sort_order, created_at`
   } else if (branchId) {
-    // Branch-specific menu: item must be globally available AND not disabled for this branch
-    // NULL in branch_inventory = available by default (not yet configured)
+    // Phase 3 — branch-specific menu (customer sees ONLY this branch's offering):
+    //  • item must be globally available AND not disabled for this branch
+    //    (NULL in branch_inventory = available by default, not yet configured)
+    //  • price  → this branch's own price, falling back to the master price
+    //  • stock_count → this branch's own stock (NULL = unlimited)
+    // We return these as `price`/`stock_count` so the customer UI is unchanged.
+    // eff_price / eff_stock are aliased (not duplicate "price") to avoid any
+    // driver ambiguity, then mapped onto price/stock_count below.
     if (category && category !== 'All') {
       items = await sql`
-        SELECT m.* FROM menu_items m
+        SELECT m.*,
+          COALESCE(bi.price, m.price) AS eff_price,
+          bi.stock_count              AS eff_stock
+        FROM menu_items m
         LEFT JOIN branch_inventory bi
           ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
         WHERE m.is_available = true
@@ -40,7 +49,10 @@ export async function GET(request) {
       `
     } else {
       items = await sql`
-        SELECT m.* FROM menu_items m
+        SELECT m.*,
+          COALESCE(bi.price, m.price) AS eff_price,
+          bi.stock_count              AS eff_stock
+        FROM menu_items m
         LEFT JOIN branch_inventory bi
           ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
         WHERE m.is_available = true
@@ -48,6 +60,11 @@ export async function GET(request) {
         ORDER BY m.sort_order, m.name
       `
     }
+    items = items.map(({ eff_price, eff_stock, ...it }) => ({
+      ...it,
+      price: eff_price != null ? Number(eff_price) : it.price,
+      stock_count: eff_stock,   // null = unlimited (UI already treats null as no limit)
+    }))
   } else if (category && category !== 'All') {
     items = await sql`
       SELECT * FROM menu_items

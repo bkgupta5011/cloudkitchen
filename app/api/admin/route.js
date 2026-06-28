@@ -115,6 +115,10 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_amount INT DEFAULT 20`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS review_reward_min_order INT DEFAULT 99`
+    // Loyalty / repeat-order reward: every Nth delivered order → ₹X off next time.
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN DEFAULT false`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_threshold INT DEFAULT 5`
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_reward INT DEFAULT 50`
     // Fitness Freak Corner: when false, customers see items as "Coming Soon" (no ordering)
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS fitness_corner_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_min_payout NUMERIC DEFAULT 25`
@@ -508,7 +512,8 @@ export async function GET(request) {
            order_timeout_minutes, escalation_interval_sec,
            review_reward_enabled, review_reward_amount, review_reward_min_order,
            fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km,
-           min_order_value, small_order_fee, free_delivery_all
+           min_order_value, small_order_fee, free_delivery_all,
+           loyalty_enabled, loyalty_threshold, loyalty_reward
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -546,6 +551,9 @@ export async function PATCH(request) {
     const movVal     = data.min_order_value != null ? parseFloat(data.min_order_value) : null
     const sofVal     = data.small_order_fee != null ? parseFloat(data.small_order_fee) : null
     const fdaVal     = data.free_delivery_all != null ? !!data.free_delivery_all : null
+    const loyEn      = data.loyalty_enabled   != null ? !!data.loyalty_enabled : null
+    const loyThr     = data.loyalty_threshold != null ? parseInt(data.loyalty_threshold) : null
+    const loyRew     = data.loyalty_reward    != null ? parseInt(data.loyalty_reward) : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -580,6 +588,9 @@ export async function PATCH(request) {
         min_order_value         = COALESCE(${movVal},  min_order_value),
         small_order_fee         = COALESCE(${sofVal},  small_order_fee),
         free_delivery_all       = COALESCE(${fdaVal},  free_delivery_all),
+        loyalty_enabled         = COALESCE(${loyEn},   loyalty_enabled),
+        loyalty_threshold       = COALESCE(${loyThr},  loyalty_threshold),
+        loyalty_reward          = COALESCE(${loyRew},  loyalty_reward),
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

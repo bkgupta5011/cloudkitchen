@@ -87,6 +87,29 @@ async function branchCovers(sql, branchId, lat, lng) {
   } catch { return false }
 }
 
+// Loyalty / repeat-order reward: every Nth DELIVERED order grants the customer
+// a ₹X reward that auto-applies on their next order (reuses review_rewards).
+async function grantLoyaltyReward(sql, userId, orderId) {
+  if (!userId || !orderId) return
+  try {
+    const [s] = await sql`SELECT loyalty_enabled, loyalty_threshold, loyalty_reward FROM kitchen_settings WHERE id = 1`
+    if (!s?.loyalty_enabled) return
+    const threshold = parseInt(s.loyalty_threshold) || 5
+    const reward    = parseInt(s.loyalty_reward) || 50
+    if (threshold <= 0 || reward <= 0) return
+    const [row] = await sql`SELECT COUNT(*)::int AS count FROM orders WHERE user_id = ${userId} AND status = 'delivered'`
+    const count = row?.count || 0
+    if (count > 0 && count % threshold === 0) {
+      try { await sql`ALTER TABLE review_rewards ADD COLUMN IF NOT EXISTS source VARCHAR(12) DEFAULT 'review'` } catch {}
+      await sql`
+        INSERT INTO review_rewards (customer_id, source_order_id, amount, source)
+        VALUES (${userId}, ${orderId}, ${reward}, 'loyalty')
+        ON CONFLICT (source_order_id) DO NOTHING
+      `
+    }
+  } catch {}
+}
+
 // ── Ensure branch_id column on orders ───────────────────────────
 async function ensureOrderBranchColumn(sql) {
   try { await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS branch_id UUID` } catch {}
@@ -600,13 +623,14 @@ export async function POST(request) {
     await sql`UPDATE offers SET used_count = used_count + 1 WHERE id = ${offerId}`
   }
 
-  // ── Review reward (server-side, auto-applied; one available reward per order) ──
-  // Amount & eligibility come from DB only — never trusted from the client.
+  // ── Reward auto-apply (review reward + loyalty reward share one pipeline) ──
+  // One available reward per order; amount/eligibility from DB only.
   let rewardDiscount = 0
   let rewardToUse = null
   try {
-    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order FROM kitchen_settings WHERE id = 1`
-    if (rcfg?.review_reward_enabled && subtotal >= (rcfg.review_reward_min_order || 0)) {
+    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled FROM kitchen_settings WHERE id = 1`
+    const rewardsActive = rcfg?.review_reward_enabled || rcfg?.loyalty_enabled
+    if (rewardsActive && subtotal >= (rcfg.review_reward_min_order || 0)) {
       const [r] = await sql`
         SELECT id, amount FROM review_rewards
         WHERE customer_id = ${user.id} AND status = 'available'
@@ -871,6 +895,11 @@ export async function PATCH(request) {
       }
     }
 
+    // Loyalty reward on every Nth delivered order (independent of delivery boy).
+    if (status === 'delivered' && !wasAlreadyDelivered) {
+      await grantLoyaltyReward(sql, order.user_id, order.id)
+    }
+
     // Update earnings ONLY if it wasn't already delivered (prevent double counting)
     if (status === 'delivered' && !wasAlreadyDelivered && order.delivery_boy_id) {
       // Use stored boy_payout (centralized), else compute from Kitchen Settings
@@ -914,6 +943,8 @@ export async function PATCH(request) {
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
     if (status === 'delivered' && !wasAlreadyDelivered) {
+      // Loyalty reward on every Nth delivered order.
+      await grantLoyaltyReward(sql, order.user_id, order.id)
       // Use stored boy_payout (centralized), else compute from Kitchen Settings
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)

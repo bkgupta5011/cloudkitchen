@@ -393,6 +393,7 @@ function MenuPageContent() {
   const [custLoc, setCustLoc]   = useState(null)   // { lat, lng, address }
   const [branchInfo, setBranchInfo] = useState(null) // serving/nearest branch
   const [freeDelInfo, setFreeDelInfo] = useState(null) // { freeMin, festival } for the badge/nudge
+  const [loyalty, setLoyalty] = useState(null) // { enabled, threshold, reward, ordersToGo, availableReward }
   const [servingBranches, setServingBranches] = useState([]) // all in-range outlets
   const [cartOutlet, setCartOutlet] = useState(null) // { id, name } current cart's outlet
   const [switchPrompt, setSwitchPrompt] = useState(null) // { itemId, branch } for outlet-switch confirm
@@ -622,6 +623,12 @@ function MenuPageContent() {
       .catch(() => {})
   }, [])
 
+  // Loyalty progress (stamp-card) — only for logged-in customers.
+  useEffect(() => {
+    if (isGuest) return
+    fetch('/api/loyalty').then(r => r.json()).then(d => { if (d?.enabled) setLoyalty(d) }).catch(() => {})
+  }, [isGuest])
+
   // Debounced DB sync — fires 800ms after last change
   const syncCartToDB = (cartData) => {
     clearTimeout(syncTimerRef.current)
@@ -808,6 +815,31 @@ function MenuPageContent() {
             </div>
           </div>
           <span style={{ fontSize:11, fontWeight:700, color:'#e85d04', flexShrink:0 }}>Change ▾</span>
+        </div>
+      )}
+
+      {/* ── Loyalty stamp-card strip ── */}
+      {!isGuest && loyalty?.enabled && !showLocGate && (
+        <div style={{ background:'#fffbeb', borderBottom:'1px solid #fde68a', padding:'8px 14px', display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:16 }}>🎟️</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            {loyalty.availableReward > 0 ? (
+              <div style={{ fontSize:12.5, fontWeight:700, color:'#92400e' }}>🎉 ₹{loyalty.availableReward} reward ready — agle order pe auto-apply!</div>
+            ) : (
+              <>
+                <div style={{ fontSize:12, fontWeight:700, color:'#92400e' }}>
+                  {loyalty.ordersToGo === 1
+                    ? `Bas 1 aur order — fir ₹${loyalty.reward} off! 🎁`
+                    : `${loyalty.ordersToGo} aur order pe ₹${loyalty.reward} off!`}
+                </div>
+                <div style={{ display:'flex', gap:4, marginTop:5 }}>
+                  {Array.from({ length: loyalty.threshold }).map((_, i) => (
+                    <div key={i} style={{ flex:1, height:6, borderRadius:3, background: i < loyalty.progress ? '#f59e0b' : '#fde68a' }} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 

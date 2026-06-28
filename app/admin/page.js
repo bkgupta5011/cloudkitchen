@@ -1027,6 +1027,22 @@ export default function AdminPage() {
             {branches.find(b => b.id === currentUser.branch_id)?.name || 'Branch Admin'}
           </div>
         )}
+        {/* Vendor self-service: manage their OWN branch's menu (Phase 5) */}
+        {currentUser?.branch_id && (
+          <button className={styles.sideLink}
+            onClick={async () => {
+              const myBranch = branches.find(b => b.id === currentUser.branch_id) || { id: currentUser.branch_id, name: 'Mera Branch' }
+              setInventoryBranch(myBranch); setInventorySearch(''); setShowBranchAddItem(false)
+              setShowInventory(true); setInventoryLoading(true)
+              try {
+                const d = await fetch(`/api/admin?type=branch_inventory&branch_id=${currentUser.branch_id}`).then(r => r.json())
+                setInventoryItems(d.items || [])
+              } catch {}
+              setInventoryLoading(false)
+            }}>
+            🍽️ Mera Menu
+          </button>
+        )}
         {(currentUser?.branch_id
           ? SECTIONS.filter(s => ['orders'].includes(s.id))
           : SECTIONS
@@ -2980,93 +2996,8 @@ export default function AdminPage() {
         )}
 
 
-      {/* ══════════════════════════════════════════════════════════
-          BRANCHES TAB
-      ══════════════════════════════════════════════════════════ */}
-      {section === 'branches' && (
-        <div style={{ padding: '0 0 40px' }}>
 
-          {/* Header */}
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
-            <div>
-              <div style={{ fontSize:18, fontWeight:800, color:'var(--t1)' }}>🏪 Branches</div>
-              <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>{branches.length} branch{branches.length !== 1 ? 'es' : ''} registered</div>
-            </div>
-            <button className="btn btn-primary" onClick={() => { setShowAddBranch(true); setEditBranch(null); setNewBranch(emptyBranch) }}>
-              + New Branch
-            </button>
-          </div>
-
-          {/* Branch Cards */}
-          {branches.length === 0 ? (
-            <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--t3)' }}>
-              <div style={{ fontSize:48, marginBottom:12 }}>🏪</div>
-              <div style={{ fontSize:15, fontWeight:600, color:'var(--t2)' }}>Koi branch nahi hai abhi</div>
-              <div style={{ fontSize:13, marginTop:6 }}>New Branch button se pehli branch create karo</div>
-            </div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
-              {branches.map(b => (
-                <div key={b.id} className="card" style={{ borderLeft:`4px solid ${b.is_active ? 'var(--gr)' : 'var(--rd)'}` }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-                    <div>
-                      <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>{b.name}</div>
-                      {b.city && <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>📍 {b.city}</div>}
-                    </div>
-                    <span style={{
-                      fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20,
-                      background: b.is_active ? 'var(--gr-l)' : 'var(--rd-l)',
-                      color: b.is_active ? 'var(--gr-d)' : 'var(--rd)',
-                    }}>{b.is_active ? 'Active' : 'Inactive'}</span>
-                  </div>
-                  {b.address && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6, lineHeight:1.5 }}>🏠 {b.address}</div>}
-                  {b.phone && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6 }}>📞 {b.phone}</div>}
-                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:4 }}>🕐 {b.opening_time} – {b.closing_time}</div>
-                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:12 }}>📦 Delivery Radius: <strong>{b.max_delivery_km ? `${b.max_delivery_km} km` : 'Global setting'}</strong></div>
-                  {b.lat && b.lng && (
-                    <div style={{ marginBottom:12 }}>
-                      <a href={`https://maps.google.com/?q=${b.lat},${b.lng}`} target="_blank" rel="noreferrer"
-                        style={{ fontSize:12, color:'var(--bl)', fontWeight:600 }}>🗺️ Map pe dekho</a>
-                    </div>
-                  )}
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km: parseFloat(b.max_delivery_km) > 0 ? parseFloat(b.max_delivery_km) : '' }); setShowAddBranch(true) }}>
-                      ✏️ Edit
-                    </button>
-                    <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'branch', action:'toggle', id:b.id }) })
-                          const d = await res.json()
-                          if (!res.ok) { showToast('❌ ' + (d.error || 'Error hua')); return }
-                          setBranches(prev => prev.map(x => x.id === b.id ? { ...x, is_active: d.branch?.is_active ?? !x.is_active } : x))
-                          showToast(d.branch?.is_active ? '✅ Branch activate ki' : '🔴 Branch deactivate ki')
-                        } catch { showToast('❌ Network error') }
-                      }}>
-                      {b.is_active ? '🔴 Deactivate' : '✅ Activate'}
-                    </button>
-                  </div>
-                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12 }}
-                    onClick={async () => {
-                      setInventoryBranch(b); setShowInventory(true); setInventorySearch('')
-                      setInventoryLoading(true)
-                      const res = await fetch(`/api/admin?type=branch_inventory&branch_id=${b.id}`)
-                      const d = await res.json()
-                      setInventoryItems(d.items || [])
-                      setInventoryLoading(false)
-                    }}>
-                    📦 Inventory Manage Karo
-                  </button>
-                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12, color:'#7c3aed', borderColor:'#7c3aed' }}
-                    onClick={() => { setBranchLoginTarget(b); setBranchLoginPhone(''); setBranchLoginPass(''); setShowBranchLogin(true) }}>
-                    🔐 Branch Login Set Karo
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
+      {/* ── Branch Inventory Modal (top-level so vendors can open it too) ── */}
           {/* ── Branch Inventory Modal ── */}
           {showInventory && inventoryBranch && (
             <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:9999, display:'flex', alignItems:'flex-end', justifyContent:'center' }}
@@ -3252,6 +3183,94 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+
+      {/* ══════════════════════════════════════════════════════════
+          BRANCHES TAB
+      ══════════════════════════════════════════════════════════ */}
+      {section === 'branches' && (
+        <div style={{ padding: '0 0 40px' }}>
+
+          {/* Header */}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20 }}>
+            <div>
+              <div style={{ fontSize:18, fontWeight:800, color:'var(--t1)' }}>🏪 Branches</div>
+              <div style={{ fontSize:12, color:'var(--t2)', marginTop:2 }}>{branches.length} branch{branches.length !== 1 ? 'es' : ''} registered</div>
+            </div>
+            <button className="btn btn-primary" onClick={() => { setShowAddBranch(true); setEditBranch(null); setNewBranch(emptyBranch) }}>
+              + New Branch
+            </button>
+          </div>
+
+          {/* Branch Cards */}
+          {branches.length === 0 ? (
+            <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--t3)' }}>
+              <div style={{ fontSize:48, marginBottom:12 }}>🏪</div>
+              <div style={{ fontSize:15, fontWeight:600, color:'var(--t2)' }}>Koi branch nahi hai abhi</div>
+              <div style={{ fontSize:13, marginTop:6 }}>New Branch button se pehli branch create karo</div>
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:16 }}>
+              {branches.map(b => (
+                <div key={b.id} className="card" style={{ borderLeft:`4px solid ${b.is_active ? 'var(--gr)' : 'var(--rd)'}` }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
+                    <div>
+                      <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>{b.name}</div>
+                      {b.city && <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>📍 {b.city}</div>}
+                    </div>
+                    <span style={{
+                      fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20,
+                      background: b.is_active ? 'var(--gr-l)' : 'var(--rd-l)',
+                      color: b.is_active ? 'var(--gr-d)' : 'var(--rd)',
+                    }}>{b.is_active ? 'Active' : 'Inactive'}</span>
+                  </div>
+                  {b.address && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6, lineHeight:1.5 }}>🏠 {b.address}</div>}
+                  {b.phone && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6 }}>📞 {b.phone}</div>}
+                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:4 }}>🕐 {b.opening_time} – {b.closing_time}</div>
+                  <div style={{ fontSize:12, color:'var(--t3)', marginBottom:12 }}>📦 Delivery Radius: <strong>{b.max_delivery_km ? `${b.max_delivery_km} km` : 'Global setting'}</strong></div>
+                  {b.lat && b.lng && (
+                    <div style={{ marginBottom:12 }}>
+                      <a href={`https://maps.google.com/?q=${b.lat},${b.lng}`} target="_blank" rel="noreferrer"
+                        style={{ fontSize:12, color:'var(--bl)', fontWeight:600 }}>🗺️ Map pe dekho</a>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
+                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km: parseFloat(b.max_delivery_km) > 0 ? parseFloat(b.max_delivery_km) : '' }); setShowAddBranch(true) }}>
+                      ✏️ Edit
+                    </button>
+                    <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'branch', action:'toggle', id:b.id }) })
+                          const d = await res.json()
+                          if (!res.ok) { showToast('❌ ' + (d.error || 'Error hua')); return }
+                          setBranches(prev => prev.map(x => x.id === b.id ? { ...x, is_active: d.branch?.is_active ?? !x.is_active } : x))
+                          showToast(d.branch?.is_active ? '✅ Branch activate ki' : '🔴 Branch deactivate ki')
+                        } catch { showToast('❌ Network error') }
+                      }}>
+                      {b.is_active ? '🔴 Deactivate' : '✅ Activate'}
+                    </button>
+                  </div>
+                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12 }}
+                    onClick={async () => {
+                      setInventoryBranch(b); setShowInventory(true); setInventorySearch('')
+                      setInventoryLoading(true)
+                      const res = await fetch(`/api/admin?type=branch_inventory&branch_id=${b.id}`)
+                      const d = await res.json()
+                      setInventoryItems(d.items || [])
+                      setInventoryLoading(false)
+                    }}>
+                    📦 Inventory Manage Karo
+                  </button>
+                  <button className="btn btn-secondary" style={{ width:'100%', marginTop:8, fontSize:12, color:'#7c3aed', borderColor:'#7c3aed' }}
+                    onClick={() => { setBranchLoginTarget(b); setBranchLoginPhone(''); setBranchLoginPass(''); setShowBranchLogin(true) }}>
+                    🔐 Branch Login Set Karo
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
 
           {/* ── Branch Login Modal ── */}
           {showBranchLogin && branchLoginTarget && (

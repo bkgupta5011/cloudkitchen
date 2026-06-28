@@ -420,10 +420,17 @@ export async function POST(request) {
       if (user.status === 'suspended') return NextResponse.json({ error: '🚫 Account suspend hai. Admin se contact karein.' }, { status: 403 })
     }
 
-    const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
+    const otpPayload = { id: user.id, role: detectedRole, name: user.name, email: user.email }
+    // Keep branch admins scoped on the OTP path too — without branch_id a branch
+    // admin would otherwise be treated as a super admin (privilege escalation).
+    if (detectedRole === 'admin') {
+      otpPayload.branch_id = user.branch_id || null
+      otpPayload.is_super_admin = user.branch_id ? false : true
+    }
+    const token = signToken(otpPayload)
     const loginRes = NextResponse.json({
       success: true,
-      user: { id: user.id, name: user.name, email: user.email, role: detectedRole },
+      user: { id: user.id, name: user.name, email: user.email, role: detectedRole, branch_id: otpPayload.branch_id || null, is_super_admin: otpPayload.is_super_admin },
       ...(isNewUser ? { newUser: true } : {}),
     })
     loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })
@@ -560,10 +567,17 @@ export async function POST(request) {
       if (user.status === 'suspended') return NextResponse.json({ error: '🚫 Account suspend hai. Admin se contact karein.' }, { status: 403 })
     }
 
-    const token = signToken({ id: user.id, role: detectedRole, name: user.name, email: user.email })
+    const otpPayload = { id: user.id, role: detectedRole, name: user.name, email: user.email }
+    // Keep branch admins scoped on the OTP path too — without branch_id a branch
+    // admin would otherwise be treated as a super admin (privilege escalation).
+    if (detectedRole === 'admin') {
+      otpPayload.branch_id = user.branch_id || null
+      otpPayload.is_super_admin = user.branch_id ? false : true
+    }
+    const token = signToken(otpPayload)
     const loginRes = NextResponse.json({
       success: true,
-      user: { id: user.id, name: user.name, email: user.email, role: detectedRole },
+      user: { id: user.id, name: user.name, email: user.email, role: detectedRole, branch_id: otpPayload.branch_id || null, is_super_admin: otpPayload.is_super_admin },
       ...(isNewUser ? { newUser: true } : {}),
     })
     loginRes.cookies.set('ck_token', token, { httpOnly: true, maxAge: 60 * 60 * 24 * 7, path: '/', sameSite: 'lax' })

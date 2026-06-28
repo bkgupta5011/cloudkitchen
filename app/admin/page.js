@@ -156,7 +156,7 @@ export default function AdminPage() {
   const [showAddBranch, setShowAddBranch] = useState(false)
   const [editBranch, setEditBranch] = useState(null)
   const [branchSaving, setBranchSaving] = useState(false)
-  const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00', max_delivery_km:'' }
+  const emptyBranch = { name:'', address:'', city:'', phone:'', lat:'', lng:'', opening_time:'09:00', closing_time:'22:00', max_delivery_km:'', type:'own', commission_percent:'' }
   const [newBranch, setNewBranch] = useState(emptyBranch)
   const [branchLocLoading, setBranchLocLoading] = useState(false)
   const [showBranchMap, setShowBranchMap] = useState(false)
@@ -3214,7 +3214,10 @@ export default function AdminPage() {
                 <div key={b.id} className="card" style={{ borderLeft:`4px solid ${b.is_active ? 'var(--gr)' : 'var(--rd)'}` }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
                     <div>
-                      <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)' }}>{b.name}</div>
+                      <div style={{ fontSize:15, fontWeight:800, color:'var(--t1)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                        {b.name}
+                        {b.type === 'partner' && <span style={{ fontSize:9, fontWeight:700, color:'#7c3aed', background:'#ede9fe', padding:'2px 6px', borderRadius:5 }}>🤝 PARTNER</span>}
+                      </div>
                       {b.city && <div style={{ fontSize:11, color:'var(--t2)', marginTop:2 }}>📍 {b.city}</div>}
                     </div>
                     <span style={{
@@ -3223,6 +3226,9 @@ export default function AdminPage() {
                       color: b.is_active ? 'var(--gr-d)' : 'var(--rd)',
                     }}>{b.is_active ? 'Active' : 'Inactive'}</span>
                   </div>
+                  {b.type === 'partner' && Number(b.commission_percent) > 0 && (
+                    <div style={{ fontSize:12, color:'#7c3aed', marginBottom:6, fontWeight:600 }}>💰 Commission: {b.commission_percent}%</div>
+                  )}
                   {b.address && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6, lineHeight:1.5 }}>🏠 {b.address}</div>}
                   {b.phone && <div style={{ fontSize:12, color:'var(--t2)', marginBottom:6 }}>📞 {b.phone}</div>}
                   <div style={{ fontSize:12, color:'var(--t3)', marginBottom:4 }}>🕐 {b.opening_time} – {b.closing_time}</div>
@@ -3235,7 +3241,7 @@ export default function AdminPage() {
                   )}
                   <div style={{ display:'flex', gap:8 }}>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
-                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km: parseFloat(b.max_delivery_km) > 0 ? parseFloat(b.max_delivery_km) : '' }); setShowAddBranch(true) }}>
+                      onClick={() => { setEditBranch(b); setNewBranch({ name:b.name, address:b.address||'', city:b.city||'', phone:b.phone||'', lat:b.lat||'', lng:b.lng||'', opening_time:b.opening_time||'09:00', closing_time:b.closing_time||'22:00', max_delivery_km: parseFloat(b.max_delivery_km) > 0 ? parseFloat(b.max_delivery_km) : '', type: b.type || 'own', commission_percent: (b.commission_percent != null && Number(b.commission_percent) > 0) ? b.commission_percent : '' }); setShowAddBranch(true) }}>
                       ✏️ Edit
                     </button>
                     <button className="btn btn-secondary" style={{ flex:1, fontSize:12 }}
@@ -3333,12 +3339,44 @@ export default function AdminPage() {
               <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', width:'100%', maxWidth:520, padding:'24px 20px 40px', maxHeight:'90vh', overflowY:'auto' }}>
                 <div style={{ width:40, height:4, background:'var(--bd2)', borderRadius:4, margin:'0 auto 20px' }} />
                 <div style={{ fontSize:17, fontWeight:800, color:'var(--t1)', marginBottom:20 }}>
-                  {editBranch ? '✏️ Branch Edit Karo' : '🏪 Naya Branch'}
+                  {editBranch ? '✏️ Branch Edit Karo' : '🏪 Naya Branch / Vendor'}
                 </div>
 
+                {/* Own outlet vs externally-onboarded partner vendor */}
                 <div className="field">
-                  <label>Branch Name *</label>
-                  <input value={newBranch.name} onChange={e => setNewBranch(p => ({...p, name:e.target.value}))} placeholder="e.g. FoodFi Patna Central" />
+                  <label>Type</label>
+                  <div style={{ display:'flex', gap:8 }}>
+                    {[['own','🏠 Apna Outlet'],['partner','🤝 Partner Vendor']].map(([val,lbl]) => (
+                      <button key={val} type="button"
+                        onClick={() => setNewBranch(p => ({...p, type:val, ...(val==='own' ? { commission_percent:'' } : {})}))}
+                        style={{ flex:1, padding:'10px', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer',
+                          border:`1.5px solid ${newBranch.type===val ? '#e85d04' : 'var(--bd2)'}`,
+                          background: newBranch.type===val ? '#fff7ed' : 'var(--bg)',
+                          color: newBranch.type===val ? '#e85d04' : 'var(--t2)' }}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                  {newBranch.type==='partner' && (
+                    <div style={{ fontSize:11, color:'var(--t3)', marginTop:6 }}>
+                      Partner = bahar ka restaurant/dhaba/vendor jise aap hygiene etc. verify karke khud onboard kar rahe ho. Customer ko bas "branch" dikhega.
+                    </div>
+                  )}
+                </div>
+
+                {newBranch.type==='partner' && (
+                  <div className="field">
+                    <label>Commission % (FoodFi ka cut)</label>
+                    <input type="number" min="0" max="100" value={newBranch.commission_percent}
+                      onChange={e => setNewBranch(p => ({...p, commission_percent:e.target.value}))}
+                      placeholder="e.g. 15" />
+                    <div style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Har order pe vendor ki sale ka itna % FoodFi rakhega (settlement ke liye record).</div>
+                  </div>
+                )}
+
+                <div className="field">
+                  <label>{newBranch.type==='partner' ? 'Vendor / Restaurant Name *' : 'Branch Name *'}</label>
+                  <input value={newBranch.name} onChange={e => setNewBranch(p => ({...p, name:e.target.value}))} placeholder={newBranch.type==='partner' ? 'e.g. Sharma Ji Dhaba' : 'e.g. FoodFi Patna Central'} />
                 </div>
                 <div className="field">
                   <label>City</label>

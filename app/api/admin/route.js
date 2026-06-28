@@ -849,8 +849,12 @@ export async function PATCH(request) {
 
     if (data.action === 'create') {
       if (!data.name?.trim()) return NextResponse.json({ error: 'Branch name required' }, { status: 400 })
+      // Partner = externally onboarded vendor (admin-verified); own = FoodFi's
+      // own outlet. commission_percent only meaningful for partners.
+      const branchType = data.type === 'partner' ? 'partner' : 'own'
+      const commission = branchType === 'partner' ? (parseFloat(data.commission_percent) || 0) : 0
       const [branch] = await sql`
-        INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time, max_delivery_km)
+        INSERT INTO branches (name, address, city, phone, lat, lng, opening_time, closing_time, max_delivery_km, type, commission_percent)
         VALUES (
           ${data.name.trim()},
           ${data.address?.trim() || ''},
@@ -860,7 +864,9 @@ export async function PATCH(request) {
           ${data.lng ? parseFloat(data.lng) : null},
           ${data.opening_time || '09:00'},
           ${data.closing_time || '22:00'},
-          ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null}
+          ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null},
+          ${branchType},
+          ${commission}
         )
         RETURNING *
       `
@@ -872,6 +878,8 @@ export async function PATCH(request) {
 
     if (data.action === 'update') {
       if (!data.id) return NextResponse.json({ error: 'Branch ID required' }, { status: 400 })
+      const branchType = data.type === 'partner' ? 'partner' : 'own'
+      const commission = branchType === 'partner' ? (parseFloat(data.commission_percent) || 0) : 0
       const [branch] = await sql`
         UPDATE branches SET
           name            = ${data.name?.trim() || ''},
@@ -882,7 +890,9 @@ export async function PATCH(request) {
           lng             = ${data.lng ? parseFloat(data.lng) : null},
           opening_time    = ${data.opening_time || '09:00'},
           closing_time    = ${data.closing_time || '22:00'},
-          max_delivery_km = ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null}
+          max_delivery_km = ${parseFloat(data.max_delivery_km) > 0 ? parseFloat(data.max_delivery_km) : null},
+          type            = ${branchType},
+          commission_percent = ${commission}
         WHERE id = ${data.id}::uuid
         RETURNING *
       `

@@ -718,11 +718,16 @@ export default function CartPage() {
     .filter(e => e.item)
 
   const subtotal = cartEntries.reduce((a, e) => a + discPrice(e.item) * e.qty, 0)
+  // Original (MRP) total before per-item % off — for the "Item discount" line.
+  const originalTotal = cartEntries.reduce((a, e) => a + (e.item.price || 0) * e.qty, 0)
+  const itemSavings = Math.max(0, originalTotal - subtotal)
   const discount = offerResult?.discount || 0
-  // Review reward auto-applies only when the order meets the min-order rule.
-  // Server re-validates this on order placement — this is just the live preview.
+  // Reward (loyalty or review) auto-applies when the order meets its min-order
+  // rule. Server re-validates on placement — this is the live preview. Capped so
+  // it never exceeds the order value.
   const rewardDiscount = (reviewReward && subtotal >= (reviewReward.minOrder || 0))
-    ? reviewReward.amount : 0
+    ? Math.min(reviewReward.amount, subtotal) : 0
+  const rewardLabel = reviewReward?.source === 'loyalty' ? '🎟️ Loyalty reward' : '🎁 Review reward'
   // Free delivery: either a coupon, OR the subtotal crossed this distance's
   // free-delivery threshold (the "order a bit more → free delivery" offer).
   const festivalFree = !!deliveryInfo?.festival
@@ -737,6 +742,8 @@ export default function CartPage() {
   // How much more to add to unlock free delivery (for the nudge).
   const amountForFreeDelivery = (deliveryInfo?.freeMin && !freeDelivery) ? Math.max(0, Math.ceil(deliveryInfo.freeMin - subtotal)) : 0
   const total = Math.max(0, subtotal - discount - rewardDiscount) + effectiveDelivery + smallOrderFee
+  // Total the customer saved on this order (Zomato-style "you saved" highlight).
+  const totalSaved = itemSavings + discount + rewardDiscount + deliverySaved
 
   // Map picker confirm — Dominos model: per-branch radius only
   const handleMapConfirm = async ({ address: addr, lat: la, lng: ln }) => {
@@ -1102,9 +1109,18 @@ export default function CartPage() {
             {/* Bill */}
             <div className={styles.section}>
               <h3>Bill Summary</h3>
-              <div className={styles.billRow}><span>Subtotal</span><span>₹{subtotal}</span></div>
-              {discount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>Discount</span><span>−₹{discount}</span></div>}
-              {rewardDiscount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>🎁 Review reward</span><span>−₹{rewardDiscount}</span></div>}
+              {/* Item total at MRP, then the per-item discount (so savings are visible) */}
+              <div className={styles.billRow}>
+                <span>Item Total{itemSavings > 0 ? ' (MRP)' : ''}</span>
+                <span>₹{originalTotal}</span>
+              </div>
+              {itemSavings > 0 && (
+                <div className={styles.billRow} style={{ color:'var(--gr-d)' }}>
+                  <span>Item discount</span><span>−₹{itemSavings}</span>
+                </div>
+              )}
+              {discount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>Coupon {offerResult?.code ? `(${offerResult.code})` : 'discount'}</span><span>−₹{discount}</span></div>}
+              {rewardDiscount > 0 && <div className={styles.billRow} style={{ color:'var(--gr-d)' }}><span>{rewardLabel}</span><span>−₹{rewardDiscount}</span></div>}
               <div className={styles.billRow}>
                 <span>Delivery {Number.isFinite(distanceKm) ? `(${distanceKm.toFixed(1)} km)` : ''}</span>
                 <span>
@@ -1116,11 +1132,6 @@ export default function CartPage() {
                   }
                 </span>
               </div>
-              {deliverySaved > 0 && (
-                <div className={styles.billRow} style={{ color:'var(--gr-d)' }}>
-                  <span>🎉 Delivery savings</span><span>You saved ₹{deliverySaved}!</span>
-                </div>
-              )}
               {smallOrderFee > 0 && (
                 <div className={styles.billRow}>
                   <span>Small order fee <span style={{ fontSize:11, color:'var(--t3)' }}>(below ₹{deliveryInfo.mov})</span></span>
@@ -1128,12 +1139,20 @@ export default function CartPage() {
                 </div>
               )}
               <div className={`${styles.billRow} ${styles.total}`}>
-                <span>Total</span>
+                <span>To Pay</span>
                 <span style={{ color:'var(--or)' }}>
                   {!freeDelivery && !Number.isFinite(deliveryCharge) ? `₹${Math.max(0, subtotal - discount - rewardDiscount)} + delivery` : `₹${total}`}
                 </span>
               </div>
             </div>
+
+            {/* 🎉 You saved — Zomato/Swiggy-style savings highlight */}
+            {totalSaved > 0 && (
+              <div style={{ margin:'-6px 0 14px', background:'#ecfdf5', border:'1px solid #a7f3d0', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                <span style={{ fontSize:16 }}>🎉</span>
+                <span style={{ fontSize:13.5, fontWeight:800, color:'#047857' }}>You saved ₹{totalSaved} on this order!</span>
+              </div>
+            )}
 
             <div className={styles.codNotice}>
               {!freeDelivery && !Number.isFinite(deliveryCharge)

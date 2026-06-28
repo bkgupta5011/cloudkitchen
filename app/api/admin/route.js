@@ -65,6 +65,9 @@ async function ensureBranchInventoryTable(sql) {
     // This makes the menu branch-wise: each branch its own price/stock/availability.
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS price NUMERIC`
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS stock_count INT`
+    // Phase 4: a branch can own its OWN unique items. owner_branch_id NULL =
+    // shared master item (all branches); set = belongs only to that branch.
+    await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS owner_branch_id UUID`
   } catch(e) {}
 }
 
@@ -77,6 +80,7 @@ async function populateBranchInventory(sql, branchId) {
     await sql`
       INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, price, stock_count)
       SELECT ${branchId}::uuid, id, true, price, stock_count FROM menu_items
+      WHERE owner_branch_id IS NULL
       ON CONFLICT (branch_id, menu_item_id) DO NOTHING
     `
     // First-time backfill for rows created before per-branch price/stock existed.
@@ -175,18 +179,19 @@ export async function GET(request) {
     await ensureBranchInventoryTable(sql)
     // Auto-populate if empty (first time for this branch)
     await populateBranchInventory(sql, branchId)
-    // Return all menu items with this branch's availability + price + stock.
-    // branch_price falls back to the master price when not overridden.
+    // Return shared (master) items + THIS branch's own items — never another
+    // branch's owned items. owner_branch_id marks branch-owned items.
     const items = await sql`
       SELECT
         m.id, m.name, m.category, m.price AS master_price, m.is_veg, m.image_url,
-        m.is_available AS global_available,
+        m.is_available AS global_available, m.owner_branch_id,
         COALESCE(bi.is_available, true) AS branch_available,
         COALESCE(bi.price, m.price)     AS branch_price,
         bi.stock_count                  AS branch_stock
       FROM menu_items m
       LEFT JOIN branch_inventory bi
         ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
+      WHERE m.owner_branch_id IS NULL OR m.owner_branch_id = ${branchId}::uuid
       ORDER BY m.category, m.name
     `
     return NextResponse.json({ items })
@@ -783,6 +788,48 @@ export async function PATCH(request) {
         ON CONFLICT (branch_id, menu_item_id)
         DO UPDATE SET stock_count = ${stock}
       `
+      return NextResponse.json({ success: true })
+    }
+
+    // Phase 4 — add a NEW item owned by this branch (shows only in this branch).
+    if (data.action === 'add_item') {
+      const { branch_id } = data
+      const name = (data.name || '').trim()
+      const category = (data.category || '').trim()
+      const price = Number(data.price)
+      if (!branch_id || !name || !category) {
+        return NextResponse.json({ error: 'Name, category, price zaroori hai' }, { status: 400 })
+      }
+      if (!Number.isFinite(price) || price < 0) {
+        return NextResponse.json({ error: 'Invalid price' }, { status: 400 })
+      }
+      const is_veg = data.is_veg !== false
+      const stock = (data.stock_count === '' || data.stock_count == null) ? null : Math.trunc(Number(data.stock_count))
+      const [item] = await sql`
+        INSERT INTO menu_items (name, description, price, category, is_veg, image_url, owner_branch_id)
+        VALUES (${name}, ${data.description || ''}, ${price}, ${category}, ${is_veg}, ${data.image_url || null}, ${branch_id}::uuid)
+        RETURNING id
+      `
+      // This branch's inventory row: ON by default + its own price/stock.
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, price, stock_count)
+        VALUES (${branch_id}::uuid, ${item.id}::uuid, true, ${price}, ${stock})
+        ON CONFLICT (branch_id, menu_item_id) DO NOTHING
+      `
+      return NextResponse.json({ success: true, id: item.id })
+    }
+
+    // Phase 4 — delete a branch-owned item (only the owning branch may delete).
+    if (data.action === 'delete_item') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      const [owned] = await sql`
+        SELECT id FROM menu_items WHERE id = ${item_id}::uuid AND owner_branch_id = ${branch_id}::uuid
+      `
+      if (!owned) {
+        return NextResponse.json({ error: 'Sirf is branch ke apne item delete ho sakte hain (master item nahi)' }, { status: 400 })
+      }
+      await sql`DELETE FROM menu_items WHERE id = ${item_id}::uuid` // cascades branch_inventory
       return NextResponse.json({ success: true })
     }
 

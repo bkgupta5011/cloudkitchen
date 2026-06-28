@@ -5,6 +5,9 @@ import { verifyToken } from '@/lib/auth'
 
 async function ensureStockColumn(sql) {
   try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_count INT DEFAULT NULL` } catch {}
+  // Phase 4: branch-owned items (NULL = shared master item). Needed so the
+  // owner_branch_id filters below never hit a missing column.
+  try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS owner_branch_id UUID` } catch {}
 }
 
 // GET - public, all available menu items
@@ -23,8 +26,9 @@ export async function GET(request) {
 
   let items
   if (adminAll && isAdmin) {
-    // Admin: full menu, no branch filter
-    items = await sql`SELECT * FROM menu_items ORDER BY sort_order, created_at`
+    // Admin main menu = shared master catalog only (branch-owned items live in
+    // their branch's inventory modal, not the global menu).
+    items = await sql`SELECT * FROM menu_items WHERE owner_branch_id IS NULL ORDER BY sort_order, created_at`
   } else if (branchId) {
     // Phase 3 — branch-specific menu (customer sees ONLY this branch's offering):
     //  • item must be globally available AND not disabled for this branch
@@ -45,6 +49,7 @@ export async function GET(request) {
         WHERE m.is_available = true
           AND m.category = ${category}
           AND COALESCE(bi.is_available, true) = true
+          AND (m.owner_branch_id IS NULL OR m.owner_branch_id = ${branchId}::uuid)
         ORDER BY m.sort_order, m.name
       `
     } else {
@@ -57,6 +62,7 @@ export async function GET(request) {
           ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
         WHERE m.is_available = true
           AND COALESCE(bi.is_available, true) = true
+          AND (m.owner_branch_id IS NULL OR m.owner_branch_id = ${branchId}::uuid)
         ORDER BY m.sort_order, m.name
       `
     }
@@ -69,12 +75,14 @@ export async function GET(request) {
     items = await sql`
       SELECT * FROM menu_items
       WHERE is_available = true AND category = ${category}
+        AND owner_branch_id IS NULL
       ORDER BY sort_order, name
     `
   } else {
     items = await sql`
       SELECT * FROM menu_items
       WHERE is_available = true
+        AND owner_branch_id IS NULL
       ORDER BY sort_order, name
     `
   }

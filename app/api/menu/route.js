@@ -104,11 +104,13 @@ export async function POST(request) {
     RETURNING *
   `
 
-  // Auto-add new item to all existing branches as available (Phase 2)
+  // Add the new item to every branch as OFF (unselected) by default. Each
+  // branch's admin must toggle it ON for it to appear in that branch's menu —
+  // i.e. an item shows in a branch only where the admin says "yes".
   try {
     await sql`
       INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
-      SELECT id, ${item.id}::uuid, true FROM branches
+      SELECT id, ${item.id}::uuid, false FROM branches
       ON CONFLICT (branch_id, menu_item_id) DO NOTHING
     `
   } catch(e) {} // Safe: branch_inventory table might not exist yet

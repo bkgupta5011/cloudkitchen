@@ -1341,6 +1341,8 @@ export default function AdminPage() {
                     {allCategories().map(c => <option key={c} value={c}>{c}</option>)}
                     <option value="__new__">➕ Add new category…</option>
                   </select>
+                  <textarea defaultValue={item.description || ''} id={`desc-${item.id}`} rows={2} placeholder="Description (optional)"
+                    style={{ fontSize:11, marginBottom:8, width:'100%', border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 7px', background:'var(--bg)', color:'var(--t1)', boxSizing:'border-box', resize:'vertical', fontFamily:'inherit', lineHeight:1.4 }} />
                   <div className={styles.priceEdit}>
                     <label style={{ fontSize:11, color:'var(--t2)' }}>₹ Price</label>
                     <input type="number" defaultValue={item.price} className={styles.priceInput} id={`price-${item.id}`} />
@@ -1356,11 +1358,12 @@ export default function AdminPage() {
                     if (!name || !category) { showToast('❌ Name and category are required'); return }
                     const price = parseFloat(document.getElementById(`price-${item.id}`).value)
                     const discount_percent = parseInt(document.getElementById(`disc-${item.id}`).value) || 0
+                    const description = document.getElementById(`desc-${item.id}`).value
                     try {
                       const res = await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'},
-                        body:JSON.stringify({ id:item.id, name, category, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) }) })
+                        body:JSON.stringify({ id:item.id, name, category, description, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) }) })
                       if (!res.ok) { showToast('❌ Could not save'); return }
-                      setMenuItems(prev => prev.map(m => m.id===item.id ? { ...m, name, category, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) } : m))
+                      setMenuItems(prev => prev.map(m => m.id===item.id ? { ...m, name, category, description, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) } : m))
                       showToast('✅ Item updated')
                     } catch { showToast('❌ Network error') }
                   }}>Save</button>

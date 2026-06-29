@@ -728,6 +728,9 @@ export default function CartPage() {
   const rewardDiscount = (reviewReward && subtotal >= (reviewReward.minOrder || 0))
     ? Math.min(reviewReward.amount, subtotal) : 0
   const rewardLabel = reviewReward?.source === 'loyalty' ? '🎟️ Loyalty reward' : '🎁 Review reward'
+  // Customer has a reward but the cart is below the minimum to redeem it.
+  const rewardLockedMore = (reviewReward && reviewReward.minOrder > 0 && subtotal > 0 && subtotal < reviewReward.minOrder)
+    ? Math.ceil(reviewReward.minOrder - subtotal) : 0
   // Free delivery: either a coupon, OR the subtotal crossed this distance's
   // free-delivery threshold (the "order a bit more → free delivery" offer).
   const festivalFree = !!deliveryInfo?.festival
@@ -1105,6 +1108,13 @@ export default function CartPage() {
 
             {/* Loyalty stamp card */}
             <LoyaltyCard />
+
+            {/* Reward waiting but cart below the redemption minimum */}
+            {rewardLockedMore > 0 && (
+              <div style={{ margin:'0 0 14px', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:12, padding:'10px 14px', fontSize:13, fontWeight:700, color:'#1e40af', textAlign:'center' }}>
+                💸 Add ₹{rewardLockedMore} more to use your ₹{reviewReward.amount} {reviewReward.source === 'loyalty' ? 'loyalty' : 'review'} reward
+              </div>
+            )}
 
             {/* Bill */}
             <div className={styles.section}>

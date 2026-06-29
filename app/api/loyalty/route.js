@@ -22,6 +22,7 @@ export async function GET(request) {
       enabled: true,
       threshold: status.threshold,
       reward: status.reward,
+      minOrder: status.minOrder,
       delivered: status.delivered,
       progress: status.stamps,            // stamps in the current cycle (real deliveries)
       ordersToGo: status.ordersToGo,

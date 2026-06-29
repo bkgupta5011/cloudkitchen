@@ -77,7 +77,7 @@ export async function GET(request) {
   // show the auto-discount AND the "review to earn" popup after ordering)
   if (type === 'reward') {
     try {
-      const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount, review_reward_min_order, loyalty_enabled FROM kitchen_settings WHERE id = 1`
+      const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount, review_reward_min_order, loyalty_enabled, loyalty_min_order FROM kitchen_settings WHERE id = 1`
       const config = {
         enabled: !!cfg?.review_reward_enabled,
         amount: parseInt(cfg?.review_reward_amount) || 0,
@@ -94,9 +94,10 @@ export async function GET(request) {
         WHERE customer_id = ${user.id} AND status = 'available'
         ORDER BY created_at ASC LIMIT 1
       `
-      // Loyalty rewards apply on any order (min 0); review rewards keep their min.
+      // Loyalty rewards need their own min order to redeem; review rewards keep theirs.
+      const loyaltyMin = parseInt(cfg?.loyalty_min_order) || 0
       const reward = r
-        ? { amount: parseInt(r.amount), minOrder: r.source === 'loyalty' ? 0 : config.minOrder, source: r.source || 'review' }
+        ? { amount: parseInt(r.amount), minOrder: r.source === 'loyalty' ? loyaltyMin : config.minOrder, source: r.source || 'review' }
         : null
       return NextResponse.json({ reward, config })
     } catch (e) {

@@ -34,7 +34,7 @@ export default function LoyaltyCard({ compact = false }) {
           <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e' }}>🎟️ Loyalty Card</div>
           <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>
             {ready
-              ? `🎉 ₹${loyalty.availableReward} off unlocked — applies to your next order!`
+              ? `🎉 ₹${loyalty.availableReward} off unlocked${loyalty.minOrder > 0 ? ` — on orders over ₹${loyalty.minOrder}` : ' — applies on your next order'}!`
               : `${loyalty.ordersToGo} more ${loyalty.ordersToGo === 1 ? 'order' : 'orders'} to unlock ₹${loyalty.reward} off`}
           </div>
         </div>

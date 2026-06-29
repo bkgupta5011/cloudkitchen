@@ -61,7 +61,7 @@ export default function AdminPage() {
   const [stockItems, setStockItems] = useState([])
   const [stockLoading, setStockLoading] = useState(false)
   const [kitchenOpen, setKitchenOpen] = useState(true)
-  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7, min_order_value:99, small_order_fee:20, free_delivery_all:false, loyalty_enabled:false, loyalty_threshold:5, loyalty_reward:50 })
+  const [kitchenSettings, setKitchenSettings] = useState({ kitchen_name:'', address:'', phone:'', lat:'', lng:'', max_delivery_km:5, open_time:'09:00', close_time:'22:00', estimated_time:45, auto_schedule:false, order_timeout_minutes:2, escalation_interval_sec:30, review_reward_enabled:false, review_reward_amount:20, review_reward_min_order:99, boy_min_payout:25, boy_base_km:2, boy_per_km:7, min_order_value:99, small_order_fee:20, free_delivery_all:false, loyalty_enabled:false, loyalty_threshold:5, loyalty_reward:50, loyalty_min_order:199 })
   const [orders, setOrders] = useState([])
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
@@ -500,7 +500,7 @@ export default function AdminPage() {
     ])
     const s = settingsRes.settings || {}
     setKitchenOpen(s.is_open ?? true)
-    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7, min_order_value: s.min_order_value||99, small_order_fee: s.small_order_fee||20, free_delivery_all: s.free_delivery_all||false, loyalty_enabled: s.loyalty_enabled||false, loyalty_threshold: s.loyalty_threshold||5, loyalty_reward: s.loyalty_reward||50 }
+    const ks = { kitchen_name: s.kitchen_name||'', address: s.address||'', phone: s.phone||'', lat: s.lat||'', lng: s.lng||'', max_delivery_km: s.max_delivery_km||5, open_time: s.open_time||'09:00', close_time: s.close_time||'22:00', estimated_time: s.estimated_time||45, auto_schedule: s.auto_schedule||false, order_timeout_minutes: s.order_timeout_minutes||2, escalation_interval_sec: s.escalation_interval_sec||30, review_reward_enabled: s.review_reward_enabled||false, review_reward_amount: s.review_reward_amount||20, review_reward_min_order: s.review_reward_min_order||99, boy_min_payout: s.boy_min_payout||25, boy_base_km: s.boy_base_km||2, boy_per_km: s.boy_per_km||7, min_order_value: s.min_order_value||99, small_order_fee: s.small_order_fee||20, free_delivery_all: s.free_delivery_all||false, loyalty_enabled: s.loyalty_enabled||false, loyalty_threshold: s.loyalty_threshold||5, loyalty_reward: s.loyalty_reward||50, loyalty_min_order: s.loyalty_min_order||199 }
     setKitchenSettings(ks)
     kitchenSettingsRef.current = ks
     const loadedOrders = ordersRes.orders || []
@@ -1832,7 +1832,7 @@ export default function AdminPage() {
                 <p style={{ fontSize:11, color:'var(--t2)', marginBottom:14 }}>
                   After every <b>{kitchenSettings.loyalty_threshold}</b> delivered orders, the customer gets <b>₹{kitchenSettings.loyalty_reward}</b> off (auto-applied on their next order) — like a stamp card that drives repeat orders. <b>This toggle saves instantly.</b>
                 </p>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, opacity: kitchenSettings.loyalty_enabled ? 1 : 0.5, pointerEvents: kitchenSettings.loyalty_enabled ? 'auto' : 'none' }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))', gap:10, opacity: kitchenSettings.loyalty_enabled ? 1 : 0.5, pointerEvents: kitchenSettings.loyalty_enabled ? 'auto' : 'none' }}>
                   <div className="field">
                     <label>Orders per reward</label>
                     <input type="number" min="2" max="20" value={kitchenSettings.loyalty_threshold} onChange={e => setKitchenSettings({...kitchenSettings, loyalty_threshold:e.target.value})} />
@@ -1842,6 +1842,13 @@ export default function AdminPage() {
                     <label>Reward Amount (₹)</label>
                     <input type="number" min="1" max="500" value={kitchenSettings.loyalty_reward} onChange={e => setKitchenSettings({...kitchenSettings, loyalty_reward:e.target.value})} />
                     <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Discount on the next order when earned</p>
+                  </div>
+                  <div className="field">
+                    <label>Min order to redeem (₹)</label>
+                    <input type="number" min="0" max="2000" value={kitchenSettings.loyalty_min_order} onChange={e => setKitchenSettings({...kitchenSettings, loyalty_min_order:e.target.value})} />
+                    <p style={{ fontSize:11, color: (parseInt(kitchenSettings.loyalty_min_order)||0) <= (parseInt(kitchenSettings.loyalty_reward)||0) ? '#dc2626' : 'var(--t3)', marginTop:4 }}>
+                      Reward applies only on orders ≥ this. Keep it well above the reward (e.g. reward ₹{kitchenSettings.loyalty_reward} → min ₹{(parseInt(kitchenSettings.loyalty_reward)||0)+100}) so orders never hit ₹0.
+                    </p>
                   </div>
                 </div>
                 <p style={{ fontSize:11, color:'#92400e', background:'#fef3c7', borderRadius:8, padding:'8px 12px', margin:0 }}>

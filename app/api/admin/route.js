@@ -119,6 +119,8 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_threshold INT DEFAULT 5`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_reward INT DEFAULT 50`
+    // Minimum order value to REDEEM the loyalty reward (prevents ₹0 orders).
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_min_order INT DEFAULT 199`
     // When the loyalty offer was (re)started — only orders AFTER this count.
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_started_at TIMESTAMPTZ`
     // Fitness Freak Corner: when false, customers see items as "Coming Soon" (no ordering)
@@ -515,7 +517,7 @@ export async function GET(request) {
            review_reward_enabled, review_reward_amount, review_reward_min_order,
            fitness_corner_enabled, boy_min_payout, boy_base_km, boy_per_km,
            min_order_value, small_order_fee, free_delivery_all,
-           loyalty_enabled, loyalty_threshold, loyalty_reward
+           loyalty_enabled, loyalty_threshold, loyalty_reward, loyalty_min_order
     FROM kitchen_settings WHERE id = 1
   `
   return NextResponse.json({ settings })
@@ -556,6 +558,7 @@ export async function PATCH(request) {
     const loyEn      = data.loyalty_enabled   != null ? !!data.loyalty_enabled : null
     const loyThr     = data.loyalty_threshold != null ? parseInt(data.loyalty_threshold) : null
     const loyRew     = data.loyalty_reward    != null ? parseInt(data.loyalty_reward) : null
+    const loyMin     = data.loyalty_min_order != null ? parseInt(data.loyalty_min_order) : null
 
     // When admin manually toggles is_open:
     // CLOSE (false) → force_closed = true  (schedule cannot re-open)
@@ -593,6 +596,7 @@ export async function PATCH(request) {
         loyalty_enabled         = COALESCE(${loyEn},   loyalty_enabled),
         loyalty_threshold       = COALESCE(${loyThr},  loyalty_threshold),
         loyalty_reward          = COALESCE(${loyRew},  loyalty_reward),
+        loyalty_min_order       = COALESCE(${loyMin},  loyalty_min_order),
         -- Start (or restart) the offer clock the moment it's switched ON.
         loyalty_started_at      = CASE
                                     WHEN ${loyEn}::boolean IS TRUE AND (loyalty_enabled IS NOT TRUE OR loyalty_started_at IS NULL) THEN NOW()

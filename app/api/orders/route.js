@@ -610,7 +610,7 @@ export async function POST(request) {
   let rewardDiscount = 0
   let rewardToUse = null
   try {
-    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled FROM kitchen_settings WHERE id = 1`
+    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled, loyalty_min_order FROM kitchen_settings WHERE id = 1`
     const rewardsActive = rcfg?.review_reward_enabled || rcfg?.loyalty_enabled
     if (rewardsActive) {
       let rows = []
@@ -632,7 +632,11 @@ export async function POST(request) {
       // order (earned over N orders); review rewards keep the min-order rule.
       for (const r of rows) {
         const isLoyalty = r.source === 'loyalty'
-        const minNeeded = isLoyalty ? 0 : (parseInt(rcfg.review_reward_min_order) || 0)
+        // Loyalty reward needs a minimum order to redeem (prevents ₹0 orders);
+        // review reward keeps its own min.
+        const minNeeded = isLoyalty
+          ? (parseInt(rcfg.loyalty_min_order) || 0)
+          : (parseInt(rcfg.review_reward_min_order) || 0)
         if (subtotal >= minNeeded) {
           rewardToUse = r.id
           rewardDiscount = Math.min(parseInt(r.amount) || 0, subtotal)

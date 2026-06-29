@@ -1281,6 +1281,11 @@ export default function AdminPage() {
         {section === 'menu' && (
           <>
             <div className={styles.sectionHead}><h2>Menu Items</h2><button className="btn btn-primary" onClick={() => setShowAddItem(true)}>+ Add Item</button></div>
+            <p style={{ fontSize:12, color:'var(--t2)', margin:'0 0 12px' }}>Tip: edit an item&apos;s name or category right on its card, then hit <b>Save</b>. Pick an existing category or type a new one.</p>
+            {/* Category suggestions for the inline editors */}
+            <datalist id="menuCatList">
+              {[...new Set([...menuItems.map(m => m.category), 'Rice Combos', 'Fried Rice Combos', 'Roti & Puri Combos', 'Add-Ons'].filter(Boolean))].map(c => <option key={c} value={c} />)}
+            </datalist>
             <div className={styles.menuGrid}>
               {menuItems.map(item => (
                 <div key={item.id} className={styles.menuCard}>
@@ -1301,14 +1306,16 @@ export default function AdminPage() {
                       onChange={e => { if(e.target.files[0]) { setEditingItemId(item.id); uploadImage(e.target.files[0], url => updateMenuItemImage(item.id, url)) } }} />
                   </div>
 
-                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:4, flexWrap:'wrap' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:6 }}>
                     <span className={`veg-dot ${item.is_veg?'veg':'nonveg'}`} />
-                    <strong style={{ fontSize:12 }}>{item.name}</strong>
+                    <input defaultValue={item.name} id={`name-${item.id}`}
+                      style={{ fontSize:12, fontWeight:700, flex:1, minWidth:0, border:'1px solid var(--bd2)', borderRadius:6, padding:'4px 7px', background:'var(--bg)', color:'var(--t1)', boxSizing:'border-box' }} />
                     {item.stock_count !== null && item.stock_count !== undefined && parseInt(item.stock_count) <= 5 && (
-                      <span style={{ background:'#fef2f2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>⚠️ {item.stock_count}</span>
+                      <span style={{ background:'#fef2f2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700, flexShrink:0 }}>⚠️ {item.stock_count}</span>
                     )}
                   </div>
-                  <span className={styles.catTag}>{item.category}</span>
+                  <input defaultValue={item.category} id={`cat-${item.id}`} list="menuCatList" placeholder="Category"
+                    style={{ fontSize:11, marginBottom:8, width:'100%', border:'1px solid var(--bd2)', borderRadius:6, padding:'4px 7px', background:'var(--bg)', color:'var(--t2)', boxSizing:'border-box' }} />
                   <div className={styles.priceEdit}>
                     <label style={{ fontSize:11, color:'var(--t2)' }}>₹ Price</label>
                     <input type="number" defaultValue={item.price} className={styles.priceInput} id={`price-${item.id}`} />
@@ -1319,8 +1326,18 @@ export default function AdminPage() {
                   </div>
                   <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px', marginBottom:8, width:'100%' }} onClick={async () => {
                     const stockRaw = document.getElementById(`stock-${item.id}`).value
-                    await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ id:item.id, stock_count: stockRaw===''?null:parseInt(stockRaw) }) })
-                    updateItemPrice(item.id, document.getElementById(`price-${item.id}`).value, document.getElementById(`disc-${item.id}`).value)
+                    const name = document.getElementById(`name-${item.id}`).value.trim()
+                    const category = document.getElementById(`cat-${item.id}`).value.trim()
+                    if (!name || !category) { showToast('❌ Name and category are required'); return }
+                    const price = parseFloat(document.getElementById(`price-${item.id}`).value)
+                    const discount_percent = parseInt(document.getElementById(`disc-${item.id}`).value) || 0
+                    try {
+                      const res = await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({ id:item.id, name, category, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) }) })
+                      if (!res.ok) { showToast('❌ Could not save'); return }
+                      setMenuItems(prev => prev.map(m => m.id===item.id ? { ...m, name, category, price, discount_percent, stock_count: stockRaw===''?null:parseInt(stockRaw) } : m))
+                      showToast('✅ Item updated')
+                    } catch { showToast('❌ Network error') }
                   }}>Save</button>
                   <div className={styles.availToggle}>
                     <div className={`switch ${item.is_available?'on':''}`} onClick={() => toggleMenuItem(item.id, !item.is_available)} />
@@ -1340,7 +1357,7 @@ export default function AdminPage() {
                       <div className="field"><label>Price (₹)</label><input required type="number" value={newItem.price} onChange={e => setNewItem({...newItem, price:e.target.value})} /></div>
                       <div className="field"><label>Discount %</label><input type="number" value={newItem.discount_percent} onChange={e => setNewItem({...newItem, discount_percent:e.target.value})} /></div>
                     </div>
-                    <div className="field"><label>Category</label><select value={newItem.category} onChange={e => setNewItem({...newItem, category:e.target.value})}><option>Rice Combos</option><option>Fried Rice Combos</option><option>Roti &amp; Puri Combos</option><option>Add-Ons</option></select></div>
+                    <div className="field"><label>Category</label><input required list="menuCatList" value={newItem.category} onChange={e => setNewItem({...newItem, category:e.target.value})} placeholder="Pick existing or type a new one" /></div>
                     <div className="field">
                       <label>Photo (optional)</label>
                       <div style={{ display:'flex', gap:8, alignItems:'center' }}>

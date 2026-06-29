@@ -89,6 +89,8 @@ export default function AdminPage() {
   const phoneMapInstRef = useRef(null)
   const phoneSearchRef = useRef(null)
   const [newItem, setNewItem] = useState({ name:'', description:'', price:'', discount_percent:0, category:'Rice Combos', is_veg:true, image_url:'' })
+  const [catEdits, setCatEdits] = useState({})   // per-item edited category (menu cards)
+  const [newCats, setNewCats] = useState([])     // categories the admin just added
 
   // 🥗 Fitness Corner
   const EMPTY_FIT = { name:'', about:'', price:'', discount_percent:0, calories:'', protein_g:'', carbs_g:'', fat_g:'', fiber_g:'', other_nutrients:'', diet_tag:'', is_veg:true, image_url:'', is_available:false }
@@ -629,6 +631,22 @@ export default function AdminPage() {
   const updateItemPrice = async (itemId, price, disc) => {
     await fetch('/api/menu', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id:itemId, price:parseFloat(price), discount_percent:parseInt(disc) }) })
     showToast('✅ Price update ho gayi!')
+  }
+
+  // All categories for the menu dropdowns (existing + admin-added), de-duplicated.
+  const allCategories = () => [...new Set([
+    ...menuItems.map(m => m.category),
+    ...newCats,
+    ...Object.values(catEdits),
+    'Rice Combos', 'Fried Rice Combos', 'Roti & Puri Combos', 'Add-Ons',
+  ].map(c => (c || '').trim()).filter(Boolean))]
+
+  // Prompt for a brand-new category, remember it so it shows in every dropdown.
+  const promptNewCategory = () => {
+    const c = (window.prompt('Enter the new category name:') || '').trim()
+    if (!c) return null
+    setNewCats(prev => [...new Set([...prev, c])])
+    return c
   }
 
   const addNewItem = async (e) => {
@@ -1281,11 +1299,7 @@ export default function AdminPage() {
         {section === 'menu' && (
           <>
             <div className={styles.sectionHead}><h2>Menu Items</h2><button className="btn btn-primary" onClick={() => setShowAddItem(true)}>+ Add Item</button></div>
-            <p style={{ fontSize:12, color:'var(--t2)', margin:'0 0 12px' }}>Tip: edit an item&apos;s name or category right on its card, then hit <b>Save</b>. Pick an existing category or type a new one.</p>
-            {/* Category suggestions for the inline editors */}
-            <datalist id="menuCatList">
-              {[...new Set([...menuItems.map(m => m.category), 'Rice Combos', 'Fried Rice Combos', 'Roti & Puri Combos', 'Add-Ons'].filter(Boolean))].map(c => <option key={c} value={c} />)}
-            </datalist>
+            <p style={{ fontSize:12, color:'var(--t2)', margin:'0 0 12px' }}>Tip: edit an item&apos;s name or category right on its card, then hit <b>Save</b>. Use the category dropdown — or pick &ldquo;➕ Add new category&rdquo; to create one.</p>
             <div className={styles.menuGrid}>
               {menuItems.map(item => (
                 <div key={item.id} className={styles.menuCard}>
@@ -1314,8 +1328,16 @@ export default function AdminPage() {
                       <span style={{ background:'#fef2f2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700, flexShrink:0 }}>⚠️ {item.stock_count}</span>
                     )}
                   </div>
-                  <input defaultValue={item.category} id={`cat-${item.id}`} list="menuCatList" placeholder="Category"
-                    style={{ fontSize:11, marginBottom:8, width:'100%', border:'1px solid var(--bd2)', borderRadius:6, padding:'4px 7px', background:'var(--bg)', color:'var(--t2)', boxSizing:'border-box' }} />
+                  <select
+                    value={catEdits[item.id] ?? item.category}
+                    onChange={e => {
+                      if (e.target.value === '__new__') { const c = promptNewCategory(); if (c) setCatEdits(prev => ({ ...prev, [item.id]: c })) }
+                      else setCatEdits(prev => ({ ...prev, [item.id]: e.target.value }))
+                    }}
+                    style={{ fontSize:11, marginBottom:8, width:'100%', border:'1px solid var(--bd2)', borderRadius:6, padding:'5px 7px', background:'var(--bg)', color:'var(--t1)', boxSizing:'border-box', cursor:'pointer' }}>
+                    {allCategories().map(c => <option key={c} value={c}>{c}</option>)}
+                    <option value="__new__">➕ Add new category…</option>
+                  </select>
                   <div className={styles.priceEdit}>
                     <label style={{ fontSize:11, color:'var(--t2)' }}>₹ Price</label>
                     <input type="number" defaultValue={item.price} className={styles.priceInput} id={`price-${item.id}`} />
@@ -1327,7 +1349,7 @@ export default function AdminPage() {
                   <button className="btn btn-secondary" style={{ fontSize:11, padding:'4px 10px', marginBottom:8, width:'100%' }} onClick={async () => {
                     const stockRaw = document.getElementById(`stock-${item.id}`).value
                     const name = document.getElementById(`name-${item.id}`).value.trim()
-                    const category = document.getElementById(`cat-${item.id}`).value.trim()
+                    const category = (catEdits[item.id] ?? item.category ?? '').trim()
                     if (!name || !category) { showToast('❌ Name and category are required'); return }
                     const price = parseFloat(document.getElementById(`price-${item.id}`).value)
                     const discount_percent = parseInt(document.getElementById(`disc-${item.id}`).value) || 0
@@ -1357,7 +1379,16 @@ export default function AdminPage() {
                       <div className="field"><label>Price (₹)</label><input required type="number" value={newItem.price} onChange={e => setNewItem({...newItem, price:e.target.value})} /></div>
                       <div className="field"><label>Discount %</label><input type="number" value={newItem.discount_percent} onChange={e => setNewItem({...newItem, discount_percent:e.target.value})} /></div>
                     </div>
-                    <div className="field"><label>Category</label><input required list="menuCatList" value={newItem.category} onChange={e => setNewItem({...newItem, category:e.target.value})} placeholder="Pick existing or type a new one" /></div>
+                    <div className="field"><label>Category</label>
+                      <select value={newItem.category}
+                        onChange={e => {
+                          if (e.target.value === '__new__') { const c = promptNewCategory(); if (c) setNewItem({ ...newItem, category: c }) }
+                          else setNewItem({ ...newItem, category: e.target.value })
+                        }}>
+                        {[...new Set([...allCategories(), newItem.category].filter(Boolean))].map(c => <option key={c} value={c}>{c}</option>)}
+                        <option value="__new__">➕ Add new category…</option>
+                      </select>
+                    </div>
                     <div className="field">
                       <label>Photo (optional)</label>
                       <div style={{ display:'flex', gap:8, alignItems:'center' }}>

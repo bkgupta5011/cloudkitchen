@@ -119,6 +119,8 @@ async function ensureKitchenColumns(sql) {
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_threshold INT DEFAULT 5`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_reward INT DEFAULT 50`
+    // When the loyalty offer was (re)started — only orders AFTER this count.
+    await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS loyalty_started_at TIMESTAMPTZ`
     // Fitness Freak Corner: when false, customers see items as "Coming Soon" (no ordering)
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS fitness_corner_enabled BOOLEAN DEFAULT false`
     await sql`ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS boy_min_payout NUMERIC DEFAULT 25`
@@ -591,6 +593,10 @@ export async function PATCH(request) {
         loyalty_enabled         = COALESCE(${loyEn},   loyalty_enabled),
         loyalty_threshold       = COALESCE(${loyThr},  loyalty_threshold),
         loyalty_reward          = COALESCE(${loyRew},  loyalty_reward),
+        -- Start (or restart) the offer clock the moment it's switched ON.
+        loyalty_started_at      = CASE
+                                    WHEN ${loyEn}::boolean IS TRUE AND (loyalty_enabled IS NOT TRUE OR loyalty_started_at IS NULL) THEN NOW()
+                                    ELSE loyalty_started_at END,
         updated_at              = NOW()
       WHERE id = 1 RETURNING *
     `

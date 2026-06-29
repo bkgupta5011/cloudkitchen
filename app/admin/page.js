@@ -1771,25 +1771,33 @@ export default function AdminPage() {
               <div style={{ background:'var(--card)', borderRadius:14, padding:'18px 20px', border:'1.5px solid #f59e0b', gridColumn:'1/-1' }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
                   <h3 style={{ fontSize:14, fontWeight:700, margin:0 }}>🔁 Loyalty / Repeat Reward</h3>
-                  <div className={`switch ${kitchenSettings.loyalty_enabled?'on':''}`} onClick={() => setKitchenSettings({...kitchenSettings, loyalty_enabled:!kitchenSettings.loyalty_enabled})} />
+                  <div className={`switch ${kitchenSettings.loyalty_enabled?'on':''}`}
+                    onClick={async () => {
+                      const next = !kitchenSettings.loyalty_enabled
+                      setKitchenSettings(p => ({ ...p, loyalty_enabled: next }))
+                      try {
+                        await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', loyalty_enabled: next }) })
+                        showToast(next ? '🔁 Loyalty reward turned ON' : '🔴 Loyalty reward turned OFF')
+                      } catch { showToast('❌ Could not update — try again') }
+                    }} />
                 </div>
                 <p style={{ fontSize:11, color:'var(--t2)', marginBottom:14 }}>
-                  Har <b>{kitchenSettings.loyalty_threshold}</b> delivered order ke baad customer ko <b>₹{kitchenSettings.loyalty_reward}</b> off milega (agle order pe auto-apply). Repeat orders ke liye stamp-card jaisa.
+                  After every <b>{kitchenSettings.loyalty_threshold}</b> delivered orders, the customer gets <b>₹{kitchenSettings.loyalty_reward}</b> off (auto-applied on their next order) — like a stamp card that drives repeat orders. <b>This toggle saves instantly.</b>
                 </p>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, opacity: kitchenSettings.loyalty_enabled ? 1 : 0.5, pointerEvents: kitchenSettings.loyalty_enabled ? 'auto' : 'none' }}>
                   <div className="field">
-                    <label>Kitne order pe reward?</label>
+                    <label>Orders per reward</label>
                     <input type="number" min="2" max="20" value={kitchenSettings.loyalty_threshold} onChange={e => setKitchenSettings({...kitchenSettings, loyalty_threshold:e.target.value})} />
-                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Har itne delivered order pe ek reward</p>
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>One reward for every this many delivered orders</p>
                   </div>
                   <div className="field">
                     <label>Reward Amount (₹)</label>
                     <input type="number" min="1" max="500" value={kitchenSettings.loyalty_reward} onChange={e => setKitchenSettings({...kitchenSettings, loyalty_reward:e.target.value})} />
-                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Reward milne pe itna ₹ off (min order ₹{kitchenSettings.review_reward_min_order})</p>
+                    <p style={{ fontSize:11, color:'var(--t3)', marginTop:4 }}>Discount on the next order when earned</p>
                   </div>
                 </div>
                 <p style={{ fontSize:11, color:'#92400e', background:'#fef3c7', borderRadius:8, padding:'8px 12px', margin:0 }}>
-                  💡 Customer ko menu pe "{kitchenSettings.loyalty_threshold-1}/{kitchenSettings.loyalty_threshold} — 1 aur order pe ₹{kitchenSettings.loyalty_reward} off!" dikhega. Reward Review Reward ke saath same auto-apply pipeline use karta hai (min order ₹{kitchenSettings.review_reward_min_order}).
+                  💡 Customers see a stamp card on the cart &amp; orders pages ("{Math.max(0,(parseInt(kitchenSettings.loyalty_threshold)||5)-1)}/{kitchenSettings.loyalty_threshold} — 1 more order to unlock ₹{kitchenSettings.loyalty_reward} off"). Amount/threshold changes need the <b>Save Changes</b> button below.
                 </p>
               </div>
             </div>

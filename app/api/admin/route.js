@@ -226,7 +226,10 @@ export async function GET(request) {
       FROM menu_items m
       LEFT JOIN branch_inventory bi
         ON bi.menu_item_id = m.id AND bi.branch_id = ${branchId}::uuid
-      WHERE m.owner_branch_id IS NULL OR m.owner_branch_id = ${branchId}::uuid
+      -- Head office disabled (master is_available=false) items are hidden from
+      -- the branch inventory entirely — no branch can offer them.
+      WHERE m.is_available = true
+        AND (m.owner_branch_id IS NULL OR m.owner_branch_id = ${branchId}::uuid)
       ORDER BY m.category, m.name
     `
     return NextResponse.json({ items })

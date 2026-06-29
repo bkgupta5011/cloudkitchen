@@ -17,7 +17,9 @@ export default function LoyaltyCard({ compact = false }) {
 
   const n = loyalty.threshold || 5
   const ready = loyalty.availableReward > 0
-  const filled = ready ? n : (loyalty.progress || 0)
+  // Stamps reflect ACTUAL delivered orders in the current cycle — never inflated
+  // to "all filled" just because a reward is available.
+  const filled = Math.min(n, loyalty.progress || 0)
   const slot = compact ? 30 : 38
 
   return (

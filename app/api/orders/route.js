@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { getDeliveryCharge, getMinDeliveryCharge, getDeliveryQuote, getOrderFees, applyOffer, getBoyPayout } from '@/lib/utils'
-import { reconcileLoyalty } from '@/lib/loyalty'
+import { reconcileLoyalty, getLoyaltyStatus, loyaltyNotification } from '@/lib/loyalty'
 import { roadDistanceKm } from '@/lib/distance'
 import { sendFcmToTokens } from '@/lib/fcm'
 import { sendPushToRole, sendPushToUser } from '@/lib/push'
@@ -897,9 +897,14 @@ export async function PATCH(request) {
       }
     }
 
-    // Loyalty: grant any earned reward (self-healing).
-    if (status === 'delivered' && !wasAlreadyDelivered) {
+    // Loyalty: grant any earned reward (self-healing) + notify the customer
+    // how many stamps they have and what's left to unlock the reward.
+    if (status === 'delivered' && !wasAlreadyDelivered && order.user_id) {
       await reconcileLoyalty(sql, order.user_id)
+      try {
+        const ln = loyaltyNotification(await getLoyaltyStatus(sql, order.user_id))
+        if (ln) sendPushToUser(String(order.user_id), { ...ln, url: '/orders', tag: `loyalty-${order.id}` }, 'customer').catch(() => {})
+      } catch {}
     }
 
     // Update earnings ONLY if it wasn't already delivered (prevent double counting)
@@ -945,8 +950,14 @@ export async function PATCH(request) {
     if (!order) return NextResponse.json({ error: 'Order not found or not assigned to you' }, { status: 404 })
 
     if (status === 'delivered' && !wasAlreadyDelivered) {
-      // Loyalty: grant any earned reward (self-healing).
-      await reconcileLoyalty(sql, order.user_id)
+      // Loyalty: grant any earned reward (self-healing) + notify the customer.
+      if (order.user_id) {
+        await reconcileLoyalty(sql, order.user_id)
+        try {
+          const ln = loyaltyNotification(await getLoyaltyStatus(sql, order.user_id))
+          if (ln) sendPushToUser(String(order.user_id), { ...ln, url: '/orders', tag: `loyalty-${order.id}` }, 'customer').catch(() => {})
+        } catch {}
+      }
       // Use stored boy_payout (centralized), else compute from Kitchen Settings
       const earned = order.boy_payout
         ? parseFloat(order.boy_payout)

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { sendPushToUser } from '@/lib/push'
 
 async function ensureStockColumn(sql) {
   try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_count INT DEFAULT NULL` } catch {}
@@ -118,16 +119,29 @@ export async function POST(request) {
     RETURNING *
   `
 
-  // Add the new item to every branch as OFF (unselected) by default. Each
-  // branch's admin must toggle it ON for it to appear in that branch's menu —
-  // i.e. an item shows in a branch only where the admin says "yes".
+  // Add the new item to every branch as OFF + UNACKNOWLEDGED, so each branch
+  // sees it under "🆕 New items" and can turn it ON for their own menu.
   try {
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS acknowledged BOOLEAN DEFAULT true`
     await sql`
-      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
-      SELECT id, ${item.id}::uuid, false FROM branches
+      INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, acknowledged)
+      SELECT id, ${item.id}::uuid, false, false FROM branches
       ON CONFLICT (branch_id, menu_item_id) DO NOTHING
     `
   } catch(e) {} // Safe: branch_inventory table might not exist yet
+
+  // Notify each branch's admin that a new item is available to add.
+  try {
+    const branchAdmins = await sql`SELECT id FROM admins WHERE branch_id IS NOT NULL`
+    for (const ba of branchAdmins) {
+      sendPushToUser(String(ba.id), {
+        title: '🆕 New item available to add',
+        body: `"${name}" was added to the catalogue. Turn it ON in Item Availability to offer it at your branch.`,
+        url: '/branch',
+        tag: `new-item-${item.id}`,
+      }, 'admin').catch(() => {})
+    }
+  } catch (e) {}
 
   return NextResponse.json({ item })
 }

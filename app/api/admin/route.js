@@ -68,6 +68,9 @@ async function ensureBranchInventoryTable(sql) {
     // Per-branch discount % + photo override (null = use the master item's value).
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS discount_percent NUMERIC`
     await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS image_url TEXT`
+    // acknowledged = the branch has seen this item. New shared items arrive
+    // unacknowledged so they surface under "🆕 New items" for the branch.
+    await sql`ALTER TABLE branch_inventory ADD COLUMN IF NOT EXISTS acknowledged BOOLEAN DEFAULT true`
     // Phase 4: a branch can own its OWN unique items. owner_branch_id NULL =
     // shared master item (all branches); set = belongs only to that branch.
     await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS owner_branch_id UUID`
@@ -215,6 +218,7 @@ export async function GET(request) {
         m.id, m.name, m.category, m.price AS master_price, m.is_veg,
         m.is_available AS global_available, m.owner_branch_id,
         COALESCE(bi.is_available, true)              AS branch_available,
+        COALESCE(bi.acknowledged, true)              AS acknowledged,
         COALESCE(bi.price, m.price)                  AS branch_price,
         bi.stock_count                               AS branch_stock,
         COALESCE(bi.discount_percent, m.discount_percent, 0) AS branch_discount,
@@ -792,11 +796,25 @@ export async function PATCH(request) {
     if (data.action === 'toggle') {
       const { branch_id, item_id, is_available } = data
       if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      // Acting on the item also acknowledges it (clears the "new" flag).
       await sql`
-        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available)
-        VALUES (${branch_id}::uuid, ${item_id}::uuid, ${is_available})
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, acknowledged)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, ${is_available}, true)
         ON CONFLICT (branch_id, menu_item_id)
-        DO UPDATE SET is_available = ${is_available}
+        DO UPDATE SET is_available = ${is_available}, acknowledged = true
+      `
+      return NextResponse.json({ success: true })
+    }
+
+    // Dismiss a "new item" without enabling it (just acknowledge it).
+    if (data.action === 'acknowledge') {
+      const { branch_id, item_id } = data
+      if (!branch_id || !item_id) return NextResponse.json({ error: 'branch_id and item_id required' }, { status: 400 })
+      await sql`
+        INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, acknowledged)
+        VALUES (${branch_id}::uuid, ${item_id}::uuid, false, true)
+        ON CONFLICT (branch_id, menu_item_id)
+        DO UPDATE SET acknowledged = true
       `
       return NextResponse.json({ success: true })
     }
@@ -807,7 +825,7 @@ export async function PATCH(request) {
       if (!branch_id) return NextResponse.json({ error: 'branch_id required' }, { status: 400 })
       await populateBranchInventory(sql, branch_id) // ensure all items exist
       await sql`
-        UPDATE branch_inventory SET is_available = ${is_available}
+        UPDATE branch_inventory SET is_available = ${is_available}, acknowledged = true
         WHERE branch_id = ${branch_id}::uuid
       `
       return NextResponse.json({ success: true })

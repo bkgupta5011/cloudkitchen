@@ -139,14 +139,24 @@ export default function BranchPage() {
   // ── Toggle item availability ───────────────────────────────────────
   const toggleItem = async (itemId, currentVal) => {
     const newVal = !currentVal
-    setItems(prev => prev.map(i => i.id === itemId ? { ...i, branch_available: newVal } : i))
+    // Toggling also acknowledges (clears the "new" flag).
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, branch_available: newVal, acknowledged: true } : i))
     try {
       await fetch('/api/admin', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'branch_inventory', action: 'toggle', branch_id: user.branch_id, item_id: itemId, is_available: newVal }),
       })
-      showToast(newVal ? '✅ Item available' : '🔴 Item unavailable')
+      showToast(newVal ? '✅ Item turned on for your branch' : '🔴 Item turned off for your branch')
+    } catch { fetchItems() }
+  }
+
+  // Dismiss a new item without enabling it (just acknowledge).
+  const dismissNew = async (itemId) => {
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, acknowledged: true } : i))
+    try {
+      await fetch('/api/admin', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'branch_inventory', action: 'acknowledge', branch_id: user.branch_id, item_id: itemId }) })
     } catch { fetchItems() }
   }
 
@@ -611,8 +621,33 @@ export default function BranchPage() {
               </div>
             </div>
             <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14 }}>
-              Apna price + stock set karo, items on/off karo. Price blank = master rate. Stock blank = unlimited. Customers ko sirf ON items dikhte hain.
+              Set your own price + stock and turn items on/off. Blank price = master rate, blank stock = unlimited. Customers only see items that are ON.
             </p>
+
+            {/* 🆕 New items the head office added — branch hasn't reviewed yet */}
+            {(() => {
+              const newItems = items.filter(i => i.acknowledged === false)
+              if (!newItems.length) return null
+              return (
+                <div style={{ background: '#eff6ff', border: '1.5px solid #bfdbfe', borderRadius: 12, padding: '14px 16px', marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#1e40af', marginBottom: 4 }}>🆕 New items available to add ({newItems.length})</div>
+                  <div style={{ fontSize: 11.5, color: '#3b6fd4', marginBottom: 10 }}>Head office added these. Turn ON the ones you want to offer at your branch, or dismiss.</div>
+                  {newItems.map(item => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid #dbeafe' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: item.is_veg ? 'var(--gr)' : 'var(--rd)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--t1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--t3)' }}>{item.category} · ₹{item.branch_price ?? item.master_price}</div>
+                      </div>
+                      <button onClick={() => dismissNew(item.id)} style={{ background: 'none', border: 'none', color: 'var(--t3)', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>Dismiss</button>
+                      <button onClick={() => toggleItem(item.id, item.branch_available)} className="btn btn-primary" style={{ fontSize: 11, padding: '5px 12px', flexShrink: 0 }}>
+                        {item.branch_available ? '✓ On' : '+ Turn on'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
 
             {/* Add own item form */}
             {showAddItem && (

@@ -610,28 +610,31 @@ export async function POST(request) {
   let rewardDiscount = 0
   let rewardToUse = null
   try {
-    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled, loyalty_min_order FROM kitchen_settings WHERE id = 1`
+    const [rcfg] = await sql`SELECT review_reward_enabled, review_reward_min_order, loyalty_enabled, loyalty_min_order, loyalty_started_at FROM kitchen_settings WHERE id = 1`
     const rewardsActive = rcfg?.review_reward_enabled || rcfg?.loyalty_enabled
     if (rewardsActive) {
       let rows = []
       try {
         rows = await sql`
-          SELECT id, amount, source FROM review_rewards
+          SELECT id, amount, source, created_at FROM review_rewards
           WHERE customer_id = ${user.id} AND status = 'available'
           ORDER BY created_at ASC
         `
       } catch {
         // `source` column may not exist yet on older DBs — fall back without it.
         rows = await sql`
-          SELECT id, amount FROM review_rewards
+          SELECT id, amount, created_at FROM review_rewards
           WHERE customer_id = ${user.id} AND status = 'available'
           ORDER BY created_at ASC
         `
       }
-      // Pick the first reward usable on this order. Loyalty rewards apply on ANY
-      // order (earned over N orders); review rewards keep the min-order rule.
+      const loyStart = rcfg.loyalty_started_at ? new Date(rcfg.loyalty_started_at) : null
+      // Pick the first reward usable on this order.
       for (const r of rows) {
         const isLoyalty = r.source === 'loyalty'
+        // Loyalty rewards earned in an EARLIER offer period (before the current
+        // start) are void — never apply them.
+        if (isLoyalty && loyStart && r.created_at && new Date(r.created_at) < loyStart) continue
         // Loyalty reward needs a minimum order to redeem (prevents ₹0 orders);
         // review reward keeps its own min.
         const minNeeded = isLoyalty

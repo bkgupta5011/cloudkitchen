@@ -77,7 +77,7 @@ export async function GET(request) {
   // show the auto-discount AND the "review to earn" popup after ordering)
   if (type === 'reward') {
     try {
-      const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount, review_reward_min_order, loyalty_enabled, loyalty_min_order FROM kitchen_settings WHERE id = 1`
+      const [cfg] = await sql`SELECT review_reward_enabled, review_reward_amount, review_reward_min_order, loyalty_enabled, loyalty_min_order, loyalty_started_at FROM kitchen_settings WHERE id = 1`
       const config = {
         enabled: !!cfg?.review_reward_enabled,
         amount: parseInt(cfg?.review_reward_amount) || 0,
@@ -89,12 +89,14 @@ export async function GET(request) {
       await ensureRewardsTable(sql)
       // Grant any loyalty reward already earned, so the cart can preview it.
       await reconcileLoyalty(sql, user.id)
-      const [r] = await sql`
-        SELECT amount, source FROM review_rewards
+      const rows = await sql`
+        SELECT amount, source, created_at FROM review_rewards
         WHERE customer_id = ${user.id} AND status = 'available'
-        ORDER BY created_at ASC LIMIT 1
+        ORDER BY created_at ASC
       `
-      // Loyalty rewards need their own min order to redeem; review rewards keep theirs.
+      const loyStart = cfg?.loyalty_started_at ? new Date(cfg.loyalty_started_at) : null
+      // Skip loyalty rewards earned in an earlier offer period (now void).
+      const r = rows.find(x => !(x.source === 'loyalty' && loyStart && x.created_at && new Date(x.created_at) < loyStart))
       const loyaltyMin = parseInt(cfg?.loyalty_min_order) || 0
       const reward = r
         ? { amount: parseInt(r.amount), minOrder: r.source === 'loyalty' ? loyaltyMin : config.minOrder, source: r.source || 'review' }

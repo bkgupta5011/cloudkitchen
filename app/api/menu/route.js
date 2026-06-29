@@ -160,6 +160,16 @@ export async function PATCH(request) {
 
   if (!id) return NextResponse.json({ error: 'Item ID required' }, { status: 400 })
 
+  // Detect a real master-PRICE change so we can reset branch overrides below
+  // ("last edit wins": admin price change → every branch follows the new master
+  // price; a branch can re-set its own afterward).
+  const priceProvided = Object.prototype.hasOwnProperty.call(fields, 'price') && fields.price != null && fields.price !== ''
+  let prevPrice = null
+  if (priceProvided) {
+    const [cur] = await sql`SELECT price FROM menu_items WHERE id = ${id}`
+    prevPrice = cur ? Number(cur.price) : null
+  }
+
   const [item] = await sql`
     UPDATE menu_items
     SET
@@ -176,6 +186,13 @@ export async function PATCH(request) {
     WHERE id = ${id}
     RETURNING *
   `
+
+  // Master price actually changed → clear per-branch price overrides so all
+  // branches show the new master price (until a branch sets its own again).
+  if (priceProvided && prevPrice !== null && Number(fields.price) !== prevPrice) {
+    try { await sql`UPDATE branch_inventory SET price = NULL WHERE menu_item_id = ${id}::uuid` } catch {}
+  }
+
   return NextResponse.json({ item })
 }
 

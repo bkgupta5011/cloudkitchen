@@ -1301,7 +1301,10 @@ export default function AdminPage() {
             <div className={styles.sectionHead}><h2>Menu Items</h2><button className="btn btn-primary" onClick={() => setShowAddItem(true)}>+ Add Item</button></div>
             <p style={{ fontSize:12, color:'var(--t2)', margin:'0 0 12px' }}>Tip: edit an item&apos;s name or category right on its card, then hit <b>Save</b>. Use the category dropdown — or pick &ldquo;➕ Add new category&rdquo; to create one.</p>
             <div className={styles.menuGrid}>
-              {menuItems.map(item => (
+              {(() => {
+                const headerSty = { gridColumn:'1 / -1', fontSize:13, fontWeight:800, color:'var(--t1)', padding:'14px 4px 4px', borderBottom:'1.5px solid var(--bd)', marginTop:4 }
+                const sortCat = (a, b) => (a.category||'').localeCompare(b.category||'') || ((a.sort_order||0) - (b.sort_order||0)) || (a.name||'').localeCompare(b.name||'')
+                const renderCard = (item) => (
                 <div key={item.id} className={styles.menuCard}>
                   {/* Photo area */}
                   <div style={{ position:'relative', width:'100%', height:100, borderRadius:8, marginBottom:8, background:'var(--bg)', overflow:'hidden', cursor:'pointer' }}
@@ -1366,7 +1369,23 @@ export default function AdminPage() {
                     <span style={{ fontSize:12, color:'var(--t2)' }}>{item.is_available?'Available':'Unavailable'}</span>
                   </div>
                 </div>
-              ))}
+                )
+                // Available items first, grouped by category; unavailable at the end.
+                const avail = menuItems.filter(m => m.is_available).sort(sortCat)
+                const unavail = menuItems.filter(m => !m.is_available).sort(sortCat)
+                const out = []
+                let lastCat = null
+                avail.forEach(it => {
+                  const c = it.category || 'Uncategorized'
+                  if (c !== lastCat) { lastCat = c; out.push(<div key={'h-' + c} style={headerSty}>📂 {c}</div>) }
+                  out.push(renderCard(it))
+                })
+                if (unavail.length) {
+                  out.push(<div key="h-unavail" style={{ ...headerSty, color:'#dc2626' }}>🚫 Unavailable ({unavail.length})</div>)
+                  unavail.forEach(it => out.push(renderCard(it)))
+                }
+                return out
+              })()}
             </div>
             {showAddItem && (
               <div className={styles.modalBg} onClick={e => e.target===e.currentTarget && setShowAddItem(false)}>

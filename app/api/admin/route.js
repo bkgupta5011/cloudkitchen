@@ -609,8 +609,8 @@ export async function PATCH(request) {
         -- and rewards earned under the old rule don't carry into the new one.
         loyalty_started_at      = CASE
                                     WHEN ${loyEn}::boolean IS TRUE AND (loyalty_enabled IS NOT TRUE OR loyalty_started_at IS NULL) THEN NOW()
-                                    WHEN ${loyThr} IS NOT NULL AND ${loyThr} <> loyalty_threshold THEN NOW()
-                                    WHEN ${loyRew} IS NOT NULL AND ${loyRew} <> loyalty_reward THEN NOW()
+                                    WHEN ${loyThr}::int IS NOT NULL AND ${loyThr}::int <> loyalty_threshold THEN NOW()
+                                    WHEN ${loyRew}::int IS NOT NULL AND ${loyRew}::int <> loyalty_reward THEN NOW()
                                     ELSE loyalty_started_at END,
         updated_at              = NOW()
       WHERE id = 1 RETURNING *

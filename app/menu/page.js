@@ -397,10 +397,14 @@ function MenuPageContent() {
   const [cartOutlet, setCartOutlet] = useState(null) // { id, name } current cart's outlet
   const [switchPrompt, setSwitchPrompt] = useState(null) // { itemId, branch } for outlet-switch confirm
   const [locResolved, setLocResolved] = useState(false)
-  const [serviceable, setServiceable] = useState(true)
+  const [serviceable, setServiceable] = useState(true)   // geographically covered by some branch
+  const [areaClosed, setAreaClosed] = useState(false)    // covered, but every nearby outlet is closed right now
+  const [kitchenOpenTime, setKitchenOpenTime] = useState('') // global fallback opening time (e.g. "09:00")
   const [showLocGate, setShowLocGate] = useState(false)
   const [locBusy, setLocBusy] = useState(false)
   const [gateAddr, setGateAddr] = useState('')
+  const [notifyState, setNotifyState] = useState('idle') // idle | saving | done
+  const [notifyPhone, setNotifyPhone] = useState('')
   const notifPollRef  = useRef(null)
   const lastUnreadRef = useRef(-1)
   const syncTimerRef  = useRef(null) // debounce DB sync
@@ -457,6 +461,7 @@ function MenuPageContent() {
       }
       setMenuItems(menuData.items || [])
       setKitchenOpen(settingsData.settings?.is_open ?? true)
+      setKitchenOpenTime(settingsData.settings?.open_time || '')
       setKitchenPhone(settingsData.settings?.phone || null)
       setOffers(offersData.offers || [])
       setItemRatings(ratingsData.itemRatings || {})
@@ -519,27 +524,44 @@ function MenuPageContent() {
   const applyLocation = async (loc, branches, gKm) => {
     const list = branches || allBranches
     const km = gKm != null ? gKm : globalMaxKm
-    const serving = findServingBranches(list, loc.lat, loc.lng, km)
     setCustLoc(loc)
     try { localStorage.setItem('ck_loc', JSON.stringify(loc)) } catch {}
-    if (!serving.length) {
+    setNotifyState('idle')
+
+    // Step 1 — GEOGRAPHY only: which branches' delivery zone covers this spot?
+    // (open/closed ignored here, so a covered customer is never told we're absent)
+    const geoServing = findServingBranches(list, loc.lat, loc.lng, km)
+
+    // State C — truly outside every branch's range.
+    if (!geoServing.length) {
       const nearest = findNearestBranchClient(list, loc.lat, loc.lng, km)
       setServiceable(false)
+      setAreaClosed(false)
       setServingBranches([])
       setBranchInfo(nearest ? { name: nearest.name, dist: nearest.dist } : null)
       setShowLocGate(false)
       setLocResolved(true)
       return
     }
+
+    // Step 2 — among the covering branches, which are OPEN right now?
+    const openServing = geoServing.filter(b => b.open_now !== false)
     setServiceable(true)
-    setServingBranches(serving)
-    setBranchInfo({ id: serving[0].id, name: serving[0].name, dist: serving[0].dist, count: serving.length })
     setShowLocGate(false)
     setLocResolved(true)
-    // Fetch each serving outlet's own menu, then merge (cheapest wins).
+
+    // State B — covered, but every nearby outlet is closed right now.
+    // Still show the menu (browse-only) so the customer sees we're in their area.
+    const areaIsClosed = openServing.length === 0
+    setAreaClosed(areaIsClosed)
+    const menuSource = areaIsClosed ? geoServing : openServing
+    setServingBranches(menuSource)
+    setBranchInfo({ id: menuSource[0].id, name: menuSource[0].name, dist: menuSource[0].dist, count: menuSource.length, openTime: menuSource[0].opening_time || '' })
+
+    // Fetch each outlet's own menu, then merge (cheapest wins).
     try {
       const menus = await Promise.all(
-        serving.map(b =>
+        menuSource.map(b =>
           fetch(`/api/menu?branch_id=${b.id}`).then(r => r.json())
             .then(d => ({ branch: b, items: d.items || [] }))
             .catch(() => ({ branch: b, items: [] }))
@@ -605,6 +627,28 @@ function MenuPageContent() {
   // Let the customer change their location again (reopen the gate).
   const changeLocation = () => { setServiceable(true); setShowLocGate(true) }
 
+  // Notify-me: save a retention lead — either "tell me when this area opens"
+  // (covered but closed) or "tell me when you launch here" (out of area).
+  const submitNotify = async (kind) => {
+    const phone = (notifyPhone || '').trim()
+    // Guests must give a number; logged-in users are identified by their account
+    // (the server links the lead to their user_id → phone) so it's optional.
+    if (!phone && !user?.id) { alert('Please enter your mobile number.'); return }
+    setNotifyState('saving')
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind, phone,
+          lat: custLoc?.lat, lng: custLoc?.lng, address: custLoc?.address,
+          branch_id: branchInfo?.id || null,
+        }),
+      })
+      if (res.ok) setNotifyState('done')
+      else { setNotifyState('idle'); alert('Could not save — please try again.') }
+    } catch { setNotifyState('idle'); alert('Network error — please try again.') }
+  }
+
   // Time-based greeting banner
   useEffect(() => {
     const hour = new Date().getHours()
@@ -651,7 +695,7 @@ function MenuPageContent() {
   }
 
   const addItem = (id) => {
-    if (!kitchenOpen) return
+    if (!orderOpen) return
     const item = menuItems.find(m => m.id === id)
     if (!item) return
     const itemBranch = item._branchId ? { id: item._branchId, name: item._branchName } : null
@@ -787,6 +831,10 @@ function MenuPageContent() {
     window.history.replaceState({}, '', '/menu')
   }
 
+  // Ordering is allowed only when the global kitchen is open AND the customer's
+  // covering outlet is open right now (State B = covered-but-closed disables it).
+  const orderOpen = kitchenOpen && !areaClosed
+
   return (
     <div className={styles.page}>
 
@@ -802,7 +850,7 @@ function MenuPageContent() {
           <span style={{ fontSize:16 }}>📍</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:11, color:'#9a3412', fontWeight:700, lineHeight:1.1 }}>
-              {branchInfo?.count > 1 ? `${branchInfo.count} outlets near you` : 'Delivering to'}{branchInfo?.dist != null ? ` · ${branchInfo.dist.toFixed(1)} km` : ''}
+              {areaClosed ? 'You\'re in our delivery area' : (branchInfo?.count > 1 ? `${branchInfo.count} outlets near you` : 'Delivering to')}{branchInfo?.dist != null ? ` · ${branchInfo.dist.toFixed(1)} km` : ''}
             </div>
             <div style={{ fontSize:12, color:'#1a1a1a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {custLoc.address || 'Aapki location'}
@@ -812,8 +860,41 @@ function MenuPageContent() {
         </div>
       )}
 
+      {/* ── State B: covered but CLOSED right now — never a dead-end.
+             Show the menu below (browse) + this banner with a "notify me" CTA. ── */}
+      {serviceable && areaClosed && !showLocGate && (
+        <div style={{ background:'#fffbeb', borderBottom:'1px solid #fde68a', padding:'14px 16px' }}>
+          <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+            <span style={{ fontSize:22, lineHeight:1 }}>😴</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:14, fontWeight:800, color:'#78350f' }}>
+                We&apos;re closed right now{branchInfo?.openTime || kitchenOpenTime ? ` — opens at ${branchInfo?.openTime || kitchenOpenTime}` : ''}
+              </div>
+              <div style={{ fontSize:12, color:'#92400e', marginTop:2 }}>
+                Good news — <strong>you&apos;re in our delivery area!</strong> Browse the menu below, and we&apos;ll ping you the moment we open.
+              </div>
+              {notifyState === 'done' ? (
+                <div style={{ marginTop:10, fontSize:13, fontWeight:700, color:'#15803d' }}>✅ Done! We&apos;ll notify you when we open.</div>
+              ) : (
+                <div style={{ marginTop:10, display:'flex', gap:8, flexWrap:'wrap' }}>
+                  {!user?.id && (
+                    <input value={notifyPhone} onChange={e => setNotifyPhone(e.target.value)}
+                      placeholder="Your mobile number" inputMode="numeric"
+                      style={{ flex:'1 1 150px', minWidth:0, padding:'9px 11px', border:'1px solid #fcd34d', borderRadius:9, fontSize:13, outline:'none' }} />
+                  )}
+                  <button onClick={() => submitNotify('closed')} disabled={notifyState === 'saving'}
+                    style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#d97706', color:'#fff', fontSize:13, fontWeight:800, cursor:'pointer', opacity: notifyState === 'saving' ? 0.6 : 1 }}>
+                    {notifyState === 'saving' ? 'Saving…' : '🔔 Notify me when open'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Free-delivery badge (delivery-as-offer) ── */}
-      {serviceable && !showLocGate && freeDelInfo && (freeDelInfo.festival || (freeDelInfo.freeMin > 0)) && (
+      {serviceable && !areaClosed && !showLocGate && freeDelInfo && (freeDelInfo.festival || (freeDelInfo.freeMin > 0)) && (
         <div style={{ background: freeDelInfo.festival ? '#16a34a' : '#fff7ed', color: freeDelInfo.festival ? '#fff' : '#9a3412', textAlign:'center', padding:'7px 12px', fontSize:12.5, fontWeight:700, borderBottom: freeDelInfo.festival ? 'none' : '1px solid #fed7aa' }}>
           {freeDelInfo.festival
             ? '🎉 Free Delivery Festival — sab orders pe FREE delivery!'
@@ -857,16 +938,35 @@ function MenuPageContent() {
       {/* ── Not serviceable — location is outside every branch's range ── */}
       {locResolved && !serviceable && !showLocGate && (
         <div style={{ position:'fixed', inset:0, zIndex:100000, background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', textAlign:'center' }}>
-          <div style={{ fontSize:60, marginBottom:14 }}>🛵💨</div>
-          <h2 style={{ fontSize:21, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>We don&apos;t deliver here yet</h2>
+          <div style={{ fontSize:60, marginBottom:14 }}>🚀</div>
+          <h2 style={{ fontSize:21, fontWeight:800, color:'#1a1a1a', margin:'0 0 8px' }}>We&apos;re not in your area yet</h2>
           <p style={{ fontSize:14, color:'#6b7280', margin:'0 0 4px', maxWidth:340 }}>
-            Your location {branchInfo?.dist != null ? `(nearest outlet is ${branchInfo.dist.toFixed(1)} km away)` : ''} is outside our delivery range.
+            {branchInfo?.dist != null ? `Our nearest kitchen is ${branchInfo.dist.toFixed(1)} km away` : 'Your location is outside our current delivery range'} — but we&apos;re expanding fast!
           </p>
-          <p style={{ fontSize:13, color:'#9ca3af', margin:'0 0 24px', maxWidth:340 }}>
-            We&apos;re expanding to your area soon. Until then, try a different location.
+          <p style={{ fontSize:13, color:'#9ca3af', margin:'0 0 20px', maxWidth:340 }}>
+            Leave your number and we&apos;ll be the first to tell you when we launch in your area.
           </p>
+
+          {notifyState === 'done' ? (
+            <div style={{ fontSize:15, fontWeight:800, color:'#15803d', marginBottom:22 }}>
+              🎉 You&apos;re on the list! We&apos;ll notify you the moment we reach you.
+            </div>
+          ) : (
+            <div style={{ width:'100%', maxWidth:340, marginBottom:20 }}>
+              {!user?.id && (
+                <input value={notifyPhone} onChange={e => setNotifyPhone(e.target.value)}
+                  placeholder="Your mobile number" inputMode="numeric"
+                  style={{ width:'100%', padding:'12px 14px', border:'1px solid #e5e7eb', borderRadius:11, fontSize:14, outline:'none', marginBottom:10, boxSizing:'border-box' }} />
+              )}
+              <button onClick={() => submitNotify('out_of_area')} disabled={notifyState === 'saving'}
+                style={{ width:'100%', padding:'13px', borderRadius:12, border:'none', background:'#16a34a', color:'#fff', fontSize:15, fontWeight:800, cursor:'pointer', opacity: notifyState === 'saving' ? 0.6 : 1 }}>
+                {notifyState === 'saving' ? 'Saving…' : '🔔 Notify me when you launch here'}
+              </button>
+            </div>
+          )}
+
           <button onClick={changeLocation}
-            style={{ padding:'13px 26px', borderRadius:12, border:'none', background:'#e85d04', color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>
+            style={{ padding:'11px 24px', borderRadius:12, border:'1px solid #e5e7eb', background:'#fff', color:'#374151', fontSize:14, fontWeight:700, cursor:'pointer' }}>
             📍 Try another location
           </button>
         </div>
@@ -976,8 +1076,8 @@ function MenuPageContent() {
       <nav className={styles.nav} style={isGuest ? { marginTop: 44 } : {}}>
         <span className={styles.logo}>🍽️ <span style={{color:'#e85d04'}}>Food</span>Fi</span>
         <div className={styles.navRight}>
-          <span className={`${styles.kitchenBadge} ${kitchenOpen ? styles.open : styles.closed}`}>
-            <span className={styles.dot} /> {kitchenOpen ? 'Open' : 'Closed'}
+          <span className={`${styles.kitchenBadge} ${orderOpen ? styles.open : styles.closed}`}>
+            <span className={styles.dot} /> {orderOpen ? 'Open' : 'Closed'}
           </span>
           {isGuest
             ? <button className="btn btn-primary" onClick={() => router.push('/login')} style={{ fontSize: 12, padding: '6px 12px', background: '#e85d04' }}>Login</button>
@@ -1218,7 +1318,7 @@ function MenuPageContent() {
                       <span style={{ fontSize:15, fontWeight:800, color:'#e11d48' }}>₹99</span>
                       <span style={{ fontSize:11, color:'#9ca3af', textDecoration:'line-through' }}>₹{Math.round(item.price)}</span>
                     </div>
-                    {!isSoldOut && kitchenOpen && (
+                    {!isSoldOut && orderOpen && (
                       <button onClick={e => { e.stopPropagation(); addItem(item.id) }}
                         style={{ marginTop:8, width:'100%', background:'var(--or)', color:'#fff', border:'none', borderRadius:8, padding:'6px 0', fontSize:12, fontWeight:700, cursor:'pointer' }}>
                         + Add
@@ -1263,10 +1363,10 @@ function MenuPageContent() {
                   {isSoldOut && (
                     <span style={{ fontSize:10, background:'#fee2e2', color:'#dc2626', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>● Sold Out</span>
                   )}
-                  {!isSoldOut && !kitchenOpen && (
+                  {!isSoldOut && !orderOpen && (
                     <span style={{ fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>🔒 Closed</span>
                   )}
-                  {!isSoldOut && kitchenOpen && itemRatings[item.id]?.avg >= 4.5 && itemRatings[item.id]?.count >= 3 && (
+                  {!isSoldOut && orderOpen && itemRatings[item.id]?.avg >= 4.5 && itemRatings[item.id]?.count >= 3 && (
                     <span style={{ fontSize:10, background:'#fef3c7', color:'#92400e', borderRadius:6, padding:'1px 6px', fontWeight:700, whiteSpace:'nowrap' }}>🏆 Most Loved</span>
                   )}
                 </div>
@@ -1303,7 +1403,7 @@ function MenuPageContent() {
                 <div onClick={e => e.stopPropagation()}>
                   {isSoldOut ? (
                     <button className={styles.soldOutBtn} disabled>❌ Sold Out</button>
-                  ) : !kitchenOpen ? (
+                  ) : !orderOpen ? (
                     <button className={styles.closedBtn} disabled>🔒 Closed</button>
                   ) : qty === 0 ? (
                     <button className={styles.addBtn} onClick={() => addItem(item.id)}>+ Add</button>
@@ -1390,7 +1490,7 @@ function MenuPageContent() {
           qty={cart[selectedItem.id] || 0}
           dp={discPrice(selectedItem)}
           rating={itemRatings[selectedItem.id]}
-          kitchenOpen={kitchenOpen}
+          kitchenOpen={orderOpen}
           onAdd={() => addItem(selectedItem.id)}
           onRemove={() => removeItem(selectedItem.id)}
           onClose={() => setSelectedItem(null)}

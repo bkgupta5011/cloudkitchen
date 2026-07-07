@@ -2059,10 +2059,33 @@ export default function AdminPage() {
                 </div>
               ) : (
                 <>
-                  <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--bdr)', fontWeight:600, fontSize:14 }}>
-                    Chat with {supportThreads.find(t => t.user_id === activeChatUser)?.user_name}
-                    <span style={{ fontSize:11, color:'var(--t2)', marginLeft:8 }}>{supportThreads.find(t => t.user_id === activeChatUser)?.user_phone}</span>
-                  </div>
+                  {(() => {
+                    const thread = supportThreads.find(t => t.user_id === activeChatUser)
+                    const cust = customers.find(c => c.id === activeChatUser)
+                    const phone = cust?.phone || thread?.user_phone || ''
+                    const waDigits = (phone || '').replace(/\D/g, '')
+                    return (
+                      <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--bdr)' }}>
+                        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, flexWrap:'wrap' }}>
+                          <div style={{ fontWeight:700, fontSize:14 }}>
+                            {thread?.user_name || cust?.name || 'Customer'}
+                            <span style={{ fontSize:11, color:'var(--t2)', marginLeft:8, fontWeight:400 }}>{phone}</span>
+                          </div>
+                          <div style={{ display:'flex', gap:6 }}>
+                            {phone && <a href={`tel:${phone}`} style={{ textDecoration:'none', background:'var(--bg)', border:'1px solid var(--bdr)', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, color:'var(--t1)' }}>📞 Call</a>}
+                            {waDigits && <button onClick={() => window.open(`https://wa.me/${waDigits}`, '_blank')} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, cursor:'pointer' }}>🟢 WhatsApp</button>}
+                          </div>
+                        </div>
+                        {cust && (
+                          <div style={{ display:'flex', gap:14, marginTop:6, fontSize:11.5, color:'var(--t2)' }}>
+                            <span>🛒 <b style={{ color:'var(--bl)' }}>{cust.total_orders||0}</b> orders</span>
+                            <span>💰 <b style={{ color:'var(--gr-d)' }}>₹{Math.round(cust.total_spent||0)}</b> spent</span>
+                            {cust.last_order_at && <span>🕐 Last: {new Date(cust.last_order_at).toLocaleDateString('en-IN')}</span>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', display:'flex', flexDirection:'column', gap:8 }}>
                     {chatMessages.map(m => (
                       <div key={m.id} style={{ display:'flex', justifyContent: m.is_from_admin ? 'flex-end' : 'flex-start' }}>
@@ -2076,7 +2099,23 @@ export default function AdminPage() {
                       </div>
                     ))}
                   </div>
-                  <div style={{ padding:'12px 16px', borderTop:'1px solid var(--bdr)', display:'flex', gap:8 }}>
+                  {/* Canned quick-replies — tap to fill, edit if needed, then Send */}
+                  <div style={{ padding:'8px 16px 0', display:'flex', gap:6, flexWrap:'wrap' }}>
+                    {[
+                      '🛵 Aapka order 10 min me pahunch jayega.',
+                      '✅ Order confirm ho gaya, ban raha hai.',
+                      '🙏 Delay ke liye sorry — jaldi bhej rahe hain.',
+                      '💰 Refund process kar diya, 3-5 din me aa jayega.',
+                      '📍 Apna address/landmark confirm kar dein please.',
+                      '🙏 Thank you! Aapka din shubh ho.',
+                    ].map((t, i) => (
+                      <button key={i} onClick={() => setChatInput(t)}
+                        style={{ background:'var(--bg)', border:'1px solid var(--bdr)', borderRadius:16, padding:'5px 10px', fontSize:11.5, fontWeight:600, color:'var(--t1)', cursor:'pointer' }}>
+                        {t.length > 26 ? t.slice(0,26)+'…' : t}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ padding:'8px 16px 12px', borderTop:'none', display:'flex', gap:8 }}>
                     <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                       onKeyDown={e => e.key==='Enter' && sendAdminReply()}
                       placeholder="Type reply..." style={{ flex:1, padding:'10px 12px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:13 }} />

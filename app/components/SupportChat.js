@@ -89,6 +89,29 @@ export default function SupportChat() {
     loadMessages()
   }
 
+  // Quick-help chip → instant smart bot answer (order status, timing, etc.)
+  const [botBusy, setBotBusy] = useState(false)
+  const sendTopic = async (topic) => {
+    if (botBusy) return
+    setBotBusy(true)
+    try {
+      await fetch('/api/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic })
+      })
+      await loadMessages()
+    } catch {}
+    setBotBusy(false)
+  }
+
+  const QUICK_HELP = [
+    { topic: 'order_status', label: '📦 Order kaha hai?' },
+    { topic: 'wrong_item',   label: '❌ Galat item' },
+    { topic: 'refund',       label: '💰 Refund' },
+    { topic: 'timing',       label: '🕐 Timing' },
+  ]
+
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
       {/* Chat window */}
@@ -125,8 +148,8 @@ export default function SupportChat() {
                   borderRadius: m.is_from_admin ? '14px 14px 14px 4px' : '14px 14px 4px 14px',
                   padding: '8px 12px', fontSize: 13
                 }}>
-                  {m.is_from_admin && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--or)', marginBottom: 3 }}>🍽️ Kitchen</div>}
-                  {m.message}
+                  {m.is_from_admin && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--or)', marginBottom: 3 }}>{m.is_bot ? '🤖 FoodFi Bot' : '🍽️ Kitchen'}</div>}
+                  <span style={{ whiteSpace: 'pre-line' }}>{m.message}</span>
                   <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: 'right' }}>
                     {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
@@ -134,6 +157,16 @@ export default function SupportChat() {
               </div>
             ))}
             <div ref={bottomRef} />
+          </div>
+
+          {/* Quick-help chips — instant answers without waiting for a human */}
+          <div style={{ padding: '8px 10px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {QUICK_HELP.map(q => (
+              <button key={q.topic} onClick={() => sendTopic(q.topic)} disabled={botBusy}
+                style={{ background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 16, padding: '5px 10px', fontSize: 11.5, fontWeight: 600, color: 'var(--t1)', cursor: botBusy ? 'default' : 'pointer', opacity: botBusy ? 0.6 : 1 }}>
+                {q.label}
+              </button>
+            ))}
           </div>
 
           {/* Input */}

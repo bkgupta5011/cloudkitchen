@@ -126,7 +126,11 @@ export default function AdminPage() {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [supportSearch, setSupportSearch] = useState('')
-  const [supportFilter, setSupportFilter] = useState('all') // all | unread | resolved
+  const [supportFilter, setSupportFilter] = useState('all') // all | unread | resolved | complaint
+  const [supportTemplates, setSupportTemplates] = useState([])
+  const [newTemplate, setNewTemplate] = useState('')
+  const [manageTemplates, setManageTemplates] = useState(false)
+  const [chatUploading, setChatUploading] = useState(false)
   const [statusFilter, setStatusFilter] = useState('all')
   const [branchFilter, setBranchFilter] = useState('all')
 
@@ -202,6 +206,7 @@ export default function AdminPage() {
   const [audioReady, setAudioReady] = useState(false)
   const lastSupportUnread = useRef({})   // userId → unreadCount
   const activeChatUserRef = useRef(null) // activeChatUser ka current value (for closure use)
+  const chatFileRef = useRef(null) // hidden file input for admin photo reply
   const escalatedOrderIds = useRef(new Set())   // escalation already triggered for these
   const escalationTimerRef = useRef(null)        // repeating escalation interval
   const kitchenSettingsRef = useRef({ order_timeout_minutes: 2, escalation_interval_sec: 30 }) // closure-safe copy
@@ -523,6 +528,7 @@ export default function AdminPage() {
     setNotices(noticesRes?.notices || [])
     setBranches(branchesRes?.branches || [])
     setLoading(false)
+    loadTemplates()
   }
 
   const toggleKitchen = async () => {
@@ -855,8 +861,58 @@ export default function AdminPage() {
   const resolveThread = async (userId, resolve) => {
     await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action: resolve ? 'resolve' : 'reopen', targetUserId: userId }) })
-    setSupportThreads(prev => prev.map(t => t.user_id === userId ? { ...t, resolved: resolve } : t))
+    setSupportThreads(prev => prev.map(t => t.user_id === userId ? { ...t, resolved: resolve, is_complaint: resolve ? false : t.is_complaint } : t))
     if (activeChatUser === userId) loadChat(userId)
+  }
+
+  // ── Canned-reply templates (founder-editable) ──
+  const loadTemplates = async () => {
+    try { const d = await fetch('/api/support?templates=1').then(r => r.json()); setSupportTemplates(d.templates || []) } catch {}
+  }
+  const addTemplate = async () => {
+    const text = newTemplate.trim(); if (!text) return
+    const d = await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'add_template', templateText: text }) }).then(r => r.json())
+    if (d.template) setSupportTemplates(prev => [...prev, d.template])
+    setNewTemplate('')
+  }
+  const deleteTemplate = async (id) => {
+    await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'del_template', templateId: id }) })
+    setSupportTemplates(prev => prev.filter(t => t.id !== id))
+  }
+
+  // Admin sends a photo in the support chat (resize → /api/upload → message)
+  const sendAdminPhoto = async (file) => {
+    if (!file || !activeChatUser) return
+    setChatUploading(true)
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader()
+        reader.onload = ev => {
+          const img = new Image()
+          img.onload = () => {
+            const canvas = document.createElement('canvas'); const MAX = 900
+            let { width, height } = img
+            if (width > MAX) { height = Math.round(height*MAX/width); width = MAX }
+            if (height > MAX) { width = Math.round(width*MAX/height); height = MAX }
+            canvas.width = width; canvas.height = height
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+            res(canvas.toDataURL('image/jpeg', 0.82).split(',')[1])
+          }
+          img.onerror = rej; img.src = ev.target.result
+        }
+        reader.onerror = rej; reader.readAsDataURL(file)
+      })
+      const up = await fetch('/api/upload', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ base64, mimeType:'image/jpeg' }) }).then(r => r.json())
+      if (up.url) {
+        await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ image_url: up.url, targetUserId: activeChatUser }) })
+        loadChat(activeChatUser)
+      }
+    } catch {}
+    setChatUploading(false)
   }
 
   const addNotice = async (e) => {
@@ -2044,6 +2100,17 @@ export default function AdminPage() {
             <div style={{ width:250, background:'var(--card)', borderRadius:14, border:'1px solid var(--bdr)', overflowY:'auto', flexShrink:0 }}>
               <div style={{ padding:'10px 12px', fontWeight:700, fontSize:14, borderBottom:'1px solid var(--bdr)' }}>
                 💬 Customer Chats
+                {/* CSAT summary */}
+                {(() => {
+                  const up = supportThreads.filter(t => t.csat === 1).length
+                  const down = supportThreads.filter(t => t.csat === -1).length
+                  const res = supportThreads.filter(t => t.resolved).length
+                  return (
+                    <div style={{ fontSize:11, fontWeight:600, color:'var(--t2)', marginTop:3 }}>
+                      👍 {up} · 👎 {down} · ✓ {res} resolved · {supportThreads.length} chats
+                    </div>
+                  )
+                })()}
               </div>
               {/* Search + filter */}
               <div style={{ padding:'8px 10px', borderBottom:'1px solid var(--bg)', position:'sticky', top:0, background:'var(--card)', zIndex:1 }}>
@@ -2051,8 +2118,8 @@ export default function AdminPage() {
                   placeholder="🔍 Naam ya number…"
                   style={{ width:'100%', boxSizing:'border-box', padding:'7px 10px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:12, outline:'none', marginBottom:6 }} />
                 <div style={{ display:'flex', gap:5 }}>
-                  {[['all','Sab'],['unread','Unread'],['resolved','Resolved']].map(([k,lbl]) => (
-                    <button key={k} onClick={() => setSupportFilter(k)}
+                  {[['all','Sab'],['unread','Unread'],['complaint','🔴'],['resolved','Resolved']].map(([k,lbl]) => (
+                    <button key={k} onClick={() => setSupportFilter(k)} title={k==='complaint' ? 'Complaints' : lbl}
                       style={{ flex:1, padding:'5px 0', borderRadius:7, border:'1px solid var(--bdr)', fontSize:11, fontWeight:700, cursor:'pointer',
                         background: supportFilter===k ? 'var(--or)' : 'transparent', color: supportFilter===k ? '#fff' : 'var(--t2)' }}>{lbl}</button>
                   ))}
@@ -2063,6 +2130,7 @@ export default function AdminPage() {
                 const list = supportThreads.filter(t => {
                   if (supportFilter==='unread' && !(parseInt(t.unread_count)>0)) return false
                   if (supportFilter==='resolved' && !t.resolved) return false
+                  if (supportFilter==='complaint' && !t.is_complaint) return false
                   if (q) {
                     const nm = (t.user_name||'').toLowerCase(); const ph = (t.user_phone||'').replace(/\D/g,'')
                     if (!(nm.includes(q) || (qd && ph.includes(qd)))) return false
@@ -2077,6 +2145,7 @@ export default function AdminPage() {
                       background: activeChatUser===t.user_id ? 'var(--bg)' : 'transparent' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6, marginBottom:4 }}>
                       <span style={{ fontWeight:600, fontSize:13, display:'flex', alignItems:'center', gap:5 }}>
+                        {t.is_complaint && <span title="Complaint">🔴</span>}
                         {t.user_name}
                         {t.csat === 1 && <span title="Rated helpful">👍</span>}
                         {t.csat === -1 && <span title="Rated not helpful">👎</span>}
@@ -2148,23 +2217,41 @@ export default function AdminPage() {
                       </div>
                     ))}
                   </div>
-                  {/* Canned quick-replies — tap to fill, edit if needed, then Send */}
-                  <div style={{ padding:'8px 16px 0', display:'flex', gap:6, flexWrap:'wrap' }}>
-                    {[
-                      '🛵 Aapka order 10 min me pahunch jayega.',
-                      '✅ Order confirm ho gaya, ban raha hai.',
-                      '🙏 Delay ke liye sorry — jaldi bhej rahe hain.',
-                      '💰 Refund process kar diya, 3-5 din me aa jayega.',
-                      '📍 Apna address/landmark confirm kar dein please.',
-                      '🙏 Thank you! Aapka din shubh ho.',
-                    ].map((t, i) => (
-                      <button key={i} onClick={() => setChatInput(t)}
-                        style={{ background:'var(--bg)', border:'1px solid var(--bdr)', borderRadius:16, padding:'5px 10px', fontSize:11.5, fontWeight:600, color:'var(--t1)', cursor:'pointer' }}>
-                        {t.length > 26 ? t.slice(0,26)+'…' : t}
-                      </button>
+                  {/* Canned quick-replies (founder-editable) — tap to fill, then Send */}
+                  <div style={{ padding:'8px 16px 0', display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
+                    {supportTemplates.map(t => (
+                      <span key={t.id} style={{ display:'inline-flex', alignItems:'center', background:'var(--bg)', border:'1px solid var(--bdr)', borderRadius:16, overflow:'hidden' }}>
+                        <button onClick={() => setChatInput(t.text)}
+                          style={{ background:'transparent', border:'none', padding:'5px 10px', fontSize:11.5, fontWeight:600, color:'var(--t1)', cursor:'pointer' }}>
+                          {t.text.length > 28 ? t.text.slice(0,28)+'…' : t.text}
+                        </button>
+                        {manageTemplates && (
+                          <button onClick={() => deleteTemplate(t.id)} title="Delete"
+                            style={{ background:'transparent', border:'none', borderLeft:'1px solid var(--bdr)', padding:'5px 8px', fontSize:11, color:'#dc2626', cursor:'pointer' }}>✕</button>
+                        )}
+                      </span>
                     ))}
+                    <button onClick={() => setManageTemplates(m => !m)}
+                      style={{ background:'transparent', border:'1px dashed var(--bdr)', borderRadius:16, padding:'5px 10px', fontSize:11, fontWeight:700, color:'var(--t2)', cursor:'pointer' }}>
+                      {manageTemplates ? '✓ Done' : '✎ Edit'}
+                    </button>
                   </div>
-                  <div style={{ padding:'8px 16px 12px', borderTop:'none', display:'flex', gap:8 }}>
+                  {manageTemplates && (
+                    <div style={{ padding:'6px 16px 0', display:'flex', gap:6 }}>
+                      <input value={newTemplate} onChange={e => setNewTemplate(e.target.value)}
+                        onKeyDown={e => e.key==='Enter' && addTemplate()}
+                        placeholder="Naya quick-reply add karo…"
+                        style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:12 }} />
+                      <button onClick={addTemplate} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:8, padding:'0 14px', fontSize:12, fontWeight:700, cursor:'pointer' }}>＋ Add</button>
+                    </div>
+                  )}
+                  <div style={{ padding:'8px 16px 12px', borderTop:'none', display:'flex', gap:8, alignItems:'center' }}>
+                    <input ref={chatFileRef} type="file" accept="image/*" style={{ display:'none' }}
+                      onChange={e => sendAdminPhoto(e.target.files?.[0])} />
+                    <button onClick={() => chatFileRef.current?.click()} disabled={chatUploading} title="Photo bhejo"
+                      style={{ width:38, height:38, flexShrink:0, borderRadius:8, background:'var(--bg)', border:'1px solid var(--bdr)', color:'var(--t1)', cursor:chatUploading?'default':'pointer', fontSize:16 }}>
+                      {chatUploading ? '…' : '📎'}
+                    </button>
                     <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                       onKeyDown={e => e.key==='Enter' && sendAdminReply()}
                       placeholder="Type reply..." style={{ flex:1, padding:'10px 12px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:13 }} />

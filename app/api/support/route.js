@@ -30,6 +30,31 @@ async function ensureTable(sql) {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       )`
   } catch {}
+  try { await sql`ALTER TABLE support_thread_state ADD COLUMN IF NOT EXISTS is_complaint BOOLEAN DEFAULT false` } catch {}
+  // Founder-editable canned replies (seed defaults once)
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS support_templates (
+        id SERIAL PRIMARY KEY,
+        text TEXT NOT NULL,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )`
+    const [{ c }] = await sql`SELECT COUNT(*)::int AS c FROM support_templates`
+    if (c === 0) {
+      const defaults = [
+        '🛵 Aapka order 10 min me pahunch jayega.',
+        '✅ Order confirm ho gaya, ban raha hai.',
+        '🙏 Delay ke liye sorry — jaldi bhej rahe hain.',
+        '💰 Refund process kar diya, 3-5 din me aa jayega.',
+        '📍 Apna address/landmark confirm kar dein please.',
+        '🙏 Thank you! Aapka din shubh ho.',
+      ]
+      for (let i = 0; i < defaults.length; i++) {
+        await sql`INSERT INTO support_templates (text, sort_order) VALUES (${defaults[i]}, ${i})`
+      }
+    }
+  } catch {}
 }
 
 // Reopen a thread whenever the customer sends anything new.
@@ -39,6 +64,17 @@ async function reopenThread(sql, userId) {
       INSERT INTO support_thread_state (user_id, resolved, updated_at)
       VALUES (${userId}, false, NOW())
       ON CONFLICT (user_id) DO UPDATE SET resolved = false, updated_at = NOW()
+    `
+  } catch {}
+}
+
+// Flag / unflag a thread as a complaint (refund / wrong-item) for triage.
+async function setComplaint(sql, userId, val) {
+  try {
+    await sql`
+      INSERT INTO support_thread_state (user_id, is_complaint, updated_at)
+      VALUES (${userId}, ${val}, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET is_complaint = ${val}, updated_at = NOW()
     `
   } catch {}
 }
@@ -174,6 +210,11 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
 
+    if (searchParams.get('templates')) {
+      const templates = await sql`SELECT id, text FROM support_templates ORDER BY sort_order, id`
+      return NextResponse.json({ templates })
+    }
+
     if (userId) {
       const msgs = await sql`SELECT * FROM support_messages WHERE user_id = ${userId} ORDER BY created_at ASC`
       await sql`UPDATE support_messages SET is_read = true WHERE user_id = ${userId} AND is_from_admin = false`
@@ -185,7 +226,8 @@ export async function GET(request) {
         latest.user_id, u.name AS user_name, u.phone AS user_phone,
         latest.message, latest.is_from_admin, latest.is_read, latest.created_at,
         COALESCE(unread.cnt, 0) AS unread_count,
-        COALESCE(st.resolved, false) AS resolved, st.csat
+        COALESCE(st.resolved, false) AS resolved, st.csat,
+        COALESCE(st.is_complaint, false) AS is_complaint
       FROM (
         SELECT DISTINCT ON (user_id) * FROM support_messages ORDER BY user_id, created_at DESC
       ) latest
@@ -218,15 +260,27 @@ export async function POST(request) {
   if (!user) return NextResponse.json({ error: 'Login required' }, { status: 401 })
   await ensureTable(sql)
 
-  const { message, targetUserId, topic, image_url, action, csat } = await request.json()
+  const { message, targetUserId, topic, image_url, action, csat, templateText, templateId } = await request.json()
+
+  // ── Admin: manage canned-reply templates ──
+  if (user.role === 'admin' && action === 'add_template') {
+    if (!templateText?.trim()) return NextResponse.json({ error: 'Text required' }, { status: 400 })
+    const [{ mx }] = await sql`SELECT COALESCE(MAX(sort_order), 0) + 1 AS mx FROM support_templates`
+    const [t] = await sql`INSERT INTO support_templates (text, sort_order) VALUES (${templateText.trim()}, ${mx}) RETURNING id, text`
+    return NextResponse.json({ template: t })
+  }
+  if (user.role === 'admin' && action === 'del_template') {
+    await sql`DELETE FROM support_templates WHERE id = ${templateId}`
+    return NextResponse.json({ ok: true })
+  }
 
   // ── Admin: resolve / reopen a thread ──
   if (user.role === 'admin' && action && targetUserId) {
     if (action === 'resolve') {
       await sql`
-        INSERT INTO support_thread_state (user_id, resolved, updated_at)
-        VALUES (${targetUserId}, true, NOW())
-        ON CONFLICT (user_id) DO UPDATE SET resolved = true, updated_at = NOW()
+        INSERT INTO support_thread_state (user_id, resolved, is_complaint, updated_at)
+        VALUES (${targetUserId}, true, false, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET resolved = true, is_complaint = false, updated_at = NOW()
       `
       // Ask the customer to rate — a bot message + a push.
       await sql`
@@ -248,15 +302,15 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
   }
 
-  // ── Admin replying to a customer ──
+  // ── Admin replying to a customer (text and/or photo) ──
   if (user.role === 'admin' && targetUserId) {
-    if (!message?.trim()) return NextResponse.json({ error: 'Message required' }, { status: 400 })
+    if (!message?.trim() && !image_url) return NextResponse.json({ error: 'Message required' }, { status: 400 })
     const [m] = await sql`
-      INSERT INTO support_messages (user_id, user_name, user_phone, message, is_from_admin)
-      VALUES (${targetUserId}, 'Admin', 'Kitchen', ${message.trim()}, true)
+      INSERT INTO support_messages (user_id, user_name, user_phone, message, image_url, is_from_admin)
+      VALUES (${targetUserId}, 'Admin', 'Kitchen', ${message?.trim() || (image_url ? '📷 Photo' : '')}, ${image_url || null}, true)
       RETURNING *
     `
-    sendPushToUser(String(targetUserId), { title: '💬 Reply from FoodFi', body: message.trim().slice(0, 120), url: '/menu', tag: 'support-reply' }, 'customer').catch(() => {})
+    sendPushToUser(String(targetUserId), { title: '💬 Reply from FoodFi', body: (message?.trim() || '📷 Photo').slice(0, 120), url: '/menu', tag: 'support-reply' }, 'customer').catch(() => {})
     return NextResponse.json({ message: m })
   }
 
@@ -295,6 +349,7 @@ export async function POST(request) {
 
   // ── Intent: either a quick-help chip (topic) or detected from typed text ──
   const intent = (topic && TOPIC_LABEL[topic]) ? topic : (message?.trim() ? classifyIntent(message) : null)
+  const isComplaint = intent === 'refund' || intent === 'wrong_item'
 
   // Quick-help chip tap: the customer's shown message is the chip label.
   if (topic && TOPIC_LABEL[topic]) {
@@ -306,6 +361,7 @@ export async function POST(request) {
       RETURNING *
     `
     await reopenThread(sql, user.id)
+    if (isComplaint) await setComplaint(sql, user.id, true)
     const [bot] = await sql`
       INSERT INTO support_messages (user_id, user_name, user_phone, message, is_from_admin, is_bot, is_read)
       VALUES (${user.id}, 'FoodFi Bot', 'Bot', ${ans?.reply || 'Team jaldi reply karegi 🙏'}, true, true, true)
@@ -326,6 +382,7 @@ export async function POST(request) {
     RETURNING *
   `
   await reopenThread(sql, user.id)
+  if (isComplaint) await setComplaint(sql, user.id, true)
 
   // If the bot understood the question, answer instantly and stop here.
   if (ans) {

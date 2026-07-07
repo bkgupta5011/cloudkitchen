@@ -400,6 +400,7 @@ function MenuPageContent() {
   const [serviceable, setServiceable] = useState(true)   // geographically covered by some branch
   const [areaClosed, setAreaClosed] = useState(false)    // covered, but every nearby outlet is closed right now
   const [kitchenOpenTime, setKitchenOpenTime] = useState('') // global fallback opening time (e.g. "09:00")
+  const [kitchenCloseTime, setKitchenCloseTime] = useState('') // global fallback closing time (e.g. "22:00")
   const [showLocGate, setShowLocGate] = useState(false)
   const [locBusy, setLocBusy] = useState(false)
   const [gateAddr, setGateAddr] = useState('')
@@ -462,6 +463,7 @@ function MenuPageContent() {
       setMenuItems(menuData.items || [])
       setKitchenOpen(settingsData.settings?.is_open ?? true)
       setKitchenOpenTime(settingsData.settings?.open_time || '')
+      setKitchenCloseTime(settingsData.settings?.close_time || '')
       setKitchenPhone(settingsData.settings?.phone || null)
       setOffers(offersData.offers || [])
       setItemRatings(ratingsData.itemRatings || {})
@@ -556,7 +558,7 @@ function MenuPageContent() {
     setAreaClosed(areaIsClosed)
     const menuSource = areaIsClosed ? geoServing : openServing
     setServingBranches(menuSource)
-    setBranchInfo({ id: menuSource[0].id, name: menuSource[0].name, dist: menuSource[0].dist, count: menuSource.length, openTime: menuSource[0].opening_time || '' })
+    setBranchInfo({ id: menuSource[0].id, name: menuSource[0].name, dist: menuSource[0].dist, count: menuSource.length, openTime: menuSource[0].opening_time || '', closeTime: menuSource[0].closing_time || '' })
 
     // Fetch each outlet's own menu, then merge (cheapest wins).
     try {
@@ -835,6 +837,20 @@ function MenuPageContent() {
   // covering outlet is open right now (State B = covered-but-closed disables it).
   const orderOpen = kitchenOpen && !areaClosed
 
+  // Distinguish WHY it's closed so the copy never lies:
+  //  • outside operating hours  → "opens at {time}" (scheduled)
+  //  • inside operating hours but the outlet toggled itself off → "closed for
+  //    today" (a manual day-off — don't promise a reopen time).
+  const _openTime  = branchInfo?.openTime  || kitchenOpenTime
+  const _closeTime = branchInfo?.closeTime || kitchenCloseTime
+  const _toMin = (s) => { if (!s) return null; const [h, m] = String(s).split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null }
+  const _nowMin = (() => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() })()
+  const _oM = _toMin(_openTime), _cM = _toMin(_closeTime)
+  const withinHours = (_oM != null && _cM != null)
+    ? (_cM > _oM ? (_nowMin >= _oM && _nowMin < _cM) : (_nowMin >= _oM || _nowMin < _cM)) // handles past-midnight close
+    : false
+  const closedForToday = areaClosed && withinHours // off despite being within hours = manual day-off
+
   return (
     <div className={styles.page}>
 
@@ -868,10 +884,14 @@ function MenuPageContent() {
             <span style={{ fontSize:22, lineHeight:1 }}>😴</span>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:14, fontWeight:800, color:'#78350f' }}>
-                We&apos;re closed right now{branchInfo?.openTime || kitchenOpenTime ? ` — opens at ${branchInfo?.openTime || kitchenOpenTime}` : ''}
+                {closedForToday
+                  ? 'Closed for today'
+                  : `We’re closed right now${_openTime ? ` — opens at ${_openTime}` : ''}`}
               </div>
               <div style={{ fontSize:12, color:'#92400e', marginTop:2 }}>
-                Good news — <strong>you&apos;re in our delivery area!</strong> Browse the menu below, and we&apos;ll ping you the moment we open.
+                {closedForToday
+                  ? <>The kitchen is off for today, but <strong>you&apos;re in our delivery area.</strong> Browse the menu, and we&apos;ll message you the moment we reopen.</>
+                  : <>Good news — <strong>you&apos;re in our delivery area!</strong> Browse the menu below, and we&apos;ll ping you the moment we open.</>}
               </div>
               {notifyState === 'done' ? (
                 <div style={{ marginTop:10, fontSize:13, fontWeight:700, color:'#15803d' }}>✅ Done! We&apos;ll notify you when we open.</div>
@@ -884,7 +904,7 @@ function MenuPageContent() {
                   )}
                   <button onClick={() => submitNotify('closed')} disabled={notifyState === 'saving'}
                     style={{ padding:'9px 16px', borderRadius:9, border:'none', background:'#d97706', color:'#fff', fontSize:13, fontWeight:800, cursor:'pointer', opacity: notifyState === 'saving' ? 0.6 : 1 }}>
-                    {notifyState === 'saving' ? 'Saving…' : '🔔 Notify me when open'}
+                    {notifyState === 'saving' ? 'Saving…' : (closedForToday ? '🔔 Notify me when it reopens' : '🔔 Notify me when open')}
                   </button>
                 </div>
               )}

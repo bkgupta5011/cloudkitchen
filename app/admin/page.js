@@ -125,6 +125,8 @@ export default function AdminPage() {
   const [activeChatUser, setActiveChatUser] = useState(null)
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
+  const [supportSearch, setSupportSearch] = useState('')
+  const [supportFilter, setSupportFilter] = useState('all') // all | unread | resolved
   const [statusFilter, setStatusFilter] = useState('all')
   const [branchFilter, setBranchFilter] = useState('all')
 
@@ -847,6 +849,14 @@ export default function AdminPage() {
       body: JSON.stringify({ message: chatInput, targetUserId: activeChatUser }) })
     setChatInput('')
     loadChat(activeChatUser)
+  }
+
+  // Mark a support conversation resolved (asks the customer for a 👍/👎) or reopen it
+  const resolveThread = async (userId, resolve) => {
+    await fetch('/api/support', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action: resolve ? 'resolve' : 'reopen', targetUserId: userId }) })
+    setSupportThreads(prev => prev.map(t => t.user_id === userId ? { ...t, resolved: resolve } : t))
+    if (activeChatUser === userId) loadChat(userId)
   }
 
   const addNotice = async (e) => {
@@ -2031,24 +2041,55 @@ export default function AdminPage() {
         {section === 'support' && (
           <div style={{ display:'flex', gap:16, height:'calc(100vh - 200px)' }}>
             {/* Thread list */}
-            <div style={{ width:240, background:'var(--card)', borderRadius:14, border:'1px solid var(--bdr)', overflowY:'auto', flexShrink:0 }}>
-              <div style={{ padding:'12px 14px', fontWeight:700, fontSize:14, borderBottom:'1px solid var(--bdr)' }}>
+            <div style={{ width:250, background:'var(--card)', borderRadius:14, border:'1px solid var(--bdr)', overflowY:'auto', flexShrink:0 }}>
+              <div style={{ padding:'10px 12px', fontWeight:700, fontSize:14, borderBottom:'1px solid var(--bdr)' }}>
                 💬 Customer Chats
               </div>
-              {supportThreads.length === 0 && <div style={{ padding:20, fontSize:13, color:'var(--t2)', textAlign:'center' }}>No messages yet</div>}
-              {supportThreads.map(t => (
-                <div key={t.user_id}
-                  onClick={() => loadChat(t.user_id)}
-                  style={{ padding:'12px 14px', borderBottom:'1px solid var(--bg)', cursor:'pointer',
-                    background: activeChatUser===t.user_id ? 'var(--bg)' : 'transparent' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-                    <span style={{ fontWeight:600, fontSize:13 }}>{t.user_name}</span>
-                    {parseInt(t.unread_count)>0 && <span style={{ background:'var(--or)', color:'#fff', borderRadius:10, padding:'0 6px', fontSize:11 }}>{t.unread_count}</span>}
-                  </div>
-                  <div style={{ fontSize:11, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.message}</div>
-                  <div style={{ fontSize:10, color:'var(--t3)', marginTop:2 }}>{t.user_phone}</div>
+              {/* Search + filter */}
+              <div style={{ padding:'8px 10px', borderBottom:'1px solid var(--bg)', position:'sticky', top:0, background:'var(--card)', zIndex:1 }}>
+                <input value={supportSearch} onChange={e => setSupportSearch(e.target.value)}
+                  placeholder="🔍 Naam ya number…"
+                  style={{ width:'100%', boxSizing:'border-box', padding:'7px 10px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:12, outline:'none', marginBottom:6 }} />
+                <div style={{ display:'flex', gap:5 }}>
+                  {[['all','Sab'],['unread','Unread'],['resolved','Resolved']].map(([k,lbl]) => (
+                    <button key={k} onClick={() => setSupportFilter(k)}
+                      style={{ flex:1, padding:'5px 0', borderRadius:7, border:'1px solid var(--bdr)', fontSize:11, fontWeight:700, cursor:'pointer',
+                        background: supportFilter===k ? 'var(--or)' : 'transparent', color: supportFilter===k ? '#fff' : 'var(--t2)' }}>{lbl}</button>
+                  ))}
                 </div>
-              ))}
+              </div>
+              {(() => {
+                const q = supportSearch.trim().toLowerCase(); const qd = q.replace(/\D/g,'')
+                const list = supportThreads.filter(t => {
+                  if (supportFilter==='unread' && !(parseInt(t.unread_count)>0)) return false
+                  if (supportFilter==='resolved' && !t.resolved) return false
+                  if (q) {
+                    const nm = (t.user_name||'').toLowerCase(); const ph = (t.user_phone||'').replace(/\D/g,'')
+                    if (!(nm.includes(q) || (qd && ph.includes(qd)))) return false
+                  }
+                  return true
+                })
+                if (list.length === 0) return <div style={{ padding:20, fontSize:13, color:'var(--t2)', textAlign:'center' }}>Koi chat nahi</div>
+                return list.map(t => (
+                  <div key={t.user_id}
+                    onClick={() => loadChat(t.user_id)}
+                    style={{ padding:'12px 14px', borderBottom:'1px solid var(--bg)', cursor:'pointer',
+                      background: activeChatUser===t.user_id ? 'var(--bg)' : 'transparent' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6, marginBottom:4 }}>
+                      <span style={{ fontWeight:600, fontSize:13, display:'flex', alignItems:'center', gap:5 }}>
+                        {t.user_name}
+                        {t.csat === 1 && <span title="Rated helpful">👍</span>}
+                        {t.csat === -1 && <span title="Rated not helpful">👎</span>}
+                      </span>
+                      {parseInt(t.unread_count)>0
+                        ? <span style={{ background:'var(--or)', color:'#fff', borderRadius:10, padding:'0 6px', fontSize:11 }}>{t.unread_count}</span>
+                        : t.resolved && <span style={{ color:'var(--gr-d)', fontSize:11, fontWeight:700 }}>✓</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:'var(--t2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t.message}</div>
+                    <div style={{ fontSize:10, color:'var(--t3)', marginTop:2 }}>{t.user_phone}</div>
+                  </div>
+                ))
+              })()}
             </div>
 
             {/* Chat area */}
@@ -2071,9 +2112,12 @@ export default function AdminPage() {
                             {thread?.user_name || cust?.name || 'Customer'}
                             <span style={{ fontSize:11, color:'var(--t2)', marginLeft:8, fontWeight:400 }}>{phone}</span>
                           </div>
-                          <div style={{ display:'flex', gap:6 }}>
+                          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                             {phone && <a href={`tel:${phone}`} style={{ textDecoration:'none', background:'var(--bg)', border:'1px solid var(--bdr)', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, color:'var(--t1)' }}>📞 Call</a>}
                             {waDigits && <button onClick={() => window.open(`https://wa.me/${waDigits}`, '_blank')} style={{ background:'#25D366', color:'#fff', border:'none', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, cursor:'pointer' }}>🟢 WhatsApp</button>}
+                            {thread?.resolved
+                              ? <button onClick={() => resolveThread(activeChatUser, false)} style={{ background:'var(--bg)', color:'var(--t2)', border:'1px solid var(--bdr)', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, cursor:'pointer' }}>↩ Reopen</button>
+                              : <button onClick={() => resolveThread(activeChatUser, true)} style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700, cursor:'pointer' }}>✓ Resolve</button>}
                           </div>
                         </div>
                         {cust && (
@@ -2093,7 +2137,12 @@ export default function AdminPage() {
                           color: m.is_from_admin ? '#fff' : 'var(--t1)',
                           borderRadius: m.is_from_admin ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
                           padding:'8px 12px', fontSize:13 }}>
-                          {m.message}
+                          {m.is_bot && <div style={{ fontSize:10, fontWeight:700, opacity:0.8, marginBottom:3 }}>🤖 Bot</div>}
+                          {m.image_url && (
+                            <img src={m.image_url} alt="attachment" onClick={() => window.open(m.image_url, '_blank')}
+                              style={{ maxWidth:'100%', width:160, borderRadius:10, marginBottom: (m.message && m.message!=='📷 Photo') ? 5 : 0, cursor:'pointer', display:'block' }} />
+                          )}
+                          {(!m.image_url || (m.message && m.message!=='📷 Photo')) && <span style={{ whiteSpace:'pre-line' }}>{m.message}</span>}
                           <div style={{ fontSize:10, opacity:0.7, marginTop:4 }}>{new Date(m.created_at).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}</div>
                         </div>
                       </div>

@@ -6,6 +6,9 @@ export default function SupportChat() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [unread, setUnread] = useState(0)
+  const [threadState, setThreadState] = useState({ resolved: false, csat: null })
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef(null)
   const bottomRef = useRef(null)
   const pollRef = useRef(null)
   const lastAdminMsgCount = useRef(0)
@@ -33,6 +36,7 @@ export default function SupportChat() {
     try {
       const d = await fetch('/api/support').then(r => r.json())
       const msgs = d.messages || []
+      if (d.state) setThreadState(d.state)
 
       // Admin ke naye messages detect karo
       const adminMsgs = msgs.filter(m => m.is_from_admin)
@@ -112,6 +116,58 @@ export default function SupportChat() {
     { topic: 'timing',       label: '🕐 Timing' },
   ]
 
+  // Photo attach — resize on the client, upload to /api/upload, then send URL
+  const uploadPhoto = async (file) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const dataUrl = await new Promise((res, rej) => {
+        const reader = new FileReader()
+        reader.onload = ev => {
+          const img = new Image()
+          img.onload = () => {
+            const canvas = document.createElement('canvas')
+            const MAX = 900
+            let { width, height } = img
+            if (width > MAX) { height = Math.round(height * MAX / width); width = MAX }
+            if (height > MAX) { width = Math.round(width * MAX / height); height = MAX }
+            canvas.width = width; canvas.height = height
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+            res(canvas.toDataURL('image/jpeg', 0.82).split(',')[1])
+          }
+          img.onerror = rej
+          img.src = ev.target.result
+        }
+        reader.onerror = rej
+        reader.readAsDataURL(file)
+      })
+      const up = await fetch('/api/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64: dataUrl, mimeType: 'image/jpeg' }),
+      }).then(r => r.json())
+      if (up.url) {
+        await fetch('/api/support', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_url: up.url }),
+        })
+        await loadMessages()
+      }
+    } catch {}
+    setUploading(false)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const rateChat = async (val) => {
+    setThreadState(s => ({ ...s, csat: val }))
+    try {
+      await fetch('/api/support', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csat: val }),
+      })
+      loadMessages()
+    } catch {}
+  }
+
   return (
     <div style={{ position: 'fixed', bottom: 20, right: 20, zIndex: 1000 }}>
       {/* Chat window */}
@@ -149,7 +205,11 @@ export default function SupportChat() {
                   padding: '8px 12px', fontSize: 13
                 }}>
                   {m.is_from_admin && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--or)', marginBottom: 3 }}>{m.is_bot ? '🤖 FoodFi Bot' : '🍽️ Kitchen'}</div>}
-                  <span style={{ whiteSpace: 'pre-line' }}>{m.message}</span>
+                  {m.image_url && (
+                    <img src={m.image_url} alt="attachment" onClick={() => window.open(m.image_url, '_blank')}
+                      style={{ maxWidth: '100%', width: 160, borderRadius: 10, marginBottom: m.message && m.message !== '📷 Photo' ? 5 : 0, cursor: 'pointer', display: 'block' }} />
+                  )}
+                  {(!m.image_url || (m.message && m.message !== '📷 Photo')) && <span style={{ whiteSpace: 'pre-line' }}>{m.message}</span>}
                   <div style={{ fontSize: 10, opacity: 0.6, marginTop: 3, textAlign: 'right' }}>
                     {new Date(m.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
@@ -158,6 +218,15 @@ export default function SupportChat() {
             ))}
             <div ref={bottomRef} />
           </div>
+
+          {/* CSAT — after a resolve, ask once whether it helped */}
+          {threadState.resolved && threadState.csat == null && messages.length > 0 && (
+            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--bd)', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg)' }}>
+              <span style={{ fontSize: 12, color: 'var(--t2)', flex: 1 }}>Kya ye helpful tha?</span>
+              <button onClick={() => rateChat(1)} style={{ border: '1px solid var(--bd)', background: 'var(--card)', borderRadius: 8, padding: '4px 12px', fontSize: 15, cursor: 'pointer' }}>👍</button>
+              <button onClick={() => rateChat(-1)} style={{ border: '1px solid var(--bd)', background: 'var(--card)', borderRadius: 8, padding: '4px 12px', fontSize: 15, cursor: 'pointer' }}>👎</button>
+            </div>
+          )}
 
           {/* Quick-help chips — instant answers without waiting for a human */}
           <div style={{ padding: '8px 10px 0', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -170,17 +239,23 @@ export default function SupportChat() {
           </div>
 
           {/* Input */}
-          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--bd)', display: 'flex', gap: 8 }}>
+          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--bd)', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => uploadPhoto(e.target.files?.[0])} />
+            <button onClick={() => fileRef.current?.click()} disabled={uploading} title="Photo bhejo"
+              style={{ width: 34, height: 34, flexShrink: 0, borderRadius: '50%', background: 'var(--bg)', border: '1px solid var(--bd)', color: 'var(--t1)', cursor: uploading ? 'default' : 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {uploading ? '…' : '📎'}
+            </button>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && sendMessage()}
               placeholder="Type a message…"
-              style={{ flex: 1, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--bd)', fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)' }}
+              style={{ flex: 1, minWidth: 0, padding: '8px 12px', borderRadius: 20, border: '1px solid var(--bd)', fontSize: 13, outline: 'none', background: 'var(--bg)', color: 'var(--t1)' }}
             />
             <button
               onClick={sendMessage}
-              style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--or)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              style={{ width: 36, height: 36, flexShrink: 0, borderRadius: '50%', background: 'var(--or)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               ➤
             </button>
           </div>

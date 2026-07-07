@@ -85,12 +85,13 @@ export default function SupportChat() {
     if (!input.trim()) return
     const text = input
     setInput('')
-    await fetch('/api/support', {
+    const res = await fetch('/api/support', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text })
-    })
-    loadMessages()
+    }).then(r => r.json()).catch(() => null)
+    await loadMessages()
+    if (res?.reorder?.items?.length) doReorder(res.reorder.items)
   }
 
   // Quick-help chip → instant smart bot answer (order status, timing, etc.)
@@ -99,22 +100,46 @@ export default function SupportChat() {
     if (botBusy) return
     setBotBusy(true)
     try {
-      await fetch('/api/support', {
+      const res = await fetch('/api/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic })
-      })
+      }).then(r => r.json()).catch(() => null)
       await loadMessages()
+      if (res?.reorder?.items?.length) doReorder(res.reorder.items)
     } catch {}
     setBotBusy(false)
   }
 
   const QUICK_HELP = [
     { topic: 'order_status', label: '📦 Order kaha hai?' },
+    { topic: 'reorder',      label: '🔁 Reorder' },
+    { topic: 'offers',       label: '🎉 Offers' },
+    { topic: 'reward',       label: '🎁 Reward' },
+    { topic: 'timing',       label: '🕐 Timing' },
     { topic: 'wrong_item',   label: '❌ Galat item' },
     { topic: 'refund',       label: '💰 Refund' },
-    { topic: 'timing',       label: '🕐 Timing' },
   ]
+
+  // Reorder: pre-fill the cart with the last order's items and go to /cart.
+  const doReorder = async (items) => {
+    try {
+      const menu = await fetch('/api/menu').then(r => r.json()).catch(() => ({ items: [] }))
+      const avail = new Set((menu.items || []).map(i => String(i.id)))
+      let cart = {}
+      try { cart = JSON.parse(localStorage.getItem('ck_cart') || '{}') } catch {}
+      let added = 0
+      for (const it of items) {
+        if (!it?.id) continue
+        if (avail.size && !avail.has(String(it.id))) continue  // skip items no longer on the menu
+        cart[it.id] = (cart[it.id] || 0) + (it.qty || 1)
+        added++
+      }
+      localStorage.setItem('ck_cart', JSON.stringify(cart))
+      fetch('/api/cart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cart }) }).catch(() => {})
+      if (added > 0) setTimeout(() => { window.location.href = '/cart' }, 700)
+    } catch {}
+  }
 
   // Photo attach — resize on the client, upload to /api/upload, then send URL
   const uploadPhoto = async (file) => {

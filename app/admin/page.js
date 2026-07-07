@@ -76,6 +76,7 @@ export default function AdminPage() {
   const [apiUsage, setApiUsage] = useState(null)
   const [customers, setCustomers] = useState([])
   const [waMessage, setWaMessage] = useState('') // WhatsApp message — write once, send per customer
+  const [custSearch, setCustSearch] = useState('') // search customers by name / phone
   const [loading, setLoading] = useState(true)
   const [showAddItem, setShowAddItem] = useState(false)
   const [showAddOffer, setShowAddOffer] = useState(false)
@@ -1908,10 +1909,22 @@ export default function AdminPage() {
           // Sort: latest joined first
           const sorted = [...customers].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
+          // Search by name / phone / email (digits-only match for phone)
+          const q = custSearch.trim().toLowerCase()
+          const qDigits = q.replace(/\D/g, '')
+          const filtered = q
+            ? sorted.filter(c => {
+                const name = (c.name || '').toLowerCase()
+                const email = (c.email || '').toLowerCase()
+                const phoneDigits = (c.phone || '').replace(/\D/g, '')
+                return name.includes(q) || email.includes(q) || (qDigits && phoneDigits.includes(qDigits))
+              })
+            : sorted
+
           // Excel/CSV export
           const exportCSV = () => {
             const headers = ['Name', 'Email', 'Phone', 'Orders', 'Total Spent (₹)', 'Joined', 'Last Order']
-            const rows = sorted.map(c => [
+            const rows = filtered.map(c => [
               c.name || '',
               c.email || '',
               c.phone || '',
@@ -1935,7 +1948,7 @@ export default function AdminPage() {
               <div className={styles.sectionHead}>
                 <h2>Customers</h2>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <span style={{ fontSize:12, color:'var(--t2)' }}>{customers.length} registered</span>
+                  <span style={{ fontSize:12, color:'var(--t2)' }}>{q ? `${filtered.length} of ${customers.length}` : `${customers.length} registered`}</span>
                   <button onClick={exportCSV} style={{
                     display:'flex', alignItems:'center', gap:5,
                     background:'#16a34a', color:'#fff', border:'none', borderRadius:8,
@@ -1944,6 +1957,20 @@ export default function AdminPage() {
                     📥 Excel Export
                   </button>
                 </div>
+              </div>
+
+              {/* Search customers by name or number */}
+              <div style={{ position:'relative', marginBottom:12 }}>
+                <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', fontSize:14, color:'var(--t3)' }}>🔍</span>
+                <input
+                  value={custSearch}
+                  onChange={e => setCustSearch(e.target.value)}
+                  placeholder="Search customer by name or phone number…"
+                  style={{ width:'100%', boxSizing:'border-box', padding:'10px 34px 10px 34px', borderRadius:10, border:'1px solid var(--bdr)', fontSize:13, outline:'none', fontFamily:'inherit' }}
+                />
+                {custSearch && (
+                  <button onClick={() => setCustSearch('')} style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', border:'none', background:'transparent', fontSize:15, color:'var(--t3)', cursor:'pointer' }}>✕</button>
+                )}
               </div>
 
               {/* WhatsApp helper — write a message once, send to each customer with one click */}
@@ -1966,7 +1993,7 @@ export default function AdminPage() {
                   <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'1.8fr 1.4fr 0.7fr 0.9fr 1fr 1.2fr 0.9fr', position:'sticky', top:0, zIndex:2 }}>
                     <span>Name</span><span>Phone</span><span>Orders</span><span>Total Spent</span><span>Joined</span><span>Last Order</span><span>WhatsApp</span>
                   </div>
-                  {sorted.map(c => {
+                  {filtered.map(c => {
                     const waDigits = (c.phone || '').replace(/\D/g, '')
                     return (
                     <div key={c.id} className={`${styles.tRow}`} style={{ gridTemplateColumns:'1.8fr 1.4fr 0.7fr 0.9fr 1fr 1.2fr 0.9fr' }}>
@@ -1989,6 +2016,11 @@ export default function AdminPage() {
                     </div>
                     )
                   })}
+                  {filtered.length === 0 && (
+                    <div style={{ padding:'28px 16px', textAlign:'center', fontSize:13, color:'var(--t2)' }}>
+                      "{custSearch}" ke liye koi customer nahi mila
+                    </div>
+                  )}
                 </div>
               </div>
             </>

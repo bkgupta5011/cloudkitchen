@@ -757,6 +757,14 @@ function MenuPageContent() {
   // 🔥 Hero deals: items whose final price is ₹99 (shown as a featured strip)
   const featured99 = menuItems.filter(m => discPrice(m) === 99)
 
+  // ⭐ Most Ordered — curated from real order history (top sellers). Only the
+  // ones actually on the current menu show up; update this list as sales shift.
+  const BESTSELLER_NAMES = ['Rajma Rice Bowl', 'Classic Chole Rice', 'Paneer Chola Rice', 'Matar Chola Rice', '5 Roti with Chole']
+  const _norm = s => String(s || '').trim().toLowerCase()
+  const bestSellers = BESTSELLER_NAMES
+    .map(n => menuItems.find(m => _norm(m.name) === _norm(n)))
+    .filter(Boolean)
+
   // ⭐ Overall rating from REAL per-item ratings (no fabricated numbers)
   const ratingAgg = (() => {
     let count = 0, weighted = 0
@@ -1308,6 +1316,50 @@ function MenuPageContent() {
           >{cat}</button>
         ))}
       </div>
+
+      {/* ⭐ Most Ordered strip — social proof, only on default view */}
+      {activeCategory === 'All' && !searchQ && bestSellers.length > 0 && (
+        <div style={{ margin: '4px 0 14px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'0 4px', marginBottom:10 }}>
+            <span style={{ fontSize:18, fontWeight:800, color:'#b45309' }}>⭐ Most Ordered</span>
+            <span style={{ fontSize:11, fontWeight:800, color:'#92400e', background:'#fef3c7', padding:'3px 9px', borderRadius:20 }}>Highly reordered</span>
+          </div>
+          <div style={{ display:'flex', gap:12, overflowX:'auto', padding:'2px 4px 8px', WebkitOverflowScrolling:'touch' }}>
+            {bestSellers.map(item => {
+              const isSoldOut = item.stock_count !== null && item.stock_count !== undefined && item.stock_count === 0
+              const dp = discPrice(item)
+              return (
+                <div key={item.id} onClick={() => setSelectedItem(item)}
+                  style={{ flex:'0 0 auto', width:150, background:'#fff', borderRadius:14, boxShadow:'0 2px 10px #0000000f', overflow:'hidden', cursor:'pointer', border:'1px solid #fde68a' }}>
+                  <div style={{ position:'relative', width:'100%', height:100, background:'#fff7ed' }}>
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.name} loading="lazy"
+                        style={{ width:'100%', height:'100%', objectFit:'cover', filter: isSoldOut ? 'grayscale(60%) brightness(0.8)' : 'none' }}
+                        onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex' }} />
+                    ) : null}
+                    <div style={{ display:item.image_url?'none':'flex', alignItems:'center', justifyContent:'center', width:'100%', height:'100%', fontSize:44 }}>🍛</div>
+                    <span style={{ position:'absolute', top:6, left:6, background:'#f59e0b', color:'#fff', fontSize:10, fontWeight:800, padding:'2px 6px', borderRadius:6 }}>⭐ Bestseller</span>
+                    {isSoldOut && <div style={{ position:'absolute', inset:0, background:'#00000066', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:700, fontSize:13 }}>Sold Out</div>}
+                  </div>
+                  <div style={{ padding:'8px 10px 10px' }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:'#1f2937', lineHeight:1.25, height:32, overflow:'hidden' }}>{item.name}</div>
+                    <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:6 }}>
+                      <span style={{ fontSize:15, fontWeight:800, color:'#1a1a1a' }}>₹{dp}</span>
+                      {item.discount_percent > 0 && <span style={{ fontSize:11, color:'#9ca3af', textDecoration:'line-through' }}>₹{Math.round(item.price)}</span>}
+                    </div>
+                    {!isSoldOut && orderOpen && (
+                      <button onClick={e => { e.stopPropagation(); addItem(item.id) }}
+                        style={{ marginTop:8, width:'100%', background:'var(--or)', color:'#fff', border:'none', borderRadius:8, padding:'6px 0', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                        + Add
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 🔥 ₹99 Combos featured strip — only on default view (no search/filter) */}
       {activeCategory === 'All' && !searchQ && featured99.length > 0 && (

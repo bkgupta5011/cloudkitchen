@@ -1419,14 +1419,15 @@ function MenuPageContent() {
                   )}
                 </div>
 
-                {/* Action button area — stopPropagation so card click doesn't fire */}
-                <div onClick={e => e.stopPropagation()}>
+                {/* Floating action pill — overhangs the image (Swiggy-style).
+                    stopPropagation so tapping it doesn't open the item modal. */}
+                <div className={styles.cardAction} onClick={e => e.stopPropagation()}>
                   {isSoldOut ? (
-                    <button className={styles.soldOutBtn} disabled>❌ Sold Out</button>
+                    <button className={styles.soldOutBtn} disabled>Sold Out</button>
                   ) : !orderOpen ? (
                     <button className={styles.closedBtn} disabled>🔒 Closed</button>
                   ) : qty === 0 ? (
-                    <button className={styles.addBtn} onClick={() => addItem(item.id)}>+ Add</button>
+                    <button className={styles.addBtn} onClick={() => addItem(item.id)}>ADD</button>
                   ) : (
                     <div className={styles.qtyCtl}>
                       <button onClick={() => removeItem(item.id)}>−</button>

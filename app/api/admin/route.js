@@ -629,8 +629,12 @@ export async function PATCH(request) {
       for (const item of items) {
         const qty = item.stock_default ?? getDefaultStock(item.category)
         await sql`UPDATE menu_items SET stock_count = ${qty}, stock_default = COALESCE(stock_default, ${qty}) WHERE id = ${item.id}`
+        // Customers are served from a branch and see the branch's own stock,
+        // so a master reset must cascade to every branch's stock too — else the
+        // reset is invisible to customers (item can stay "sold out" at a branch).
+        try { await sql`UPDATE branch_inventory SET stock_count = ${qty} WHERE menu_item_id = ${item.id}::uuid` } catch {}
       }
-      return NextResponse.json({ ok: true, message: 'All stock reset to defaults' })
+      return NextResponse.json({ ok: true, message: 'All stock reset to defaults (master + branches)' })
     }
 
     // Update single item stock
@@ -639,6 +643,9 @@ export async function PATCH(request) {
       if (data.stock_count !== undefined) {
         const val = data.stock_count === null ? null : Math.max(0, parseInt(data.stock_count) || 0)
         await sql`UPDATE menu_items SET stock_count = ${val} WHERE id = ${data.id}`
+        // Cascade to branches so the change actually reaches customers (who see
+        // branch stock). Last-edit-wins, same as the master-price → branch cascade.
+        try { await sql`UPDATE branch_inventory SET stock_count = ${val} WHERE menu_item_id = ${data.id}::uuid` } catch {}
       }
       if (data.stock_default !== undefined) {
         const val = data.stock_default === null ? null : Math.max(0, parseInt(data.stock_default) || 0)

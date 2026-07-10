@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { sendPushToUser } from '@/lib/push'
+import { notifyLowStock } from '@/lib/stock'
 
 async function ensureStockColumn(sql) {
   try { await sql`ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS stock_count INT DEFAULT NULL` } catch {}
@@ -170,6 +171,14 @@ export async function PATCH(request) {
     prevPrice = cur ? Number(cur.price) : null
   }
 
+  // Detect a real stock change (to cascade to branches + alert on low stock).
+  const stockProvided = Object.prototype.hasOwnProperty.call(fields, 'stock_count')
+  let prevStock = null, curName = null
+  if (stockProvided) {
+    const [c] = await sql`SELECT stock_count, name FROM menu_items WHERE id = ${id}`
+    prevStock = c?.stock_count ?? null; curName = c?.name || null
+  }
+
   const [item] = await sql`
     UPDATE menu_items
     SET
@@ -191,6 +200,17 @@ export async function PATCH(request) {
   // branches show the new master price (until a branch sets its own again).
   if (priceProvided && prevPrice !== null && Number(fields.price) !== prevPrice) {
     try { await sql`UPDATE branch_inventory SET price = NULL WHERE menu_item_id = ${id}::uuid` } catch {}
+  }
+
+  // Master stock actually changed → cascade to branches (customers see branch
+  // stock) + fire a low-stock alert (push + email) when it drops to ≤2 / 0.
+  if (stockProvided) {
+    const raw = fields.stock_count
+    const newStock = (raw === null || raw === undefined || raw === '') ? null : Math.max(0, parseInt(raw) || 0)
+    if (newStock !== prevStock) {
+      try { await sql`UPDATE branch_inventory SET stock_count = ${newStock} WHERE menu_item_id = ${id}::uuid` } catch {}
+      if (newStock !== null) notifyLowStock(curName || item.name, newStock, prevStock, null).catch(() => {})
+    }
   }
 
   return NextResponse.json({ item })

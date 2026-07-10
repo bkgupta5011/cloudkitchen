@@ -4,6 +4,7 @@ import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
 import { checkAndUpdateKitchenSchedule } from '@/lib/schedule'
 import { sendPushToUser } from '@/lib/push'
+import { notifyLowStock } from '@/lib/stock'
 
 function adminOnly(request) {
   const token = request.cookies.get('ck_token')?.value
@@ -642,10 +643,13 @@ export async function PATCH(request) {
       const updateFields = []
       if (data.stock_count !== undefined) {
         const val = data.stock_count === null ? null : Math.max(0, parseInt(data.stock_count) || 0)
+        const [prevRow] = await sql`SELECT name, stock_count FROM menu_items WHERE id = ${data.id}`
         await sql`UPDATE menu_items SET stock_count = ${val} WHERE id = ${data.id}`
         // Cascade to branches so the change actually reaches customers (who see
         // branch stock). Last-edit-wins, same as the master-price → branch cascade.
         try { await sql`UPDATE branch_inventory SET stock_count = ${val} WHERE menu_item_id = ${data.id}::uuid` } catch {}
+        // Low-stock alert (push + email) when a manual edit drops it to ≤2 / 0.
+        if (val !== null && prevRow) notifyLowStock(prevRow.name, val, prevRow.stock_count, null).catch(() => {})
       }
       if (data.stock_default !== undefined) {
         const val = data.stock_default === null ? null : Math.max(0, parseInt(data.stock_default) || 0)
@@ -868,12 +872,21 @@ export async function PATCH(request) {
       if (stock !== null && (!Number.isFinite(stock) || stock < 0)) {
         return NextResponse.json({ error: 'Invalid stock' }, { status: 400 })
       }
+      const [prevBi] = await sql`SELECT stock_count FROM branch_inventory WHERE branch_id = ${branch_id}::uuid AND menu_item_id = ${item_id}::uuid`
       await sql`
         INSERT INTO branch_inventory (branch_id, menu_item_id, is_available, stock_count)
         VALUES (${branch_id}::uuid, ${item_id}::uuid, true, ${stock})
         ON CONFLICT (branch_id, menu_item_id)
         DO UPDATE SET stock_count = ${stock}
       `
+      // Low-stock alert (push + email) when this branch's stock drops to ≤2 / 0.
+      if (stock !== null) {
+        try {
+          const [mi] = await sql`SELECT name FROM menu_items WHERE id = ${item_id}::uuid`
+          const [br] = await sql`SELECT name FROM branches WHERE id = ${branch_id}::uuid`
+          notifyLowStock(mi?.name || 'Item', stock, prevBi?.stock_count ?? null, br?.name || null).catch(() => {})
+        } catch {}
+      }
       return NextResponse.json({ success: true })
     }
 

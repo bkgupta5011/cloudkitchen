@@ -691,6 +691,9 @@ export async function POST(request) {
 
   // Insert order items + deduct stock atomically
   try { await sql`ALTER TABLE order_items ADD COLUMN IF NOT EXISTS fitness_item_id UUID` } catch {}
+  // Branch name for the low-stock alert email (fetched once).
+  let lowStockBranchName = null
+  if (branchId) { try { const [b] = await sql`SELECT name FROM branches WHERE id = ${branchId}::uuid`; lowStockBranchName = b?.name || null } catch {} }
   for (const oi of orderItems) {
     await sql`
       INSERT INTO order_items (order_id, menu_item_id, fitness_item_id, name, price, quantity, subtotal)
@@ -716,8 +719,9 @@ export async function POST(request) {
         `
       }
       if (updated) {
-        // Fire-and-forget low stock notification
-        notifyLowStock(oi.name, updated.stock_count).catch(() => {})
+        // Fire-and-forget low-stock alert (push + email on crossing to ≤2 / 0).
+        const prevStock = (updated.stock_count ?? 0) + oi.quantity
+        notifyLowStock(oi.name, updated.stock_count, prevStock, lowStockBranchName).catch(() => {})
       }
     }
   }

@@ -6,6 +6,7 @@ import styles from '../admin/admin.module.css'
 const SECTIONS = [
   { id: 'orders', label: '📋 Orders',          badge: 'orders' },
   { id: 'items',  label: '📦 Item Availability' },
+  { id: 'fitness', label: '🥗 Fitness Corner', fitnessGated: true },
 ]
 
 export default function BranchPage() {
@@ -31,6 +32,8 @@ export default function BranchPage() {
   const [savingItem,      setSavingItem]      = useState(false)
   const [uploadingImg,    setUploadingImg]    = useState(false)
   const [uploadingFor,    setUploadingFor]    = useState(null)    // item id whose photo is uploading
+  const [fitInv,          setFitInv]          = useState([])      // this branch's fitness inventory
+  const [fitInvLoading,   setFitInvLoading]   = useState(false)
 
   const prevNewCount = useRef(-1)
   const audioRef     = useRef(null)
@@ -64,6 +67,26 @@ export default function BranchPage() {
       .then(r => r.json())
       .then(({ items }) => setItems(items || []))
   }, [user])
+
+  // This outlet's fitness inventory (only the admin-allowed corner). Branch can
+  // ONLY toggle availability/stock/price — nutrition is master-locked, no adding.
+  const loadBranchFitness = useCallback(() => {
+    if (!user?.branch_id) return
+    setFitInvLoading(true)
+    fetch(`/api/fitness?mode=inventory&branch_id=${user.branch_id}`)
+      .then(r => r.json())
+      .then(d => { setFitInv(d.items || []); setFitInvLoading(false) })
+      .catch(() => setFitInvLoading(false))
+  }, [user])
+
+  const setMyFitItem = async (item, patch) => {
+    const merged = { ...item, ...patch }
+    setFitInv(prev => prev.map(x => x.id === item.id ? merged : x))
+    await fetch('/api/fitness', { method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'set_branch_item', branch_id: user.branch_id, fitness_item_id: item.id,
+        is_available: !!merged.branch_available, price: merged.branch_price ?? '',
+        stock_count: merged.branch_stock ?? '', discount_percent: merged.branch_discount ?? '' }) }).catch(() => {})
+  }
 
   // fetchBoys — stable reference (no deps), called in polling interval
   const fetchBoys = useCallback(() => {
@@ -381,10 +404,10 @@ export default function BranchPage() {
         <div style={{ fontSize: 11, color: '#f97316', fontWeight: 700, padding: '0 8px 10px', letterSpacing: 0.3 }}>
           {branchInfo?.name || 'Branch'}
         </div>
-        {SECTIONS.map(s => (
+        {SECTIONS.filter(s => !s.fitnessGated || branchInfo?.fitness_enabled).map(s => (
           <button key={s.id}
             className={`${styles.sideLink} ${section === s.id ? styles.active : ''}`}
-            onClick={() => setSection(s.id)}>
+            onClick={() => { setSection(s.id); if (s.id === 'fitness') loadBranchFitness() }}>
             {s.label}
             {s.badge === 'orders' && pendingCount > 0 && (
               <span className={styles.sideBadge}>{pendingCount}</span>
@@ -832,6 +855,58 @@ export default function BranchPage() {
                 <div style={{ color: 'var(--t2)', fontSize: 13 }}>Koi item nahi mila</div>
               )}
             </div>
+          </>
+        )}
+
+        {/* ── 🥗 FITNESS CORNER INVENTORY (only if head office enabled it) ── */}
+        {section === 'fitness' && (
+          <>
+            <div className={styles.sectionHead}>
+              <h2>🥗 Fitness Corner — Meri Inventory</h2>
+              <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={loadBranchFitness}>🔄 Refresh</button>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--t2)', marginBottom: 14 }}>
+              Nutrition head-office set karta hai (locked — badal nahi sakte). Aap sirf apne outlet ke liye item <b>ON/OFF + price + stock</b> set karo. Blank price = master rate, blank stock = unlimited. Item add head-office hi karta hai.
+            </p>
+            {fitInvLoading ? (
+              <div style={{ textAlign: 'center', padding: 40 }}><span className="spinner" /></div>
+            ) : fitInv.length === 0 ? (
+              <div style={{ color: 'var(--t2)', fontSize: 13 }}>Abhi koi fitness item nahi hai.</div>
+            ) : (
+              <div className={styles.menuGrid}>
+                {fitInv.map(it => (
+                  <div key={it.id} className={styles.menuCard} style={{ opacity: it.branch_available ? 1 : 0.55 }}>
+                    <div style={{ position: 'relative', width: '100%', height: 96, borderRadius: 8, marginBottom: 8, background: 'linear-gradient(135deg,#d1fae5,#a7f3d0)', overflow: 'hidden' }}>
+                      {it.image_url
+                        ? <img src={it.image_url} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: 30 }}>🥗</div>}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 3 }}>{it.is_veg ? '🟢' : '🔴'} {it.name}</div>
+                    <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <span>🔥 {it.calories}cal</span><span>💪 {it.protein_g}g</span><span>🍚 {it.carbs_g}g</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 2 }}>Price</div>
+                        <input type="number" defaultValue={it.branch_price ?? ''} placeholder={`₹${Math.round(it.master_price)}`}
+                          onBlur={e => setMyFitItem(it, { branch_price: e.target.value === '' ? null : e.target.value })}
+                          style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: '1px solid var(--bd2)', background: 'var(--bg)', color: 'var(--t1)', fontSize: 12, boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: 'var(--t3)', marginBottom: 2 }}>Stock</div>
+                        <input type="number" defaultValue={it.branch_stock ?? ''} placeholder="∞"
+                          onBlur={e => setMyFitItem(it, { branch_stock: e.target.value === '' ? null : e.target.value })}
+                          style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: '1px solid var(--bd2)', background: 'var(--bg)', color: 'var(--t1)', fontSize: 12, boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div className={`switch ${it.branch_available ? 'on' : ''}`} onClick={() => setMyFitItem(it, { branch_available: !it.branch_available })} />
+                      <span style={{ fontSize: 12, color: 'var(--t2)' }}>{it.branch_available ? 'Available' : 'Off'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
       </main>

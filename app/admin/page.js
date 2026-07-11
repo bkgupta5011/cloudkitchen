@@ -101,6 +101,11 @@ export default function AdminPage() {
   const [showFitForm, setShowFitForm] = useState(false)
   const [editFitId, setEditFitId] = useState(null)
   const [fitForm, setFitForm] = useState(EMPTY_FIT)
+  // Per-outlet fitness inventory (admin-only enable + branch-wise availability/price/stock)
+  const [fitBranchId, setFitBranchId] = useState('')
+  const [fitBranchInv, setFitBranchInv] = useState([])
+  const [fitBranchEnabled, setFitBranchEnabled] = useState(false)
+  const [fitInvLoading, setFitInvLoading] = useState(false)
   const [newOffer, setNewOffer] = useState({ code:'', type:'percent', value:'', min_order:'', max_uses:1000, valid_till:'' })
   const [showBoyDetail, setShowBoyDetail] = useState(false)
   const [boyDetail, setBoyDetail] = useState(null)
@@ -719,16 +724,35 @@ export default function AdminPage() {
   // ── 🥗 Fitness Corner functions ──────────────────────────────────
   const loadFitness = () => {
     setFitLoading(true)
-    fetch('/api/fitness').then(r => r.json())
-      .then(d => { setFitnessItems(d.items || []); setFitCornerOn(!!d.cornerEnabled); setFitLoading(false) })
+    fetch('/api/fitness?mode=catalog').then(r => r.json())   // master catalog (nutrition)
+      .then(d => { setFitnessItems(d.items || []); setFitLoading(false) })
       .catch(() => setFitLoading(false))
   }
 
-  const toggleFitCorner = async () => {
-    const next = !fitCornerOn
-    setFitCornerOn(next)
-    await fetch('/api/admin', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ type:'kitchen', fitness_corner_enabled: next }) })
-    showToast(next ? '🟢 Fitness Corner LIVE! (ab order ho sakta hai)' : '🔴 Coming Soon mode (order band)')
+  // Per-outlet inventory management (admin picks a branch)
+  const loadFitBranch = (branchId) => {
+    setFitBranchId(branchId)
+    if (!branchId) { setFitBranchInv([]); setFitBranchEnabled(false); return }
+    setFitInvLoading(true)
+    fetch(`/api/fitness?mode=inventory&branch_id=${branchId}`).then(r => r.json())
+      .then(d => { setFitBranchInv(d.items || []); setFitBranchEnabled(!!d.fitnessEnabled); setFitInvLoading(false) })
+      .catch(() => setFitInvLoading(false))
+  }
+  const toggleBranchCorner = async () => {
+    const next = !fitBranchEnabled
+    setFitBranchEnabled(next)
+    await fetch('/api/fitness', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'set_branch_enabled', branch_id: fitBranchId, enabled: next }) })
+    showToast(next ? '🟢 Is outlet ke liye Fitness Corner LIVE!' : '🔴 Is outlet me Coming Soon')
+  }
+  const setBranchFitItem = async (item, patch) => {
+    const merged = { ...item, ...patch }
+    setFitBranchInv(prev => prev.map(x => x.id === item.id ? merged : x))
+    await fetch('/api/fitness', { method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'set_branch_item', branch_id: fitBranchId, fitness_item_id: item.id,
+        is_available: !!merged.branch_available,
+        price: merged.branch_price ?? '',
+        stock_count: merged.branch_stock ?? '',
+        discount_percent: merged.branch_discount ?? '' }) })
   }
 
   const openAddFit  = () => { setEditFitId(null); setFitForm(EMPTY_FIT); setShowFitForm(true) }
@@ -1503,20 +1527,54 @@ export default function AdminPage() {
         {/* ── 🥗 FITNESS CORNER ── */}
         {section === 'fitness' && (
           <>
-            {/* Master ON/OFF toggle */}
-            <div style={{ background:'var(--card)', borderRadius:14, padding:'16px 18px', border:'1.5px solid '+(fitCornerOn?'#34d399':'#fbbf24'), marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-              <div style={{ flex:1, minWidth:200 }}>
-                <div style={{ fontSize:15, fontWeight:800 }}>🥗 Fitness Freak Corner — {fitCornerOn ? '🟢 LIVE' : '🟡 Coming Soon'}</div>
-                <div style={{ fontSize:12, color:'var(--t2)', marginTop:3 }}>
-                  {fitCornerOn
-                    ? 'Corner LIVE hai — "Available" items customer order kar sakta hai.'
-                    : 'Customer ko "Coming Soon" dikh raha hai (order band). ON karo to ordering allowed ho jayega.'}
-                </div>
+            {/* ── Per-Outlet Fitness Inventory Corner (admin-only control) ── */}
+            <div style={{ background:'var(--card)', borderRadius:14, padding:'16px 18px', border:'1.5px solid #34d399', marginBottom:16 }}>
+              <div style={{ fontSize:15, fontWeight:800 }}>🥗 Fitness Inventory Corner — Per-Outlet (Admin only)</div>
+              <div style={{ fontSize:12, color:'var(--t2)', margin:'3px 0 12px' }}>
+                Kisi outlet ke liye corner <b>allow</b> karo → uske area me LIVE. Baaki me "Coming Soon". Nutrition master pe locked hai — outlet sirf availability/stock/price badal sakta hai.
               </div>
-              <div className={`switch ${fitCornerOn?'on':''}`} onClick={toggleFitCorner} />
+              <div style={{ display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+                <select value={fitBranchId} onChange={e => loadFitBranch(e.target.value)}
+                  style={{ padding:'8px 10px', borderRadius:8, border:'1px solid var(--bdr)', fontSize:13, minWidth:200 }}>
+                  <option value=''>— Outlet chuno —</option>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                {fitBranchId && (
+                  <label style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:13, fontWeight:700 }}>
+                    <div className={`switch ${fitBranchEnabled?'on':''}`} onClick={toggleBranchCorner} />
+                    {fitBranchEnabled ? '🟢 Corner LIVE for this outlet' : '🟡 Coming Soon (allow to go live)'}
+                  </label>
+                )}
+              </div>
+
+              {fitBranchId && (fitInvLoading ? (
+                <div style={{ textAlign:'center', padding:20 }}><span className="spinner" /></div>
+              ) : (
+                <div style={{ marginTop:12, overflowX:'auto', borderRadius:10, border:'1px solid var(--bdr)' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'1.6fr 0.8fr 1fr 0.9fr', gap:0, minWidth:520, fontSize:11.5, fontWeight:800, color:'var(--t2)', background:'var(--bg)', padding:'8px 10px' }}>
+                    <span>Item (nutrition)</span><span>Available</span><span>Price (blank=₹{'{'}master{'}'})</span><span>Stock</span>
+                  </div>
+                  {fitBranchInv.map(it => (
+                    <div key={it.id} style={{ display:'grid', gridTemplateColumns:'1.6fr 0.8fr 1fr 0.9fr', gap:6, alignItems:'center', padding:'8px 10px', borderTop:'1px solid var(--bg)', minWidth:520 }}>
+                      <div>
+                        <div style={{ fontSize:12.5, fontWeight:700 }}><span className={`veg-dot ${it.is_veg?'veg':'nonveg'}`} /> {it.name}</div>
+                        <div style={{ fontSize:10, color:'var(--t3)' }}>🔥{it.calories} · 💪{it.protein_g}g · master ₹{Math.round(it.master_price)}</div>
+                      </div>
+                      <div className={`switch ${it.branch_available?'on':''}`} onClick={() => setBranchFitItem(it, { branch_available: !it.branch_available })} />
+                      <input type="number" defaultValue={it.branch_price ?? ''} placeholder={`₹${Math.round(it.master_price)}`}
+                        onBlur={e => setBranchFitItem(it, { branch_price: e.target.value === '' ? null : e.target.value })}
+                        style={{ width:'92%', padding:'6px 8px', borderRadius:7, border:'1px solid var(--bdr)', fontSize:12 }} />
+                      <input type="number" defaultValue={it.branch_stock ?? ''} placeholder="∞"
+                        onBlur={e => setBranchFitItem(it, { branch_stock: e.target.value === '' ? null : e.target.value })}
+                        style={{ width:'92%', padding:'6px 8px', borderRadius:7, border:'1px solid var(--bdr)', fontSize:12 }} />
+                    </div>
+                  ))}
+                  {fitBranchInv.length === 0 && <div style={{ padding:16, textAlign:'center', fontSize:12, color:'var(--t2)' }}>Koi fitness item nahi — pehle neeche master catalog me add karo.</div>}
+                </div>
+              ))}
             </div>
 
-            <div className={styles.sectionHead}><h2>Fitness Items ({fitnessItems.length})</h2><button className="btn btn-primary" onClick={openAddFit}>+ Add Healthy Item</button></div>
+            <div className={styles.sectionHead}><h2>Master Catalog — Fitness Items ({fitnessItems.length}) <span style={{ fontSize:11, fontWeight:600, color:'var(--t2)' }}>· nutrition yahin (locked)</span></h2><button className="btn btn-primary" onClick={openAddFit}>+ Add Healthy Item</button></div>
 
             {fitLoading ? <div style={{ textAlign:'center', padding:40 }}><span className="spinner" /></div> : (
               <div className={styles.menuGrid}>

@@ -68,6 +68,11 @@ export default function LoyaltyCard({ compact = false }) {
           ✅ ₹{loyalty.availableReward} will be applied automatically on your next order
         </div>
       )}
+
+      {/* Subtle entry to the health tool — non-intrusive */}
+      <a href="/health" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12, paddingTop: 10, borderTop: '1px dashed #fde68a', fontSize: 12, fontWeight: 700, color: '#065f46', textDecoration: 'none' }}>
+        💚 Check My Health — BMI &amp; calorie target ›
+      </a>
     </div>
   )
 }

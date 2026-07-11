@@ -1146,6 +1146,7 @@ function MenuPageContent() {
           <button onClick={toggleDark} style={{ background:'none', border:'1px solid #e5e7eb', borderRadius:8, padding:'5px 8px', cursor:'pointer', fontSize:15 }} title="Dark/Light mode">
             {typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')==='dark' ? '☀️' : '🌙'}
           </button>
+          {!isGuest && <button onClick={() => router.push('/health')} style={{ fontSize: 12, fontWeight: 700, padding: '6px 10px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }} title="My Health — BMI & calorie target">💚 My Health</button>}
           <button className="btn btn-secondary" onClick={logout} style={{ fontSize: 12, padding: '6px 10px' }}>Logout</button>
         </div>
       </nav>

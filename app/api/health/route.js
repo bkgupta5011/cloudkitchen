@@ -22,6 +22,9 @@ async function ensureTable(sql) {
       goal        VARCHAR(20),
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     )`
+  // Phase 3 fields — added non-destructively on existing tables.
+  try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS diet_pref VARCHAR(10)` } catch {}
+  try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS gym_goer BOOLEAN DEFAULT FALSE` } catch {}
   // Weight history — used from Phase 3 (progress tracking). Seed on each save.
   try {
     await sql`
@@ -63,6 +66,8 @@ export async function POST(request) {
   const waist = (d.waist_cm === '' || d.waist_cm == null) ? null : Number(d.waist_cm)
   const activity = d.activity || null
   const goal = d.goal || null
+  const dietPref = d.diet_pref === 'nonveg' ? 'nonveg' : 'veg'
+  const gymGoer = !!d.gym_goer
 
   if (!gender || !age || !height || !weight) {
     return NextResponse.json({ error: 'Gender, age, height and weight are required' }, { status: 400 })
@@ -72,11 +77,11 @@ export async function POST(request) {
   }
 
   const [profile] = await sql`
-    INSERT INTO health_profile (user_id, gender, age, height_cm, weight_kg, waist_cm, activity, goal, updated_at)
-    VALUES (${user.id}, ${gender}, ${age}, ${height}, ${weight}, ${waist}, ${activity}, ${goal}, NOW())
+    INSERT INTO health_profile (user_id, gender, age, height_cm, weight_kg, waist_cm, activity, goal, diet_pref, gym_goer, updated_at)
+    VALUES (${user.id}, ${gender}, ${age}, ${height}, ${weight}, ${waist}, ${activity}, ${goal}, ${dietPref}, ${gymGoer}, NOW())
     ON CONFLICT (user_id) DO UPDATE SET
       gender = ${gender}, age = ${age}, height_cm = ${height}, weight_kg = ${weight},
-      waist_cm = ${waist}, activity = ${activity}, goal = ${goal}, updated_at = NOW()
+      waist_cm = ${waist}, activity = ${activity}, goal = ${goal}, diet_pref = ${dietPref}, gym_goer = ${gymGoer}, updated_at = NOW()
     RETURNING *`
 
   // Log this weight point (once per day) for future progress tracking.

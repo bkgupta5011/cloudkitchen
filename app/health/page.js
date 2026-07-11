@@ -15,6 +15,39 @@ const GOALS = [
   { v: 'gain',     label: '🔺 Gain weight / muscle' },
 ]
 
+// Daily water tracker — tap glasses (250 ml each) to fill toward the goal.
+// Saved per-day in localStorage so it resets each day and persists on refresh.
+function WaterTracker({ targetL }) {
+  const glasses = Math.max(4, Math.round((Number(targetL) || 2.5) / 0.25))
+  const key = 'ck_water_' + new Date().toISOString().slice(0, 10)
+  const [done, setDone] = useState(0)
+  useEffect(() => {
+    try { setDone(Math.min(glasses, Number(localStorage.getItem(key)) || 0)) } catch {}
+  }, [key, glasses])
+  const setCount = (n) => { setDone(n); try { localStorage.setItem(key, String(n)) } catch {} }
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #e0f2fe', boxShadow: '0 2px 12px #0000000d' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0369a1' }}>💧 Today&apos;s water</div>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#0891b2', background: '#e0f2fe', borderRadius: 20, padding: '3px 10px' }}>{done}/{glasses} glasses</div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {Array.from({ length: glasses }).map((_, i) => {
+          const filled = i < done
+          return (
+            <button key={i} onClick={() => setCount(i + 1 === done ? i : i + 1)} title="Tap to update"
+              style={{ width: 34, height: 40, borderRadius: 8, cursor: 'pointer', fontSize: 18, lineHeight: '38px',
+                border: '1.5px solid ' + (filled ? '#0891b2' : '#e5e7eb'), background: filled ? '#e0f2fe' : '#fff', padding: 0 }}>
+              {filled ? '💧' : '·'}
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 8 }}>Goal ≈ {targetL} L/day ({glasses} glasses of 250 ml). Tap a glass as you drink.</div>
+    </div>
+  )
+}
+
 // ── Credible formulas: ICMR Indian BMI cut-offs, Mifflin-St Jeor BMR,
 // activity-based TDEE, goal-based protein, macro split. Values are approximate
 // general guidance — not medical advice.
@@ -39,16 +72,20 @@ function compute(p) {
   const mult = (ACTIVITY.find(a => a.v === p.activity) || ACTIVITY[0]).mult
   const tdee = bmr * mult
 
-  // Calorie target by goal (safe deficit / floor)
+  // Calorie target by goal (safe deficit / floor). Gym-goers get a leaner
+  // surplus (% of TDEE, not a flat number) so it scales with body size.
   let cals
   if (p.goal === 'lose') cals = Math.max(p.gender === 'male' ? 1500 : 1200, tdee - 500)
-  else if (p.goal === 'gain') cals = tdee + 400
+  else if (p.goal === 'gain') cals = tdee * (p.gym_goer ? 1.10 : 1.12)
   else cals = tdee
   cals = Math.round(cals / 10) * 10
 
-  // Protein — reference weight avoids over-estimating for higher BMI
+  // Protein — reference weight avoids over-estimating for higher BMI.
+  // Gym-goers need more (muscle retention on a cut, growth on a bulk).
   const refW = bmi > 25 ? 22 * hM * hM : w
-  const pFactor = p.goal === 'lose' ? 1.8 : p.goal === 'gain' ? 2.0 : 1.0
+  const pFactor = p.gym_goer
+    ? (p.goal === 'lose' ? 2.2 : p.goal === 'gain' ? 2.0 : 1.6)
+    : (p.goal === 'lose' ? 1.8 : p.goal === 'gain' ? 2.0 : 1.0)
   const proteinG = Math.round(refW * pFactor)
   const fatG = Math.round((cals * 0.27) / 9)
   const carbsG = Math.max(0, Math.round((cals - proteinG * 4 - fatG * 9) / 4))
@@ -64,14 +101,28 @@ function compute(p) {
     else waistRisk = `Healthy (waist ${wc} cm)`
   }
 
-  return { bmi: +bmi.toFixed(1), cat, catColor, lo: +lo.toFixed(1), hi: +hi.toFixed(1), deltaText,
-    tdee: Math.round(tdee), cals, proteinG, carbsG, fatG, fiberG, waterL, waistRisk }
+  // Weight-change timeline — 7700 kcal ≈ 1 kg body fat.
+  // Uses the ACTUAL calorie gap (after floors) so it stays honest.
+  let timeline = null
+  const kcalGap = p.goal === 'lose' ? (tdee - cals) : p.goal === 'gain' ? (cals - tdee) : 0
+  if (kcalGap > 0) {
+    const weeklyKg = +(kcalGap * 7 / 7700).toFixed(2)
+    const monthlyKg = +(weeklyKg * 4.33).toFixed(1)
+    // Weeks to reach the healthy range (only when there's a gap to close)
+    const weeksToTarget = deltaKg > 0 && weeklyKg > 0 ? Math.ceil(deltaKg / weeklyKg) : null
+    timeline = { dir: p.goal, weeklyKg, monthlyKg, weeksToTarget, targetKg: +deltaKg.toFixed(1) }
+  }
+
+  return { bmi: +bmi.toFixed(1), cat, catColor, lo: +lo.toFixed(1), hi: +hi.toFixed(1), deltaText, deltaKg: +deltaKg.toFixed(1),
+    tdee: Math.round(tdee), cals, proteinG, carbsG, fatG, fiberG, waterL, waistRisk, timeline, gymGoer: !!p.gym_goer }
 }
 
 // Rank Fitness Corner meals against the customer's goal + calorie target.
-function rankMeals(items, result, goal) {
+// dietPref 'veg' shows only veg items; 'nonveg' shows everything.
+function rankMeals(items, result, goal, dietPref) {
   const perCals = (result?.cals || 1800) / 3   // ~3 meals/day
-  const scored = (items || []).filter(it => Number(it.calories) > 0).map(it => {
+  const pool = (items || []).filter(it => Number(it.calories) > 0 && (dietPref === 'nonveg' || it.is_veg))
+  const scored = pool.map(it => {
     const cal = Number(it.calories), pro = Number(it.protein_g) || 0
     let score, reason
     if (goal === 'lose') {
@@ -91,7 +142,7 @@ function rankMeals(items, result, goal) {
   return scored.slice(0, 6)
 }
 
-const EMPTY = { gender: '', age: '', height_cm: '', weight_kg: '', waist_cm: '', activity: 'moderate', goal: 'maintain' }
+const EMPTY = { gender: '', age: '', height_cm: '', weight_kg: '', waist_cm: '', activity: 'moderate', goal: 'maintain', diet_pref: 'veg', gym_goer: false }
 const inputStyle = { width: '100%', padding: '11px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }
 const labelStyle = { fontSize: 12.5, fontWeight: 700, color: '#374151', marginBottom: 5, display: 'block' }
 
@@ -113,7 +164,8 @@ export default function MyHealth() {
     }).then(d => {
       if (d?.profile) {
         const p = { gender: d.profile.gender || '', age: d.profile.age || '', height_cm: d.profile.height_cm || '',
-          weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', activity: d.profile.activity || 'moderate', goal: d.profile.goal || 'maintain' }
+          weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', activity: d.profile.activity || 'moderate', goal: d.profile.goal || 'maintain',
+          diet_pref: d.profile.diet_pref || 'veg', gym_goer: !!d.profile.gym_goer }
         setForm(p); setResult(compute(p)); setEditing(false)
       }
       setLoading(false)
@@ -136,7 +188,7 @@ export default function MyHealth() {
     setResult(compute(form)); setEditing(false)
   }
 
-  const meals = result ? rankMeals(allMeals, result, form.goal) : []
+  const meals = result ? rankMeals(allMeals, result, form.goal, form.diet_pref) : []
   const goalWord = form.goal === 'lose' ? 'fat loss' : form.goal === 'gain' ? 'muscle gain' : 'staying fit'
 
   return (
@@ -188,6 +240,25 @@ export default function MyHealth() {
               </div>
             </div>
 
+            <div>
+              <label style={labelStyle}>Food preference</label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[['veg', '🟢 Veg'], ['nonveg', '🔴 Non-veg (egg too)']].map(([v, l]) => (
+                  <button key={v} onClick={() => set('diet_pref', v)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1.5px solid ' + (form.diet_pref === v ? '#059669' : '#e5e7eb'), background: form.diet_pref === v ? '#ecfdf5' : '#fff', color: '#065f46', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{l}</button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Do you go to the gym / train regularly?</label>
+              <div style={{ display: 'flex', gap: 10 }}>
+                {[[true, '🏋️ Yes, I train'], [false, '🙅 No']].map(([v, l]) => (
+                  <button key={String(v)} onClick={() => set('gym_goer', v)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1.5px solid ' + (form.gym_goer === v ? '#059669' : '#e5e7eb'), background: form.gym_goer === v ? '#ecfdf5' : '#fff', color: '#065f46', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>{l}</button>
+                ))}
+              </div>
+              {form.gym_goer && <div style={{ fontSize: 11, color: '#059669', marginTop: 5 }}>💪 We&apos;ll raise your protein target for muscle building/retention.</div>}
+            </div>
+
             {err && <div style={{ color: '#dc2626', fontSize: 13, fontWeight: 600 }}>⚠️ {err}</div>}
             <button onClick={save} disabled={saving} style={{ background: '#059669', color: '#fff', border: 'none', padding: '13px', borderRadius: 12, fontSize: 15, fontWeight: 800, cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
               {saving ? 'Calculating…' : '✅ Calculate My Health'}
@@ -225,6 +296,49 @@ export default function MyHealth() {
               <div style={{ flex: 1, background: '#fff', borderRadius: 12, padding: '10px', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: 12.5, fontWeight: 700, color: '#7c3aed' }}>🌾 Fiber: {result.fiberG} g/day</div>
               <div style={{ flex: 1, background: '#fff', borderRadius: 12, padding: '10px', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: 12.5, fontWeight: 700, color: '#0891b2' }}>💧 Water: {result.waterL} L/day</div>
             </div>
+
+            {/* Weight-change timeline — from the calorie deficit/surplus */}
+            {result.timeline && (
+              <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #ecfdf5', boxShadow: '0 2px 12px #0000000d' }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#065f46', marginBottom: 10 }}>
+                  📈 Your {result.timeline.dir === 'lose' ? 'weight-loss' : 'weight-gain'} timeline
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div style={{ background: '#f0fdf4', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: '#059669' }}>{result.timeline.weeklyKg} kg</div>
+                    <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>per week</div>
+                  </div>
+                  <div style={{ background: '#f0fdf4', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: '#059669' }}>{result.timeline.monthlyKg} kg</div>
+                    <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>per month</div>
+                  </div>
+                </div>
+                {result.timeline.weeksToTarget && (
+                  <div style={{ fontSize: 12.5, color: '#374151', marginTop: 10, textAlign: 'center', fontWeight: 600 }}>
+                    🎯 At this pace you can reach your healthy range (~{result.timeline.targetKg} kg to {result.timeline.dir === 'lose' ? 'lose' : 'gain'}) in about <b style={{ color: '#065f46' }}>{result.timeline.weeksToTarget} weeks</b>.
+                  </div>
+                )}
+                <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 8, lineHeight: 1.5 }}>
+                  Based on ~7700 kcal ≈ 1 kg body fat. Early weeks may look faster (water weight); the body also adapts over time — so treat this as a guide, not a guarantee.
+                </div>
+              </div>
+            )}
+
+            {/* Gym-goer specific guidance */}
+            {result.gymGoer && (
+              <div style={{ background: 'linear-gradient(135deg,#eff6ff,#f0fdf4)', borderRadius: 16, padding: 16, border: '1px solid #dbeafe' }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#1e3a8a', marginBottom: 8 }}>🏋️ Because you train — a few tips</div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#374151', lineHeight: 1.7 }}>
+                  <li>Hit your <b>{result.proteinG} g protein</b> daily — spread across 4–5 meals (~20–40 g each) for best muscle synthesis.</li>
+                  <li>Eat some protein + carbs within ~1–2 hours after your workout for recovery.</li>
+                  <li>{form.goal === 'gain' ? 'Lean bulk: keep the surplus small so you gain muscle, not just fat.' : form.goal === 'lose' ? 'On a cut, the higher protein protects your muscle while you lose fat.' : 'For recomposition, stay near maintenance calories and keep protein high.'}</li>
+                  <li>Stay hydrated — aim for your <b>{result.waterL} L</b> water goal, a bit more on training days.</li>
+                </ul>
+              </div>
+            )}
+
+            {/* Daily water tracker — small engagement tool, saved per day on this device */}
+            <WaterTracker targetL={result.waterL} />
 
             {/* Phase 2 — meals matched to the goal + calorie/protein target */}
             {meals.length > 0 && (

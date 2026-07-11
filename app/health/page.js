@@ -144,6 +144,64 @@ function Progress({ log, lo, hi, goal, onLog }) {
   )
 }
 
+// Goal target-date planner — pick a target weight + date, get the required
+// daily calorie gap and a safety check (flags an unsafe pace).
+function GoalPlanner({ currentWeight }) {
+  const [target, setTarget] = useState('')
+  const [date, setDate] = useState('')
+  const [out, setOut] = useState(null)
+  const minDate = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+
+  const calc = () => {
+    const tw = Number(target)
+    if (!tw || tw < 25 || tw > 300) return setOut({ err: 'Enter a valid target weight' })
+    if (!date) return setOut({ err: 'Pick a target date' })
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const days = Math.round((new Date(date + 'T00:00:00') - today) / 86400000)
+    if (days < 7) return setOut({ err: 'Pick a date at least a week away' })
+    const diff = currentWeight - tw
+    const kg = Math.abs(diff)
+    if (kg < 0.5) return setOut({ msg: "You're basically already at this weight! 🎉" })
+    const dir = diff > 0 ? 'lose' : 'gain'
+    const perWeek = +(kg / (days / 7)).toFixed(2)
+    const dailyKcal = Math.round(kg * 7700 / days)
+    const safeWeekly = dir === 'lose' ? 1.0 : 0.5
+    const safe = perWeek <= safeWeekly + 0.05
+    const safeWeeks = Math.ceil(kg / safeWeekly)
+    setOut({ dir, kg: +kg.toFixed(1), perWeek, dailyKcal, safe, safeWeeks })
+  }
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #ecfdf5', boxShadow: '0 2px 12px #0000000d' }}>
+      <div style={{ fontSize: 13.5, fontWeight: 800, color: '#065f46', marginBottom: 10 }}>🎯 Goal planner — reach a weight by a date</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input type="number" inputMode="decimal" value={target} onChange={e => setTarget(e.target.value)} placeholder="Target weight (kg)"
+          style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 13.5, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+        <input type="date" value={date} min={minDate} onChange={e => setDate(e.target.value)}
+          style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 13.5, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+      </div>
+      <button onClick={calc} style={{ width: '100%', marginTop: 8, background: '#059669', color: '#fff', border: 'none', padding: '10px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}>Check my plan</button>
+
+      {out?.err && <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 8 }}>⚠️ {out.err}</div>}
+      {out?.msg && <div style={{ fontSize: 12.5, color: '#16a34a', fontWeight: 700, marginTop: 8 }}>{out.msg}</div>}
+      {out && out.dir && (
+        <div style={{ marginTop: 10, background: out.safe ? '#f0fdf4' : '#fef2f2', borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 12.5, color: '#374151' }}>
+            To {out.dir} <b>{out.kg} kg</b> in this time you&apos;d need about <b>{out.perWeek} kg/week</b> — roughly a <b>{out.dailyKcal} kcal/day</b> {out.dir === 'lose' ? 'deficit' : 'surplus'}.
+          </div>
+          {out.safe ? (
+            <div style={{ fontSize: 12, color: '#16a34a', fontWeight: 700, marginTop: 6 }}>✅ This is a safe, sustainable pace.</div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 700, marginTop: 6 }}>
+              ⚠️ This is faster than recommended (safe is ~{out.dir === 'lose' ? '1' : '0.5'} kg/week). At a safe pace you&apos;d reach it in about {out.safeWeeks} weeks — consider giving yourself more time.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Credible formulas: ICMR Indian BMI cut-offs, Mifflin-St Jeor BMR,
 // activity-based TDEE, goal-based protein, macro split. Values are approximate
 // general guidance — not medical advice.
@@ -197,6 +255,27 @@ function compute(p) {
     else waistRisk = `Healthy (waist ${wc} cm)`
   }
 
+  // Body-fat % — US Navy method (metric). Men: waist+neck; women: waist+hip+neck.
+  let bodyFat = null, bfCat = null, bfColor = null
+  const neck = Number(p.neck_cm), hip = Number(p.hip_cm), waistN = Number(p.waist_cm)
+  if (p.waist_cm && p.neck_cm && (p.gender === 'male' || p.hip_cm)) {
+    let bf
+    if (p.gender === 'male') {
+      const dd = waistN - neck
+      if (dd > 0) bf = 495 / (1.0324 - 0.19077 * Math.log10(dd) + 0.15456 * Math.log10(h)) - 450
+    } else {
+      const dd = waistN + hip - neck
+      if (dd > 0) bf = 495 / (1.29579 - 0.35004 * Math.log10(dd) + 0.22100 * Math.log10(h)) - 450
+    }
+    if (bf != null && isFinite(bf) && bf > 3 && bf < 60) {
+      bodyFat = +bf.toFixed(1)
+      const cats = p.gender === 'male'
+        ? [[6, 'Essential', '#2563eb'], [14, 'Athlete', '#16a34a'], [18, 'Fitness', '#22c55e'], [25, 'Average', '#d97706'], [999, 'High', '#dc2626']]
+        : [[14, 'Essential', '#2563eb'], [21, 'Athlete', '#16a34a'], [25, 'Fitness', '#22c55e'], [32, 'Average', '#d97706'], [999, 'High', '#dc2626']]
+      for (const [lim, name, col] of cats) { if (bodyFat < lim) { bfCat = name; bfColor = col; break } }
+    }
+  }
+
   // Weight-change timeline — 7700 kcal ≈ 1 kg body fat.
   // Uses the ACTUAL calorie gap (after floors) so it stays honest.
   let timeline = null
@@ -210,7 +289,32 @@ function compute(p) {
   }
 
   return { bmi: +bmi.toFixed(1), cat, catColor, lo: +lo.toFixed(1), hi: +hi.toFixed(1), deltaText, deltaKg: +deltaKg.toFixed(1),
-    tdee: Math.round(tdee), cals, proteinG, carbsG, fatG, fiberG, waterL, waistRisk, timeline, gymGoer: !!p.gym_goer }
+    tdee: Math.round(tdee), cals, proteinG, carbsG, fatG, fiberG, waterL, waistRisk, timeline, gymGoer: !!p.gym_goer,
+    bodyFat, bfCat, bfColor }
+}
+
+// Build a sample one-day meal plan (breakfast/lunch/dinner) from Fitness Corner
+// items, aimed at the customer's calorie target and filtered by veg/non-veg.
+function buildDayPlan(items, result, dietPref) {
+  const pool = (items || []).filter(it => Number(it.calories) > 0 && (dietPref === 'nonveg' || it.is_veg))
+  if (!pool.length) return null
+  const slots = [{ key: 'Breakfast', emoji: '🌅', frac: 0.3 }, { key: 'Lunch', emoji: '☀️', frac: 0.4 }, { key: 'Dinner', emoji: '🌙', frac: 0.3 }]
+  const used = new Set()
+  const plan = slots.map(s => {
+    const want = result.cals * s.frac
+    let best = null, bestScore = Infinity
+    for (const it of pool) {
+      if (used.has(it.id)) continue
+      const score = Math.abs(Number(it.calories) - want) - (Number(it.protein_g) || 0) * 0.5
+      if (score < bestScore) { bestScore = score; best = it }
+    }
+    if (best) used.add(best.id)
+    return best ? { ...s, item: best } : null
+  }).filter(Boolean)
+  if (!plan.length) return null
+  const totCal = plan.reduce((a, p) => a + Number(p.item.calories), 0)
+  const totPro = plan.reduce((a, p) => a + (Number(p.item.protein_g) || 0), 0)
+  return { plan, totCal, totPro }
 }
 
 // Rank Fitness Corner meals against the customer's goal + calorie target.
@@ -238,7 +342,7 @@ function rankMeals(items, result, goal, dietPref) {
   return scored.slice(0, 6)
 }
 
-const EMPTY = { gender: '', age: '', height_cm: '', weight_kg: '', waist_cm: '', activity: 'moderate', goal: 'maintain', diet_pref: 'veg', gym_goer: false }
+const EMPTY = { gender: '', age: '', height_cm: '', weight_kg: '', waist_cm: '', neck_cm: '', hip_cm: '', activity: 'moderate', goal: 'maintain', diet_pref: 'veg', gym_goer: false }
 const inputStyle = { width: '100%', padding: '11px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }
 const labelStyle = { fontSize: 12.5, fontWeight: 700, color: '#374151', marginBottom: 5, display: 'block' }
 
@@ -262,7 +366,8 @@ export default function MyHealth() {
       if (d?.log) setLog(d.log)
       if (d?.profile) {
         const p = { gender: d.profile.gender || '', age: d.profile.age || '', height_cm: d.profile.height_cm || '',
-          weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', activity: d.profile.activity || 'moderate', goal: d.profile.goal || 'maintain',
+          weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', neck_cm: d.profile.neck_cm || '', hip_cm: d.profile.hip_cm || '',
+          activity: d.profile.activity || 'moderate', goal: d.profile.goal || 'maintain',
           diet_pref: d.profile.diet_pref || 'veg', gym_goer: !!d.profile.gym_goer }
         setForm(p); setResult(compute(p)); setEditing(false)
       }
@@ -298,6 +403,7 @@ export default function MyHealth() {
   }
 
   const meals = result ? rankMeals(allMeals, result, form.goal, form.diet_pref) : []
+  const dayPlan = result ? buildDayPlan(allMeals, result, form.diet_pref) : null
   const goalWord = form.goal === 'lose' ? 'fat loss' : form.goal === 'gain' ? 'muscle gain' : 'staying fit'
 
   return (
@@ -331,7 +437,10 @@ export default function MyHealth() {
               <div><label style={labelStyle}>Height (cm)</label><input type="number" inputMode="numeric" value={form.height_cm} onChange={e => set('height_cm', e.target.value)} placeholder="e.g. 170" style={inputStyle} /></div>
               <div><label style={labelStyle}>Weight (kg)</label><input type="number" inputMode="decimal" value={form.weight_kg} onChange={e => set('weight_kg', e.target.value)} placeholder="e.g. 72" style={inputStyle} /></div>
               <div><label style={labelStyle}>Waist (cm) <span style={{ color: '#9ca3af', fontWeight: 500 }}>· optional</span></label><input type="number" inputMode="decimal" value={form.waist_cm} onChange={e => set('waist_cm', e.target.value)} placeholder="e.g. 86" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Neck (cm) <span style={{ color: '#9ca3af', fontWeight: 500 }}>· optional</span></label><input type="number" inputMode="decimal" value={form.neck_cm} onChange={e => set('neck_cm', e.target.value)} placeholder="e.g. 38" style={inputStyle} /></div>
+              {form.gender === 'female' && <div><label style={labelStyle}>Hip (cm) <span style={{ color: '#9ca3af', fontWeight: 500 }}>· optional</span></label><input type="number" inputMode="decimal" value={form.hip_cm} onChange={e => set('hip_cm', e.target.value)} placeholder="e.g. 96" style={inputStyle} /></div>}
             </div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: -6 }}>💡 Add waist{form.gender === 'female' ? ', neck & hip' : ' & neck'} to also get your body-fat % estimate.</div>
 
             <div>
               <label style={labelStyle}>Activity level</label>
@@ -383,6 +492,13 @@ export default function MyHealth() {
               <div style={{ fontSize: 12.5, color: '#374151', marginTop: 10 }}>Healthy weight for you: <b>{result.lo}–{result.hi} kg</b></div>
               <div style={{ fontSize: 12.5, color: result.deltaText.includes('healthy range 🎉') ? '#16a34a' : '#d97706', fontWeight: 700, marginTop: 2 }}>{result.deltaText}</div>
               {result.waistRisk && <div style={{ fontSize: 11.5, color: result.waistRisk.startsWith('High') ? '#dc2626' : '#16a34a', fontWeight: 700, marginTop: 6 }}>📏 Belly-fat risk: {result.waistRisk}</div>}
+              {result.bodyFat != null && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e5e7eb' }}>
+                  <span style={{ fontSize: 12.5, color: '#6b7280' }}>Body fat (Navy method): </span>
+                  <b style={{ fontSize: 15, color: result.bfColor }}>{result.bodyFat}%</b>
+                  <span style={{ fontSize: 11.5, fontWeight: 800, color: '#fff', background: result.bfColor, borderRadius: 20, padding: '2px 10px', marginLeft: 8 }}>{result.bfCat}</span>
+                </div>
+              )}
             </div>
 
             {/* Daily target */}
@@ -433,6 +549,9 @@ export default function MyHealth() {
               </div>
             )}
 
+            {/* Goal target-date planner */}
+            <GoalPlanner currentWeight={Number(form.weight_kg)} />
+
             {/* Gym-goer specific guidance */}
             {result.gymGoer && (
               <div style={{ background: 'linear-gradient(135deg,#eff6ff,#f0fdf4)', borderRadius: 16, padding: 16, border: '1px solid #dbeafe' }}>
@@ -451,6 +570,32 @@ export default function MyHealth() {
 
             {/* Daily water tracker — small engagement tool, saved per day on this device */}
             <WaterTracker targetL={result.waterL} />
+
+            {/* Auto day meal plan — hits the calorie target from Fitness Corner items */}
+            {dayPlan && (
+              <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #ecfdf5', boxShadow: '0 2px 12px #0000000d' }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#065f46', marginBottom: 4 }}>🍽️ Your day&apos;s meal plan (sample)</div>
+                <div style={{ fontSize: 11.5, color: '#6b7280', marginBottom: 10 }}>Built to get close to your {result.cals} kcal target · {form.diet_pref === 'veg' ? '🟢 veg' : '🔴 non-veg'}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {dayPlan.plan.map(s => (
+                    <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f9fafb', borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 22, width: 30, textAlign: 'center' }}>{s.emoji}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase' }}>{s.key}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.item.is_veg ? '🟢' : '🔴'} {s.item.name}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>🔥 {s.item.calories} kcal · 💪 {s.item.protein_g}g</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 12, fontWeight: 700, color: '#065f46' }}>
+                  <span>Total ≈ {dayPlan.totCal} kcal</span>
+                  <span>💪 {dayPlan.totPro} g protein</span>
+                </div>
+                <button onClick={() => router.push('/fitness')} style={{ width: '100%', marginTop: 10, background: '#059669', color: '#fff', border: 'none', padding: '11px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}>🛒 Order these from Fitness Corner →</button>
+                <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 8, textAlign: 'center' }}>A sample plan — mix and match to taste. Availability depends on the Fitness Corner being live in your area.</div>
+              </div>
+            )}
 
             {/* Phase 2 — meals matched to the goal + calorie/protein target */}
             {meals.length > 0 && (

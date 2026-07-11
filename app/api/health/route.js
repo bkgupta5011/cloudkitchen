@@ -25,6 +25,9 @@ async function ensureTable(sql) {
   // Phase 3 fields — added non-destructively on existing tables.
   try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS diet_pref VARCHAR(10)` } catch {}
   try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS gym_goer BOOLEAN DEFAULT FALSE` } catch {}
+  // Phase 5 — body-fat (Navy) inputs.
+  try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS neck_cm NUMERIC` } catch {}
+  try { await sql`ALTER TABLE health_profile ADD COLUMN IF NOT EXISTS hip_cm NUMERIC` } catch {}
   // Weight history — used from Phase 3 (progress tracking). Seed on each save.
   try {
     await sql`
@@ -90,6 +93,8 @@ export async function POST(request) {
   const height = d.height_cm != null ? Number(d.height_cm) : null
   const weight = d.weight_kg != null ? Number(d.weight_kg) : null
   const waist = (d.waist_cm === '' || d.waist_cm == null) ? null : Number(d.waist_cm)
+  const neck = (d.neck_cm === '' || d.neck_cm == null) ? null : Number(d.neck_cm)
+  const hip = (d.hip_cm === '' || d.hip_cm == null) ? null : Number(d.hip_cm)
   const activity = d.activity || null
   const goal = d.goal || null
   const dietPref = d.diet_pref === 'nonveg' ? 'nonveg' : 'veg'
@@ -103,11 +108,11 @@ export async function POST(request) {
   }
 
   const [profile] = await sql`
-    INSERT INTO health_profile (user_id, gender, age, height_cm, weight_kg, waist_cm, activity, goal, diet_pref, gym_goer, updated_at)
-    VALUES (${user.id}, ${gender}, ${age}, ${height}, ${weight}, ${waist}, ${activity}, ${goal}, ${dietPref}, ${gymGoer}, NOW())
+    INSERT INTO health_profile (user_id, gender, age, height_cm, weight_kg, waist_cm, neck_cm, hip_cm, activity, goal, diet_pref, gym_goer, updated_at)
+    VALUES (${user.id}, ${gender}, ${age}, ${height}, ${weight}, ${waist}, ${neck}, ${hip}, ${activity}, ${goal}, ${dietPref}, ${gymGoer}, NOW())
     ON CONFLICT (user_id) DO UPDATE SET
       gender = ${gender}, age = ${age}, height_cm = ${height}, weight_kg = ${weight},
-      waist_cm = ${waist}, activity = ${activity}, goal = ${goal}, diet_pref = ${dietPref}, gym_goer = ${gymGoer}, updated_at = NOW()
+      waist_cm = ${waist}, neck_cm = ${neck}, hip_cm = ${hip}, activity = ${activity}, goal = ${goal}, diet_pref = ${dietPref}, gym_goer = ${gymGoer}, updated_at = NOW()
     RETURNING *`
 
   // Log this weight point (once per day) for future progress tracking.

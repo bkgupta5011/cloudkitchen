@@ -68,6 +68,29 @@ function compute(p) {
     tdee: Math.round(tdee), cals, proteinG, carbsG, fatG, fiberG, waterL, waistRisk }
 }
 
+// Rank Fitness Corner meals against the customer's goal + calorie target.
+function rankMeals(items, result, goal) {
+  const perCals = (result?.cals || 1800) / 3   // ~3 meals/day
+  const scored = (items || []).filter(it => Number(it.calories) > 0).map(it => {
+    const cal = Number(it.calories), pro = Number(it.protein_g) || 0
+    let score, reason
+    if (goal === 'lose') {
+      const density = pro / (cal / 100)                 // protein per 100 kcal
+      score = density * 12 - Math.max(0, cal - perCals * 1.2) / 25
+      reason = 'High protein · light on calories'
+    } else if (goal === 'gain') {
+      score = cal * 0.4 + pro * 3                        // calorie-dense + protein
+      reason = 'Calorie-rich · high protein'
+    } else {
+      score = pro * 3 - Math.abs(cal - perCals) / 30     // balanced near per-meal
+      reason = 'Balanced protein & calories'
+    }
+    return { ...it, _score: score, _reason: reason }
+  })
+  scored.sort((a, b) => b._score - a._score)
+  return scored.slice(0, 6)
+}
+
 const EMPTY = { gender: '', age: '', height_cm: '', weight_kg: '', waist_cm: '', activity: 'moderate', goal: 'maintain' }
 const inputStyle = { width: '100%', padding: '11px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }
 const labelStyle = { fontSize: 12.5, fontWeight: 700, color: '#374151', marginBottom: 5, display: 'block' }
@@ -80,8 +103,10 @@ export default function MyHealth() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [allMeals, setAllMeals] = useState([])
 
   useEffect(() => {
+    fetch('/api/fitness?mode=suggest').then(r => r.json()).then(d => setAllMeals(d.items || [])).catch(() => {})
     fetch('/api/health').then(r => {
       if (r.status === 401) { router.push('/login'); return null }
       return r.json()
@@ -110,6 +135,9 @@ export default function MyHealth() {
     if (!res.ok) return setErr(d.error || 'Could not save')
     setResult(compute(form)); setEditing(false)
   }
+
+  const meals = result ? rankMeals(allMeals, result, form.goal) : []
+  const goalWord = form.goal === 'lose' ? 'fat loss' : form.goal === 'gain' ? 'muscle gain' : 'staying fit'
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#f0fdf4,#ffffff 260px)', paddingBottom: 48 }}>
@@ -198,9 +226,31 @@ export default function MyHealth() {
               <div style={{ flex: 1, background: '#fff', borderRadius: 12, padding: '10px', textAlign: 'center', border: '1px solid #e5e7eb', fontSize: 12.5, fontWeight: 700, color: '#0891b2' }}>💧 Water: {result.waterL} L/day</div>
             </div>
 
+            {/* Phase 2 — meals matched to the goal + calorie/protein target */}
+            {meals.length > 0 && (
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#065f46', margin: '4px 2px 8px' }}>🥗 Recommended meals for {goalWord}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {meals.map(m => (
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #ecfdf5', borderRadius: 12, padding: '10px 12px' }}>
+                      <div style={{ width: 46, height: 46, borderRadius: 10, flexShrink: 0, background: 'linear-gradient(135deg,#d1fae5,#a7f3d0)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', fontSize: 22 }}>
+                        {m.image_url ? <img src={m.image_url} alt={m.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : '🥗'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.is_veg ? '🟢' : '🔴'} {m.name}</div>
+                        <div style={{ fontSize: 11, color: '#6b7280' }}>🔥 {m.calories} kcal · 💪 {m.protein_g}g protein</div>
+                        <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 700 }}>✓ {m._reason}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: '#9ca3af', marginTop: 6, textAlign: 'center' }}>Availability depends on the Fitness Corner being live in your area.</div>
+              </div>
+            )}
+
             {/* CTA to fitness corner */}
             <button onClick={() => router.push('/fitness')} style={{ background: '#065f46', color: '#fff', border: 'none', padding: '13px', borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: 'pointer' }}>
-              🥗 See healthy meals for your goal →
+              🥗 See &amp; order healthy meals →
             </button>
             <button onClick={() => setEditing(true)} style={{ background: '#fff', color: '#065f46', border: '1.5px solid #a7f3d0', padding: '11px', borderRadius: 12, fontSize: 13.5, fontWeight: 700, cursor: 'pointer' }}>
               ✏️ Update my details

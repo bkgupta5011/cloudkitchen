@@ -77,6 +77,13 @@ export async function GET(request) {
   const user = getUser(request)
 
   try {
+    // Meal suggestions for "My Health" — read-only healthy-meal nutrition list
+    // (all master items). Used to rank meals against a customer's goal/targets.
+    if (mode === 'suggest') {
+      const items = await sql`SELECT id, name, about, price, discount_percent, calories, protein_g, carbs_g, fat_g, fiber_g, diet_tag, is_veg, image_url FROM fitness_items ORDER BY sort_order ASC, name ASC`
+      return NextResponse.json({ items })
+    }
+
     if (mode === 'catalog') {
       if (!isSuperAdmin(user)) return NextResponse.json({ error: 'Super admin only' }, { status: 403 })
       const items = await sql`SELECT * FROM fitness_items ORDER BY sort_order ASC, name ASC`

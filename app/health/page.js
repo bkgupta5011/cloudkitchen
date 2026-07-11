@@ -48,6 +48,102 @@ function WaterTracker({ targetL }) {
   )
 }
 
+// Weight progress — start-vs-now, a mini trend chart, a check-in streak,
+// and a quick "log today's weight". Uses only the customer's real logged data.
+function Progress({ log, lo, hi, goal, onLog }) {
+  const [wt, setWt] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const points = (log || []).map(p => ({ w: Number(p.weight_kg), t: new Date(p.logged_at) })).filter(p => p.w > 0)
+
+  const submit = async () => {
+    const v = Number(wt)
+    if (!v || v < 25 || v > 300) { setMsg('Enter a valid weight (kg)'); return }
+    setBusy(true); setMsg('')
+    try { await onLog(v); setWt(''); setMsg('✓ Logged for today!') } catch (e) { setMsg(e.message || 'Could not log') }
+    setBusy(false)
+  }
+
+  // Check-in streak: consecutive calendar days with a log, ending today/yesterday.
+  let streak = 0
+  if (points.length) {
+    const days = [...new Set(points.map(p => p.t.toISOString().slice(0, 10)))].sort().reverse()
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const latest = new Date(days[0] + 'T00:00:00')
+    if (Math.round((today - latest) / 86400000) <= 1) {
+      streak = 1
+      let cursor = latest
+      for (let i = 1; i < days.length; i++) {
+        const d = new Date(days[i] + 'T00:00:00')
+        if (Math.round((cursor - d) / 86400000) === 1) { streak++; cursor = d } else break
+      }
+    }
+  }
+
+  const start = points[0], now = points[points.length - 1]
+  const change = points.length >= 2 ? +(now.w - start.w).toFixed(1) : 0
+  const good = goal === 'lose' ? change < 0 : goal === 'gain' ? change > 0 : Math.abs(change) < 1
+
+  // Mini SVG chart geometry
+  const W = 320, H = 120, pad = 22
+  const ws = points.map(p => p.w)
+  let minW = Math.min(...ws, lo), maxW = Math.max(...ws, hi)
+  const range = (maxW - minW) || 1
+  minW -= range * 0.12; maxW += range * 0.12
+  const X = i => pad + (points.length <= 1 ? (W - 2 * pad) / 2 : (i / (points.length - 1)) * (W - 2 * pad))
+  const Y = w => H - pad - ((w - minW) / (maxW - minW)) * (H - 2 * pad)
+  const line = points.map((p, i) => `${X(i).toFixed(1)},${Y(p.w).toFixed(1)}`).join(' ')
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #ecfdf5', boxShadow: '0 2px 12px #0000000d' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: '#065f46' }}>📊 My progress</div>
+        {streak > 0 && <div style={{ fontSize: 12, fontWeight: 800, color: '#c2410c', background: '#ffedd5', borderRadius: 20, padding: '3px 10px' }}>🔥 {streak}-day streak</div>}
+      </div>
+
+      {points.length >= 2 ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+            {[['Start', start.w, '#6b7280'], ['Now', now.w, '#065f46'], [change <= 0 ? 'Lost' : 'Gained', Math.abs(change), good ? '#16a34a' : '#d97706']].map(([l, v, c], i) => (
+              <div key={i} style={{ background: '#f0fdf4', borderRadius: 10, padding: '9px 6px', textAlign: 'center' }}>
+                <div style={{ fontSize: 17, fontWeight: 900, color: c }}>{v}<span style={{ fontSize: 11 }}>kg</span></div>
+                <div style={{ fontSize: 10.5, color: '#6b7280', fontWeight: 700 }}>{l}</div>
+              </div>
+            ))}
+          </div>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+            {/* healthy range band */}
+            <rect x={pad} y={Y(hi)} width={W - 2 * pad} height={Math.max(0, Y(lo) - Y(hi))} fill="#dcfce7" />
+            <text x={pad + 2} y={Y(hi) - 3} fontSize="8" fill="#16a34a">healthy range</text>
+            <polyline points={line} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            {points.map((p, i) => (i === 0 || i === points.length - 1) && (
+              <circle key={i} cx={X(i)} cy={Y(p.w)} r="3.5" fill="#065f46" />
+            ))}
+          </svg>
+          <div style={{ fontSize: 11, color: good ? '#16a34a' : '#6b7280', fontWeight: 700, textAlign: 'center', marginTop: 4 }}>
+            {change === 0 ? 'Holding steady — keep it up!' : good ? `Great — ${Math.abs(change)} kg in the right direction! 🎉` : `${Math.abs(change)} kg ${change > 0 ? 'up' : 'down'} — stay consistent, you've got this.`}
+          </div>
+        </>
+      ) : (
+        <div style={{ fontSize: 12.5, color: '#6b7280', textAlign: 'center', padding: '6px 0 12px' }}>
+          Log your weight regularly to see your trend and BMI journey here. 📈
+        </div>
+      )}
+
+      {/* Quick log */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <input type="number" inputMode="decimal" value={wt} onChange={e => setWt(e.target.value)} placeholder="Today's weight (kg)"
+          style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+        <button onClick={submit} disabled={busy} style={{ background: '#059669', color: '#fff', border: 'none', padding: '0 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+          {busy ? '…' : '＋ Log'}
+        </button>
+      </div>
+      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith('✓') ? '#16a34a' : '#dc2626', fontWeight: 600, marginTop: 6 }}>{msg}</div>}
+    </div>
+  )
+}
+
 // ── Credible formulas: ICMR Indian BMI cut-offs, Mifflin-St Jeor BMR,
 // activity-based TDEE, goal-based protein, macro split. Values are approximate
 // general guidance — not medical advice.
@@ -155,6 +251,7 @@ export default function MyHealth() {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [allMeals, setAllMeals] = useState([])
+  const [log, setLog] = useState([])
 
   useEffect(() => {
     fetch('/api/fitness?mode=suggest').then(r => r.json()).then(d => setAllMeals(d.items || [])).catch(() => {})
@@ -162,6 +259,7 @@ export default function MyHealth() {
       if (r.status === 401) { router.push('/login'); return null }
       return r.json()
     }).then(d => {
+      if (d?.log) setLog(d.log)
       if (d?.profile) {
         const p = { gender: d.profile.gender || '', age: d.profile.age || '', height_cm: d.profile.height_cm || '',
           weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', activity: d.profile.activity || 'moderate', goal: d.profile.goal || 'maintain',
@@ -185,7 +283,18 @@ export default function MyHealth() {
     const d = await res.json().catch(() => ({}))
     setSaving(false)
     if (!res.ok) return setErr(d.error || 'Could not save')
+    if (d.log) setLog(d.log)
     setResult(compute(form)); setEditing(false)
+  }
+
+  // Quick "log today's weight" — updates current weight + progress chart.
+  const logWeight = async (wt) => {
+    const res = await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logWeight: true, weight_kg: wt }) })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(d.error || 'Could not log weight')
+    if (d.log) setLog(d.log)
+    const np = { ...form, weight_kg: wt }
+    setForm(np); setResult(compute(np))
   }
 
   const meals = result ? rankMeals(allMeals, result, form.goal, form.diet_pref) : []
@@ -336,6 +445,9 @@ export default function MyHealth() {
                 </ul>
               </div>
             )}
+
+            {/* Weight progress — real logged data, chart + streak + quick log */}
+            <Progress log={log} lo={result.lo} hi={result.hi} goal={form.goal} onLog={logWeight} />
 
             {/* Daily water tracker — small engagement tool, saved per day on this device */}
             <WaterTracker targetL={result.waterL} />

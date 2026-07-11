@@ -49,7 +49,14 @@ export async function GET(request) {
   const sql = getDb()
   await ensureTable(sql)
   const [profile] = await sql`SELECT * FROM health_profile WHERE user_id = ${user.id}`
-  return NextResponse.json({ profile: profile || null })
+  // Weight history (oldest→newest) for the progress chart — last ~90 points.
+  let log = []
+  try {
+    log = await sql`
+      SELECT weight_kg, logged_at FROM health_weight_log
+      WHERE user_id = ${user.id} ORDER BY logged_at ASC LIMIT 90`
+  } catch {}
+  return NextResponse.json({ profile: profile || null, log })
 }
 
 export async function POST(request) {
@@ -58,6 +65,25 @@ export async function POST(request) {
   const sql = getDb()
   await ensureTable(sql)
   const d = await request.json()
+
+  // ── Quick "log today's weight" — updates current weight + logs a point,
+  // without re-entering the whole profile. Requires an existing profile.
+  if (d.logWeight) {
+    const wt = Number(d.weight_kg)
+    if (!wt || wt < 25 || wt > 300) return NextResponse.json({ error: 'Please enter a valid weight' }, { status: 400 })
+    const [existing] = await sql`SELECT user_id FROM health_profile WHERE user_id = ${user.id}`
+    if (!existing) return NextResponse.json({ error: 'Set up your profile first' }, { status: 400 })
+    await sql`UPDATE health_profile SET weight_kg = ${wt}, updated_at = NOW() WHERE user_id = ${user.id}`
+    try {
+      const [last] = await sql`SELECT weight_kg, logged_at FROM health_weight_log WHERE user_id = ${user.id} ORDER BY logged_at DESC LIMIT 1`
+      const sameDay = last && new Date(last.logged_at).toDateString() === new Date().toDateString()
+      if (sameDay) await sql`UPDATE health_weight_log SET weight_kg = ${wt}, logged_at = NOW() WHERE user_id = ${user.id} AND logged_at = ${last.logged_at}`
+      else await sql`INSERT INTO health_weight_log (user_id, weight_kg) VALUES (${user.id}, ${wt})`
+    } catch {}
+    const [profile] = await sql`SELECT * FROM health_profile WHERE user_id = ${user.id}`
+    const log = await sql`SELECT weight_kg, logged_at FROM health_weight_log WHERE user_id = ${user.id} ORDER BY logged_at ASC LIMIT 90`
+    return NextResponse.json({ profile, log })
+  }
 
   const gender = d.gender === 'male' ? 'male' : d.gender === 'female' ? 'female' : null
   const age = d.age != null ? Math.round(Number(d.age)) : null
@@ -95,5 +121,7 @@ export async function POST(request) {
     }
   } catch {}
 
-  return NextResponse.json({ profile })
+  let log = []
+  try { log = await sql`SELECT weight_kg, logged_at FROM health_weight_log WHERE user_id = ${user.id} ORDER BY logged_at ASC LIMIT 90` } catch {}
+  return NextResponse.json({ profile, log })
 }

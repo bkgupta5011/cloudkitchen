@@ -144,6 +144,94 @@ function Progress({ log, lo, hi, goal, onLog }) {
   )
 }
 
+// Water reminder opt-in. Settings are saved locally and pushed to the FoodFi
+// app (via the FoodfiWater JS channel), which schedules native notifications
+// so they fire even when the app is closed. Works only inside the app.
+const RKEY = 'ck_water_reminder'
+function WaterReminder() {
+  const [s, setS] = useState({ enabled: false, intervalMin: 120, startHour: 8, endHour: 22 })
+  const [inApp, setInApp] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
+
+  useEffect(() => {
+    try { const v = JSON.parse(localStorage.getItem(RKEY) || 'null'); if (v) setS(x => ({ ...x, ...v })) } catch {}
+    const check = () => setInApp(!!(typeof window !== 'undefined' && (window.foodfiApp || window.FoodfiWater)))
+    check()
+    window.addEventListener('foodfi-app-ready', check)
+    return () => window.removeEventListener('foodfi-app-ready', check)
+  }, [])
+
+  const push = (next) => {
+    try { window.FoodfiWater && window.FoodfiWater.postMessage(JSON.stringify(next)) } catch {}
+  }
+  // On entering the app with reminders already on, re-sync the schedule.
+  useEffect(() => { if (inApp && s.enabled) push(s) }, [inApp])
+
+  const apply = (next) => {
+    setS(next)
+    try { localStorage.setItem(RKEY, JSON.stringify(next)) } catch {}
+    push(next)
+    setSavedMsg(inApp ? '✓ Reminder saved!' : '✓ Saved — will start once you open the FoodFi app.')
+    setTimeout(() => setSavedMsg(''), 3500)
+  }
+  const upd = (k, v) => apply({ ...s, [k]: v })
+
+  const hourLabel = (h) => `${((h + 11) % 12) + 1}${h < 12 ? ' AM' : ' PM'}`
+  const perDay = s.endHour > s.startHour ? Math.floor((s.endHour - s.startHour) * 60 / s.intervalMin) + 1 : 0
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, padding: 16, border: '1px solid #e0f2fe', boxShadow: '0 2px 12px #0000000d' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0369a1' }}>⏰ Water reminder</div>
+          <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>Get a gentle buzz to drink water through the day</div>
+        </div>
+        <button onClick={() => upd('enabled', !s.enabled)} aria-label="toggle"
+          style={{ width: 48, height: 28, borderRadius: 20, border: 'none', cursor: 'pointer', background: s.enabled ? '#0891b2' : '#d1d5db', position: 'relative', transition: 'background .2s', flexShrink: 0 }}>
+          <span style={{ position: 'absolute', top: 3, left: s.enabled ? 23 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', transition: 'left .2s' }} />
+        </button>
+      </div>
+
+      {s.enabled && (
+        <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Remind me every</label>
+            <select value={s.intervalMin} onChange={e => upd('intervalMin', Number(e.target.value))} style={{ width: '100%', marginTop: 4, padding: '9px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 13.5, background: '#fff', color: '#111' }}>
+              <option value={60}>1 hour</option>
+              <option value={90}>1.5 hours</option>
+              <option value={120}>2 hours</option>
+              <option value={180}>3 hours</option>
+            </select>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>From</label>
+              <select value={s.startHour} onChange={e => upd('startHour', Number(e.target.value))} style={{ width: '100%', marginTop: 4, padding: '9px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 13.5, background: '#fff', color: '#111' }}>
+                {Array.from({ length: 18 }).map((_, i) => { const h = i + 5; return <option key={h} value={h}>{hourLabel(h)}</option> })}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Until</label>
+              <select value={s.endHour} onChange={e => upd('endHour', Number(e.target.value))} style={{ width: '100%', marginTop: 4, padding: '9px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 13.5, background: '#fff', color: '#111' }}>
+                {Array.from({ length: 18 }).map((_, i) => { const h = i + 6; return <option key={h} value={h}>{hourLabel(h)}</option> })}
+              </select>
+            </div>
+          </div>
+          {perDay > 0 && <div style={{ fontSize: 11.5, color: '#0891b2', fontWeight: 700 }}>≈ {perDay} reminders/day</div>}
+        </div>
+      )}
+
+      {savedMsg && <div style={{ fontSize: 11.5, color: '#16a34a', fontWeight: 700, marginTop: 10 }}>{savedMsg}</div>}
+
+      {!inApp && (
+        <div style={{ marginTop: 12, background: '#f0f9ff', borderRadius: 10, padding: '10px 12px', fontSize: 11.5, color: '#0369a1', lineHeight: 1.5 }}>
+          📱 Reminders ring through the <b>FoodFi app</b> (even when it&apos;s closed). Please install the app from the Play Store and open this page there to activate them.
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Goal target-date planner — pick a target weight + date, get the required
 // daily calorie gap and a safety check (flags an unsafe pace).
 function GoalPlanner({ currentWeight }) {
@@ -570,6 +658,9 @@ export default function MyHealth() {
 
             {/* Daily water tracker — small engagement tool, saved per day on this device */}
             <WaterTracker targetL={result.waterL} />
+
+            {/* Water reminder opt-in — native alarms via the FoodFi app */}
+            <WaterReminder />
 
             {/* Auto day meal plan — hits the calorie target from Fitness Corner items */}
             {dayPlan && (

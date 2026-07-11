@@ -385,6 +385,15 @@ export default function ProfilePage() {
                 ))}
               </div>
             )}
+            {role === 'customer' && !editing && (
+              <button onClick={() => router.push('/health')} style={{ marginTop: 16, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', border: 'none', borderRadius: 12, padding: '14px 16px', cursor: 'pointer', textAlign: 'left' }}>
+                <span>
+                  <span style={{ fontSize: 15, fontWeight: 800, display: 'block' }}>💚 My Health (BMI)</span>
+                  <span style={{ display: 'block', fontSize: 11.5, opacity: 0.9, fontWeight: 500 }}>Get your calorie &amp; protein target + healthy meal ideas</span>
+                </span>
+                <span style={{ fontSize: 20 }}>›</span>
+              </button>
+            )}
           </div>
         )}
 

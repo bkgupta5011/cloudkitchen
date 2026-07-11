@@ -585,6 +585,12 @@ function MenuPageContent() {
       const dd = await fetch(`/api/distance?lat=${loc.lat}&lng=${loc.lng}`).then(r => r.json())
       if (dd && !dd.error) setFreeDelInfo({ freeMin: dd.freeDeliveryMin, festival: !!dd.festival, base: dd.deliveryBase })
     } catch {}
+    // Fitness Corner is per-outlet — LIVE only if the admin enabled it for THIS
+    // serving outlet; otherwise the banner shows "Coming Soon".
+    try {
+      const fd = await fetch(`/api/fitness?branch_id=${menuSource[0].id}`).then(r => r.json())
+      setFitnessLive(!!fd.cornerEnabled)
+    } catch {}
   }
 
   // Gate action: use device GPS to set the location.

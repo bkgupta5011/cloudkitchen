@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { findServingBranches } from '@/lib/branchSelect'
 
 // Macro chip
 function Macro({ label, value, unit, color }) {
@@ -23,11 +24,28 @@ export default function FitnessCorner() {
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    fetch('/api/fitness')
-      .then(r => r.json())
-      .then(d => { setItems(d.items || []); setCornerEnabled(!!d.cornerEnabled); setLoading(false) })
-      .catch(() => setLoading(false))
     try { setCart(JSON.parse(localStorage.getItem('ck_cart') || '{}')) } catch {}
+    // Branch-aware: find the customer's nearest serving outlet, then show that
+    // outlet's fitness offering. Corner is LIVE only if the admin enabled it for
+    // that outlet AND the outlet made items available; else "Coming Soon".
+    ;(async () => {
+      let branchId = null
+      try {
+        const loc = JSON.parse(localStorage.getItem('ck_loc') || 'null')
+        if (loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng)) {
+          const b = await fetch('/api/public/branches').then(r => r.json()).catch(() => ({ branches: [] }))
+          const serving = findServingBranches(b.branches || [], loc.lat, loc.lng, 0)
+          if (serving.length) branchId = serving[0].id
+        }
+      } catch {}
+      const url = branchId ? `/api/fitness?branch_id=${branchId}` : '/api/fitness'
+      try {
+        const d = await fetch(url).then(r => r.json())
+        setItems(d.items || [])
+        setCornerEnabled(!!d.cornerEnabled)
+      } catch {}
+      setLoading(false)
+    })()
   }, [])
 
   // Same cart as the rest of the app (ck_cart) — keep local + server in sync

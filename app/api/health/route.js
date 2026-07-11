@@ -59,7 +59,7 @@ export async function GET(request) {
       SELECT weight_kg, logged_at FROM health_weight_log
       WHERE user_id = ${user.id} ORDER BY logged_at ASC LIMIT 90`
   } catch {}
-  return NextResponse.json({ profile: profile || null, log })
+  return NextResponse.json({ profile: profile || null, log, name: user.name || null })
 }
 
 export async function POST(request) {
@@ -76,7 +76,13 @@ export async function POST(request) {
     if (!wt || wt < 25 || wt > 300) return NextResponse.json({ error: 'Please enter a valid weight' }, { status: 400 })
     const [existing] = await sql`SELECT user_id FROM health_profile WHERE user_id = ${user.id}`
     if (!existing) return NextResponse.json({ error: 'Set up your profile first' }, { status: 400 })
-    await sql`UPDATE health_profile SET weight_kg = ${wt}, updated_at = NOW() WHERE user_id = ${user.id}`
+    // Height & age can be updated in the same step (they rarely change, so the
+    // form pre-fills them). COALESCE keeps the old value when not provided.
+    const ht = (d.height_cm === '' || d.height_cm == null) ? null : Number(d.height_cm)
+    const ag = (d.age === '' || d.age == null) ? null : Math.round(Number(d.age))
+    if (ht != null && (ht < 100 || ht > 250)) return NextResponse.json({ error: 'Please check the height value' }, { status: 400 })
+    if (ag != null && (ag < 12 || ag > 100)) return NextResponse.json({ error: 'Please check the age value' }, { status: 400 })
+    await sql`UPDATE health_profile SET weight_kg = ${wt}, height_cm = COALESCE(${ht}, height_cm), age = COALESCE(${ag}, age), updated_at = NOW() WHERE user_id = ${user.id}`
     try {
       const [last] = await sql`SELECT weight_kg, logged_at FROM health_weight_log WHERE user_id = ${user.id} ORDER BY logged_at DESC LIMIT 1`
       const sameDay = last && new Date(last.logged_at).toDateString() === new Date().toDateString()

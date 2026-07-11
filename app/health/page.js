@@ -50,18 +50,27 @@ function WaterTracker({ targetL }) {
 
 // Weight progress — start-vs-now, a mini trend chart, a check-in streak,
 // and a quick "log today's weight". Uses only the customer's real logged data.
-function Progress({ log, lo, hi, goal, onLog }) {
+function Progress({ log, lo, hi, goal, height, age, onLog, onReport }) {
   const [wt, setWt] = useState('')
+  const [ht, setHt] = useState(height || '')
+  const [ag, setAg] = useState(age || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
 
+  useEffect(() => { setHt(height || '') }, [height])
+  useEffect(() => { setAg(age || '') }, [age])
+
   const points = (log || []).map(p => ({ w: Number(p.weight_kg), t: new Date(p.logged_at) })).filter(p => p.w > 0)
+  const prevWeight = points.length ? points[points.length - 1].w : null
 
   const submit = async () => {
     const v = Number(wt)
     if (!v || v < 25 || v > 300) { setMsg('Enter a valid weight (kg)'); return }
     setBusy(true); setMsg('')
-    try { await onLog(v); setWt(''); setMsg('✓ Logged for today!') } catch (e) { setMsg(e.message || 'Could not log') }
+    try {
+      await onLog({ weight: v, height: ht === '' ? null : Number(ht), age: ag === '' ? null : Number(ag) })
+      setWt(''); setMsg('✓ Saved with today’s date & time!')
+    } catch (e) { setMsg(e.message || 'Could not log') }
     setBusy(false)
   }
 
@@ -131,15 +140,146 @@ function Progress({ log, lo, hi, goal, onLog }) {
         </div>
       )}
 
-      {/* Quick log */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <input type="number" inputMode="decimal" value={wt} onChange={e => setWt(e.target.value)} placeholder="Today's weight (kg)"
-          style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
-        <button onClick={submit} disabled={busy} style={{ background: '#059669', color: '#fff', border: 'none', padding: '0 16px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
-          {busy ? '…' : '＋ Log'}
+      {/* Update today's stats — weight blank (shows previous as a hint),
+          height & age pre-filled since they rarely change. */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #e5e7eb' }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#065f46', marginBottom: 8 }}>✏️ Update today&apos;s reading</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr', gap: 8 }}>
+          <div>
+            <input type="number" inputMode="decimal" value={wt} onChange={e => setWt(e.target.value)} placeholder="Weight (kg)"
+              style={{ width: '100%', padding: '10px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+            {prevWeight != null && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, marginLeft: 2 }}>Previous: {prevWeight} kg</div>}
+          </div>
+          <div>
+            <input type="number" inputMode="numeric" value={ht} onChange={e => setHt(e.target.value)} placeholder="Height (cm)"
+              style={{ width: '100%', padding: '10px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, marginLeft: 2 }}>Height</div>
+          </div>
+          <div>
+            <input type="number" inputMode="numeric" value={ag} onChange={e => setAg(e.target.value)} placeholder="Age"
+              style={{ width: '100%', padding: '10px 10px', borderRadius: 10, border: '1px solid #d1d5db', fontSize: 14, outline: 'none', boxSizing: 'border-box', background: '#fff', color: '#111' }} />
+            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, marginLeft: 2 }}>Age</div>
+          </div>
+        </div>
+        <button onClick={submit} disabled={busy} style={{ width: '100%', marginTop: 10, background: '#059669', color: '#fff', border: 'none', padding: '11px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer', opacity: busy ? 0.6 : 1 }}>
+          {busy ? 'Saving…' : '＋ Save today’s reading'}
         </button>
+        {msg && <div style={{ fontSize: 11.5, color: msg.startsWith('✓') ? '#16a34a' : '#dc2626', fontWeight: 600, marginTop: 6 }}>{msg}</div>}
       </div>
-      {msg && <div style={{ fontSize: 11.5, color: msg.startsWith('✓') ? '#16a34a' : '#dc2626', fontWeight: 600, marginTop: 6 }}>{msg}</div>}
+
+      <button onClick={onReport} style={{ width: '100%', marginTop: 10, background: '#fff', color: '#065f46', border: '1.5px solid #a7f3d0', padding: '11px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}>
+        📄 View progress report
+      </button>
+    </div>
+  )
+}
+
+// Detailed, printable progress report. "Download" uses the browser's print →
+// Save as PDF. A disclaimer is included so the report can't be read as medical
+// advice or used as a basis for any claim.
+function ReportModal({ result, form, log, name, onClose }) {
+  const points = (log || []).map(p => ({ w: Number(p.weight_kg), t: new Date(p.logged_at) })).filter(p => p.w > 0)
+  const start = points[0], now = points[points.length - 1]
+  const change = points.length >= 2 ? +(now.w - start.w).toFixed(1) : 0
+  const fmtDate = d => d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  const fmtDT = d => d.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const genOn = fmtDT(new Date())
+
+  // Chart geometry
+  const W = 520, H = 170, pad = 30
+  const ws = points.map(p => p.w)
+  let minW = Math.min(...ws, result.lo), maxW = Math.max(...ws, result.hi)
+  const range = (maxW - minW) || 1
+  minW -= range * 0.12; maxW += range * 0.12
+  const X = i => pad + (points.length <= 1 ? (W - 2 * pad) / 2 : (i / (points.length - 1)) * (W - 2 * pad))
+  const Y = w => H - pad - ((w - minW) / (maxW - minW)) * (H - 2 * pad)
+  const line = points.map((p, i) => `${X(i).toFixed(1)},${Y(p.w).toFixed(1)}`).join(' ')
+
+  const row = (label, val) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #f3f4f6', fontSize: 12.5 }}>
+      <span style={{ color: '#6b7280' }}>{label}</span><b style={{ color: '#111' }}>{val}</b>
+    </div>
+  )
+
+  return (
+    <div id="report-root" style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.5)', overflowY: 'auto', padding: '20px 0' }}>
+      <style>{`@media print {
+        body * { visibility: hidden !important; }
+        #report-root, #report-root * { visibility: visible !important; }
+        #report-root { position: absolute !important; inset: 0 !important; background: #fff !important; padding: 0 !important; overflow: visible !important; }
+        #report-card { box-shadow: none !important; margin: 0 !important; max-width: 100% !important; border-radius: 0 !important; }
+        .no-print { display: none !important; }
+      }`}</style>
+      <div id="report-card" style={{ maxWidth: 560, margin: '0 auto', background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 10px 40px rgba(0,0,0,0.3)' }}>
+        {/* Header */}
+        <div style={{ background: 'linear-gradient(135deg,#065f46,#059669)', color: '#fff', padding: '18px 20px' }}>
+          <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: 0.3 }}>FoodFi · My Health Report</div>
+          <div style={{ fontSize: 11.5, opacity: 0.9, marginTop: 2 }}>Generated on {genOn}{name ? ` · for ${name}` : ''}</div>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          {/* Headline metrics */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+            <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>BMI (Indian standard)</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: result.catColor }}>{result.bmi}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: result.catColor }}>{result.cat}</div>
+            </div>
+            <div style={{ background: '#f0fdf4', borderRadius: 12, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700 }}>Body fat %</div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: result.bodyFat != null ? result.bfColor : '#9ca3af' }}>{result.bodyFat != null ? result.bodyFat + '%' : '—'}</div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: result.bodyFat != null ? result.bfColor : '#9ca3af' }}>{result.bodyFat != null ? result.bfCat : 'add waist & neck'}</div>
+            </div>
+          </div>
+
+          {/* Current details */}
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#065f46', margin: '4px 0 6px' }}>Current details</div>
+          {row('Weight', `${form.weight_kg} kg`)}
+          {row('Height', `${form.height_cm} cm`)}
+          {row('Age', `${form.age} years`)}
+          {row('Healthy weight range', `${result.lo}–${result.hi} kg`)}
+          {result.waistRisk && row('Belly-fat risk', result.waistRisk)}
+
+          {/* Daily targets */}
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#065f46', margin: '14px 0 6px' }}>Daily targets</div>
+          {row('Calories', `${result.cals} kcal (maintenance ≈ ${result.tdee})`)}
+          {row('Protein', `${result.proteinG} g`)}
+          {row('Carbs', `${result.carbsG} g`)}
+          {row('Fat', `${result.fatG} g`)}
+          {row('Fiber', `${result.fiberG} g`)}
+          {row('Water', `${result.waterL} L`)}
+
+          {/* Progress */}
+          {points.length >= 2 && (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#065f46', margin: '14px 0 6px' }}>Weight progress</div>
+              {row('First recorded', `${start.w} kg on ${fmtDate(start.t)}`)}
+              {row('Latest', `${now.w} kg on ${fmtDate(now.t)}`)}
+              {row('Total change', `${change > 0 ? '+' : ''}${change} kg`)}
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block', marginTop: 10 }}>
+                <rect x={pad} y={Y(result.hi)} width={W - 2 * pad} height={Math.max(0, Y(result.lo) - Y(result.hi))} fill="#dcfce7" />
+                <text x={pad + 2} y={Y(result.hi) - 3} fontSize="9" fill="#16a34a">healthy range</text>
+                <polyline points={line} fill="none" stroke="#059669" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                {points.map((p, i) => (i === 0 || i === points.length - 1) && <circle key={i} cx={X(i)} cy={Y(p.w)} r="4" fill="#065f46" />)}
+                <text x={X(0)} y={H - 8} fontSize="9" fill="#6b7280" textAnchor="start">{fmtDate(start.t)}</text>
+                <text x={X(points.length - 1)} y={H - 8} fontSize="9" fill="#6b7280" textAnchor="end">{fmtDate(now.t)}</text>
+              </svg>
+            </>
+          )}
+
+          {/* Disclaimer — legal safety */}
+          <div style={{ marginTop: 16, background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: 12, fontSize: 10.5, color: '#713f12', lineHeight: 1.6 }}>
+            <b>Disclaimer:</b> This report is generated automatically from the information you entered, using standard general formulas (ICMR BMI cut-offs, Mifflin-St Jeor, US Navy body-fat estimate). The figures are <b>approximate estimates for general wellness and self-awareness only</b>. They are <b>not medical advice, not a diagnosis, and not a substitute for consultation with a qualified doctor or registered dietician</b>. Body-fat and calorie values are estimates and may differ from clinical measurements. FoodFi and its team accept <b>no liability</b> for any decision, action, or outcome based on this report. If you have any medical condition, are pregnant, or plan a significant diet or exercise change, please consult a healthcare professional first.
+          </div>
+
+          {/* Actions (not printed) */}
+          <div className="no-print" style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            <button onClick={() => window.print()} style={{ flex: 1, background: '#059669', color: '#fff', border: 'none', padding: '12px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}>⬇️ Download / Print</button>
+            <button onClick={onClose} style={{ flex: 1, background: '#fff', color: '#374151', border: '1.5px solid #e5e7eb', padding: '12px', borderRadius: 10, fontSize: 13.5, fontWeight: 800, cursor: 'pointer' }}>Close</button>
+          </div>
+          <div className="no-print" style={{ fontSize: 10, color: '#9ca3af', textAlign: 'center', marginTop: 8 }}>Tip: choose “Save as PDF” in the print dialog to download.</div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -444,6 +584,8 @@ export default function MyHealth() {
   const [err, setErr] = useState('')
   const [allMeals, setAllMeals] = useState([])
   const [log, setLog] = useState([])
+  const [showReport, setShowReport] = useState(false)
+  const [userName, setUserName] = useState('')
 
   useEffect(() => {
     fetch('/api/fitness?mode=suggest').then(r => r.json()).then(d => setAllMeals(d.items || [])).catch(() => {})
@@ -452,6 +594,7 @@ export default function MyHealth() {
       return r.json()
     }).then(d => {
       if (d?.log) setLog(d.log)
+      if (d?.name) setUserName(d.name)
       if (d?.profile) {
         const p = { gender: d.profile.gender || '', age: d.profile.age || '', height_cm: d.profile.height_cm || '',
           weight_kg: d.profile.weight_kg || '', waist_cm: d.profile.waist_cm || '', neck_cm: d.profile.neck_cm || '', hip_cm: d.profile.hip_cm || '',
@@ -480,13 +623,16 @@ export default function MyHealth() {
     setResult(compute(form)); setEditing(false)
   }
 
-  // Quick "log today's weight" — updates current weight + progress chart.
-  const logWeight = async (wt) => {
-    const res = await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ logWeight: true, weight_kg: wt }) })
+  // Quick update — logs weight (with date/time) and refreshes height/age.
+  const logWeight = async ({ weight, height, age }) => {
+    const body = { logWeight: true, weight_kg: weight }
+    if (height) body.height_cm = height
+    if (age) body.age = age
+    const res = await fetch('/api/health', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const d = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(d.error || 'Could not log weight')
+    if (!res.ok) throw new Error(d.error || 'Could not save reading')
     if (d.log) setLog(d.log)
-    const np = { ...form, weight_kg: wt }
+    const np = { ...form, weight_kg: weight, height_cm: height || form.height_cm, age: age || form.age }
     setForm(np); setResult(compute(np))
   }
 
@@ -654,7 +800,7 @@ export default function MyHealth() {
             )}
 
             {/* Weight progress — real logged data, chart + streak + quick log */}
-            <Progress log={log} lo={result.lo} hi={result.hi} goal={form.goal} onLog={logWeight} />
+            <Progress log={log} lo={result.lo} hi={result.hi} goal={form.goal} height={form.height_cm} age={form.age} onLog={logWeight} onReport={() => setShowReport(true)} />
 
             {/* Daily water tracker — small engagement tool, saved per day on this device */}
             <WaterTracker targetL={result.waterL} />
@@ -724,6 +870,10 @@ export default function MyHealth() {
           </div>
         )}
       </div>
+
+      {showReport && result && (
+        <ReportModal result={result} form={form} log={log} name={userName} onClose={() => setShowReport(false)} />
+      )}
     </div>
   )
 }

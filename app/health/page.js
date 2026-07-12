@@ -267,6 +267,29 @@ function ReportModal({ result, form, log, name, onClose }) {
             </>
           )}
 
+          {/* Date-wise weight history — every recorded reading */}
+          {points.length >= 1 && (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#065f46', margin: '14px 0 6px' }}>Date-wise weight history</div>
+              <div style={{ border: '1px solid #f3f4f6', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', background: '#f0fdf4', padding: '8px 12px', fontSize: 11, fontWeight: 800, color: '#065f46', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  <span>Date</span><span style={{ textAlign: 'right' }}>Weight</span><span style={{ textAlign: 'right' }}>Change</span>
+                </div>
+                {points.map((p, i) => ({ t: p.t, w: p.w, delta: i > 0 ? +(p.w - points[i - 1].w).toFixed(1) : null }))
+                  .slice().reverse().map((r, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', padding: '8px 12px', fontSize: 12.5, borderTop: '1px solid #f3f4f6', background: idx % 2 ? '#fafafa' : '#fff' }}>
+                      <span style={{ color: '#374151' }}>{fmtDT(r.t)}</span>
+                      <b style={{ textAlign: 'right', color: '#111' }}>{r.w} kg</b>
+                      <span style={{ textAlign: 'right', fontWeight: 700, color: r.delta == null ? '#9ca3af' : r.delta < 0 ? '#16a34a' : r.delta > 0 ? '#d97706' : '#6b7280' }}>
+                        {r.delta == null ? '—' : `${r.delta > 0 ? '▲ +' : r.delta < 0 ? '▼ ' : ''}${r.delta === 0 ? '±0' : r.delta} kg`}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+              <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 5 }}>Latest reading shown first. Change is compared with the previous reading.</div>
+            </>
+          )}
+
           {/* Disclaimer — legal safety */}
           <div style={{ marginTop: 16, background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: 12, fontSize: 10.5, color: '#713f12', lineHeight: 1.6 }}>
             <b>Disclaimer:</b> This report is generated automatically from the information you entered, using standard general formulas (ICMR BMI cut-offs, Mifflin-St Jeor, US Navy body-fat estimate). The figures are <b>approximate estimates for general wellness and self-awareness only</b>. They are <b>not medical advice, not a diagnosis, and not a substitute for consultation with a qualified doctor or registered dietician</b>. Body-fat and calorie values are estimates and may differ from clinical measurements. FoodFi and its team accept <b>no liability</b> for any decision, action, or outcome based on this report. If you have any medical condition, are pregnant, or plan a significant diet or exercise change, please consult a healthcare professional first.

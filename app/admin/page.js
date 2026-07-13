@@ -361,6 +361,14 @@ export default function AdminPage() {
         setCurrentUser(user)
         // Branch admin → force to orders section
         if (user.branch_id) setSection('orders')
+        // Register the app's FCM token (injected by the native app) so new-order
+        // alerts reach this kitchen phone even when the app is closed/minimised.
+        const sendFcm = () => {
+          const t = typeof window !== 'undefined' ? window.foodfiFcmToken : null
+          if (t) fetch('/api/admin/fcm-token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: t }) }).catch(() => {})
+        }
+        sendFcm()
+        if (typeof window !== 'undefined') window.addEventListener('foodfi-fcm-ready', sendFcm)
       })
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission()
     loadAll()

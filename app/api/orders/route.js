@@ -777,7 +777,7 @@ export async function POST(request) {
     console.error('Broadcast error:', e)
   }
 
-  // Notify all admins — new order arrived
+  // Notify all admins — new order arrived (web push: works when a browser tab is open)
   sendPushToRole('admin', {
     title: `🔔 Naya Order #${order.order_number}!`,
     body: `₹${Math.round(order.total)} · Sab online delivery boys ko bhej diya (jo pehle accept karega usko milega)`,
@@ -785,6 +785,22 @@ export async function POST(request) {
     tag: `new-order-${order.id}`,
     requireInteraction: true,
   }).catch(() => {})
+
+  // Native FCM to the kitchen/admin phone — RELIABLE: rings even when the FoodFi
+  // app is closed/minimised (web push can't do this in the Android WebView).
+  // Super admins always; the branch admin too when the order is for a branch.
+  try {
+    try { await sql`ALTER TABLE admins ADD COLUMN IF NOT EXISTS fcm_token TEXT` } catch {}
+    const adminTokens = await sql`
+      SELECT fcm_token FROM admins
+      WHERE fcm_token IS NOT NULL AND (is_super_admin = true OR branch_id = ${branchId || null})`
+    sendFcmToTokens(adminTokens.map(a => a.fcm_token), {
+      title: `🔔 Naya Order #${order.order_number}!`,
+      body: `₹${Math.round(order.total)} — abhi kitchen me accept karo`,
+      orderId: order.id,
+      tag: `new-order-${order.id}`,
+    }).catch(() => {})
+  } catch (e) { console.error('Admin FCM error:', e) }
 
   // Reliable SMS signal to kitchen/owner numbers (works even if dashboard is closed)
   sendNewOrderSignal().catch(() => {})

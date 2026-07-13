@@ -56,6 +56,33 @@ async function findOrCreateCustomer(sql, name, phone) {
   }
 }
 
+// Live customer lookup for the phone-order form: given the digits the admin is
+// typing, return matching customers (name + best-known address) so an existing
+// caller is recognised instantly and their name auto-fills.
+export async function GET(request) {
+  const sql = getDb()
+  const token = request.cookies.get('ck_token')?.value
+  const user = verifyToken(token)
+  if (!user || user.role !== 'admin') {
+    return NextResponse.json({ error: 'Admin login required' }, { status: 401 })
+  }
+  const digits = (new URL(request.url).searchParams.get('phone') || '').replace(/[^0-9]/g, '').slice(-10)
+  if (digits.length < 4) return NextResponse.json({ customers: [] })
+  const like = '%' + digits
+  const rows = await sql`
+    SELECT u.id, u.name, u.phone,
+      COALESCE(NULLIF(TRIM(u.address), ''),
+        (SELECT o.delivery_address FROM orders o
+         WHERE o.user_id = u.id AND TRIM(COALESCE(o.delivery_address,'')) <> ''
+         ORDER BY o.created_at DESC LIMIT 1)) AS address
+    FROM users u
+    WHERE regexp_replace(COALESCE(u.phone,''), '[^0-9]', '', 'g') LIKE ${like}
+    ORDER BY (u.name IS NULL), u.name
+    LIMIT 6
+  `.catch(() => [])
+  return NextResponse.json({ customers: rows })
+}
+
 export async function POST(request) {
   const sql = getDb()
   const token = request.cookies.get('ck_token')?.value

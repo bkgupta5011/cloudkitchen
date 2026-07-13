@@ -85,6 +85,11 @@ export default function AdminPage() {
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [showPhoneMap, setShowPhoneMap] = useState(false)
   const [manualOrder, setManualOrder] = useState({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{}, lat:'', lng:'' })
+  const [custSuggest, setCustSuggest] = useState([])
+  const [custBusy, setCustBusy] = useState(false)
+  const [matchedExisting, setMatchedExisting] = useState(false)
+  const [itemSearch, setItemSearch] = useState('')
+  const custTimerRef = useRef(null)
   const phoneMapRef = useRef(null)
   const phoneMarkerRef = useRef(null)
   const phoneMapInstRef = useRef(null)
@@ -597,6 +602,45 @@ export default function AdminPage() {
     setOrderDetail(res.order); setShowOrderDetail(true)
   }
 
+  // Phone-first flow: admin types the number → we look up existing customers
+  // (debounced) and auto-fill the name when the full number matches one.
+  const lookupCustomer = (digits) => {
+    if (custTimerRef.current) clearTimeout(custTimerRef.current)
+    if (digits.length < 4) { setCustSuggest([]); return }
+    custTimerRef.current = setTimeout(async () => {
+      setCustBusy(true)
+      try {
+        const r = await fetch('/api/orders/manual?phone=' + digits)
+        const d = await r.json()
+        const list = d.customers || []
+        setCustSuggest(list)
+        if (digits.length === 10) {
+          const exact = list.find(c => (c.phone || '').replace(/[^0-9]/g, '').endsWith(digits))
+          if (exact && exact.name) {
+            // Existing caller — auto-fill name (and address if we know it), but
+            // never overwrite something the admin has already typed.
+            setManualOrder(p => ({ ...p, customerName: p.customerName?.trim() ? p.customerName : exact.name, address: p.address?.trim() ? p.address : (exact.address || '') }))
+            setMatchedExisting(true)
+          } else { setMatchedExisting(false) }
+        } else { setMatchedExisting(false) }
+      } catch {}
+      setCustBusy(false)
+    }, 300)
+  }
+
+  const onPhoneChange = (raw) => {
+    const digits = raw.replace(/[^0-9]/g, '').slice(0, 10)
+    setManualOrder(p => ({ ...p, customerPhone: '+91' + digits }))
+    lookupCustomer(digits)
+  }
+
+  const pickCustomer = (c) => {
+    const digits = (c.phone || '').replace(/[^0-9]/g, '').slice(-10)
+    setManualOrder(p => ({ ...p, customerName: c.name || p.customerName, customerPhone: '+91' + digits, address: c.address || p.address }))
+    setCustSuggest([])
+    setMatchedExisting(!!c.name)
+  }
+
   const submitManualOrder = async (e) => {
     e.preventDefault()
     if (!Object.values(manualOrder.items).some(q => q > 0)) { showToast('❌ Kam se kam ek item select karo'); return }
@@ -606,6 +650,7 @@ export default function AdminPage() {
     if (!res.ok) { showToast('❌ ' + data.error); return }
     setShowManualOrder(false)
     setManualOrder({ customerName:'', customerPhone:'', address:'', notes:'', deliveryCharge:30, items:{}, lat:'', lng:'' })
+    setCustSuggest([]); setMatchedExisting(false); setItemSearch('')
     loadAll()
     showToast(`✅ Manual order #${data.orderNumber} create ho gaya!`)
   }
@@ -1307,7 +1352,7 @@ export default function AdminPage() {
                   }}>📆 This Week</button>
 
                 {/* Action buttons */}
-                <button className="btn btn-primary" style={{ fontSize:12 }} onClick={() => setShowManualOrder(true)}>📞 Phone Order</button>
+                <button className="btn btn-primary" style={{ fontSize:12 }} onClick={() => { setCustSuggest([]); setMatchedExisting(false); setItemSearch(''); setShowManualOrder(true) }}>📞 Phone Order</button>
                 <button className="btn btn-secondary" style={{ fontSize:12 }}
                   onClick={() => window.open(`/api/orders?format=csv&date_from=${dateFrom}&date_to=${dateTo}`)}>⬇️ Excel/CSV</button>
                 <button className="btn btn-secondary" style={{ fontSize:12 }} onClick={printOrders}>🖨️ Print</button>
@@ -3993,15 +4038,27 @@ export default function AdminPage() {
               <button onClick={() => setShowManualOrder(false)} style={{ background:'none', border:'none', fontSize:20, cursor:'pointer' }}>✕</button>
             </div>
             <form onSubmit={submitManualOrder}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                <div className="field"><label>Customer Name</label><input required value={manualOrder.customerName} onChange={e => setManualOrder({...manualOrder, customerName:e.target.value})} placeholder="Rahul Kumar" /></div>
-                <div className="field">
-                  <label>Phone Number</label>
-                  <div style={{ display:'flex', gap:0 }}>
-                    <span style={{ padding:'8px 10px', background:'var(--bg)', border:'1px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:13, color:'var(--t2)', whiteSpace:'nowrap' }}>+91</span>
-                    <input required value={manualOrder.customerPhone} onChange={e => setManualOrder({...manualOrder, customerPhone:'+91'+e.target.value.replace(/^\+91/,'')})} placeholder="98765 43210" style={{ borderRadius:'0 8px 8px 0' }} />
-                  </div>
+              {/* Phone first — recognises an existing caller instantly */}
+              <div className="field" style={{ position:'relative' }}>
+                <label>📱 Phone Number {custBusy && <span style={{ color:'var(--t3)', fontWeight:400 }}>· searching…</span>}</label>
+                <div style={{ display:'flex', gap:0 }}>
+                  <span style={{ padding:'8px 10px', background:'var(--bg)', border:'1px solid var(--bdr)', borderRight:'none', borderRadius:'8px 0 0 8px', fontSize:13, color:'var(--t2)', whiteSpace:'nowrap' }}>+91</span>
+                  <input required autoFocus inputMode="numeric" value={manualOrder.customerPhone.replace(/^\+91/,'')} onChange={e => onPhoneChange(e.target.value)} placeholder="98765 43210" style={{ borderRadius:'0 8px 8px 0' }} />
                 </div>
+                {custSuggest.length > 0 && (
+                  <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:20, background:'var(--card)', border:'1px solid var(--bdr)', borderRadius:10, marginTop:4, boxShadow:'0 8px 24px rgba(0,0,0,0.15)', overflow:'hidden', maxHeight:210, overflowY:'auto' }}>
+                    {custSuggest.map(c => (
+                      <div key={c.id} onMouseDown={e=>e.preventDefault()} onClick={() => pickCustomer(c)} style={{ padding:'8px 12px', cursor:'pointer', borderBottom:'1px solid var(--bdr)' }}>
+                        <div style={{ fontSize:13, fontWeight:600 }}>{c.name || '(no name)'} <span style={{ color:'var(--t3)', fontWeight:400, fontSize:12 }}>· {(c.phone||'').replace(/^\+?91/,'')}</span></div>
+                        {c.address && <div style={{ fontSize:11, color:'var(--t3)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>📍 {c.address}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="field">
+                <label>Customer Name {matchedExisting && <span style={{ color:'var(--gr-d)', fontWeight:400, fontSize:12 }}>✅ existing customer</span>}</label>
+                <input required value={manualOrder.customerName} onChange={e => { setManualOrder({...manualOrder, customerName:e.target.value}); setMatchedExisting(false) }} placeholder="New customer? Type name here" style={matchedExisting ? { borderColor:'var(--gr-d)', background:'#f0fdf4' } : undefined} />
               </div>
               <div className="field">
                 <label>Delivery Address</label>
@@ -4017,14 +4074,26 @@ export default function AdminPage() {
                   : <div style={{ fontSize:11, color:'var(--t3)', marginTop:3 }}>💡 Map se location select karo taaki exact pe deliver ho (warna address text se confusion ho sakti hai)</div>}
               </div>
               <div className="field">
-                <label>Items Select Karo</label>
-                <div style={{ background:'var(--bg)', borderRadius:10, padding:'10px 12px', maxHeight:220, overflowY:'auto' }}>
-                  {menuItems.filter(m=>m.is_available).map(item => {
+                <label>Items {(() => { const n = Object.values(manualOrder.items).filter(q=>q>0).length; return n>0 ? <span style={{ color:'var(--or)', fontWeight:700 }}>· {n} selected</span> : null })()}</label>
+                <input value={itemSearch} onChange={e=>setItemSearch(e.target.value)} placeholder="🔍 Search item by name…" style={{ marginBottom:8 }} />
+                <div style={{ background:'var(--bg)', borderRadius:10, padding:8, maxHeight:320, overflowY:'auto' }}>
+                  {menuItems.filter(m=>m.is_available).filter(m => { const q=itemSearch.trim().toLowerCase(); return !q || m.name.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) }).map(item => {
                     const qty = manualOrder.items[item.id]||0
+                    const disc = item.discount_percent>0 ? Math.round(item.price*(1-item.discount_percent/100)) : null
                     return (
-                      <div key={item.id} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                        <div><div style={{ fontSize:13, fontWeight:500 }}>{item.name}</div><div style={{ fontSize:11, color:'var(--gr-d)' }}>₹{item.price}</div></div>
-                        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                      <div key={item.id} style={{ display:'flex', alignItems:'center', gap:10, padding:6, borderRadius:8, marginBottom:4, background: qty>0 ? '#fff7ed' : 'transparent' }}>
+                        <div style={{ width:44, height:44, borderRadius:8, overflow:'hidden', flexShrink:0, background:'var(--card)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>
+                          {item.image_url ? <img src={item.image_url} alt={item.name} style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : '🍛'}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{item.is_veg ? '🟢' : '🔴'} {item.name}</div>
+                          <div style={{ fontSize:12, marginTop:1 }}>
+                            {disc != null
+                              ? <><span style={{ color:'var(--gr-d)', fontWeight:700 }}>₹{disc}</span> <span style={{ color:'var(--t3)', textDecoration:'line-through', fontSize:11, marginLeft:3 }}>₹{Math.round(item.price)}</span> <span style={{ color:'#dc2626', fontSize:10, fontWeight:700, marginLeft:3 }}>{item.discount_percent}% OFF</span></>
+                              : <span style={{ color:'var(--gr-d)', fontWeight:700 }}>₹{Math.round(item.price)}</span>}
+                          </div>
+                        </div>
+                        <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
                           <button type="button" onClick={() => { const ni={...manualOrder.items}; const q=Math.max(0,qty-1); if(q===0) delete ni[item.id]; else ni[item.id]=q; setManualOrder({...manualOrder,items:ni}) }} style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--bdr)', background:'var(--card)', cursor:'pointer', fontWeight:700 }}>−</button>
                           <span style={{ minWidth:18, textAlign:'center', fontWeight:600 }}>{qty}</span>
                           <button type="button" onClick={() => setManualOrder({...manualOrder,items:{...manualOrder.items,[item.id]:qty+1}})} style={{ width:28, height:28, borderRadius:6, border:'1px solid var(--bdr)', background:qty>0?'var(--or)':'var(--card)', color:qty>0?'#fff':'inherit', cursor:'pointer', fontWeight:700 }}>+</button>
@@ -4038,6 +4107,19 @@ export default function AdminPage() {
                 <div className="field"><label>Notes</label><input value={manualOrder.notes} onChange={e => setManualOrder({...manualOrder,notes:e.target.value})} placeholder="Less spicy..." /></div>
                 <div className="field"><label>Delivery ₹</label><input type="number" value={manualOrder.deliveryCharge} onChange={e => setManualOrder({...manualOrder,deliveryCharge:e.target.value})} /></div>
               </div>
+              {(() => {
+                const sel = Object.entries(manualOrder.items).filter(([,q])=>q>0)
+                if (!sel.length) return null
+                const sub = sel.reduce((s,[id,q])=>{ const it=menuItems.find(m=>m.id===id); if(!it) return s; const p = it.discount_percent>0 ? it.price*(1-it.discount_percent/100) : +it.price; return s+p*q }, 0)
+                const dch = parseFloat(manualOrder.deliveryCharge); const del = Number.isFinite(dch)?dch:0
+                return (
+                  <div style={{ background:'var(--bg)', borderRadius:10, padding:'8px 12px', margin:'4px 0 10px', fontSize:13 }}>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ color:'var(--t2)' }}>Items subtotal</span><b>₹{Math.round(sub)}</b></div>
+                    <div style={{ display:'flex', justifyContent:'space-between' }}><span style={{ color:'var(--t2)' }}>Delivery</span><b>₹{del}</b></div>
+                    <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid var(--bdr)', marginTop:4, paddingTop:4 }}><span style={{ fontWeight:700 }}>Total</span><b style={{ color:'var(--or)' }}>₹{Math.round(sub)+del}</b></div>
+                  </div>
+                )
+              })()}
               <div style={{ display:'flex', gap:8 }}>
                 <button type="button" className="btn btn-secondary" style={{ flex:1 }} onClick={() => setShowManualOrder(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" style={{ flex:1 }}>✅ Order Create Karo</button>

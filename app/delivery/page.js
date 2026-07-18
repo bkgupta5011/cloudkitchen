@@ -330,6 +330,7 @@ export default function DeliveryPage() {
   const locationWatchRef    = useRef(null)
   const locationIntervalRef = useRef(null)
   const lastLocRef          = useRef(null)
+  const intervalCadenceRef  = useRef(null)
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 5000) }
 
@@ -511,33 +512,45 @@ export default function DeliveryPage() {
   }, [])
 
   // ── Live Location Sender ──────────────────────────────────────────
-  // Jab koi order out_for_delivery ho — GPS start, har 15s mein location bhejo
+  // Rider ONLINE rehte hi GPS chalta hai (order live ho ya na ho) — safety monitoring ke liye,
+  // taaki admin panel se kabhi bhi track kiya ja sake, sirf active delivery ke dauran nahi.
+  // Active out_for_delivery order → har 15s (precise, customer live-tracking ke liye).
+  // Online lekin idle (koi active order nahi) → har 45s (safety heartbeat, battery-friendly).
   useEffect(() => {
     const isDelivering = orders.some(o => o.status === 'out_for_delivery')
+    const shouldTrack = isOnline || isDelivering
+    const intervalMs = isDelivering ? 15000 : 45000
 
-    if (isDelivering && !locationWatchRef.current && navigator.geolocation) {
-      // Start GPS watch
-      locationWatchRef.current = navigator.geolocation.watchPosition(
-        pos => {
-          lastLocRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-        },
-        () => {}, // silent fail — no GPS permission etc.
-        { enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 }
-      )
-      // Send location every 15 seconds
-      locationIntervalRef.current = setInterval(() => {
-        if (lastLocRef.current) {
-          fetch('/api/delivery/location', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(lastLocRef.current)
-          }).catch(() => {})
-        }
-      }, 15000)
+    if (shouldTrack && navigator.geolocation) {
+      if (!locationWatchRef.current) {
+        locationWatchRef.current = navigator.geolocation.watchPosition(
+          pos => {
+            lastLocRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+          },
+          () => {}, // silent fail — no GPS permission etc.
+          { enableHighAccuracy: true, maximumAge: 8000, timeout: 12000 }
+        )
+      }
+      // `orders` re-polls every 15s regardless of change (new array ref each time), so only
+      // reset the send-interval when the cadence itself actually flips (15s <-> 45s) —
+      // otherwise the 45s idle tick would never survive a 15s orders-poll reset.
+      if (locationIntervalRef.current == null || intervalCadenceRef.current !== intervalMs) {
+        if (locationIntervalRef.current) clearInterval(locationIntervalRef.current)
+        intervalCadenceRef.current = intervalMs
+        locationIntervalRef.current = setInterval(() => {
+          if (lastLocRef.current) {
+            fetch('/api/delivery/location', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(lastLocRef.current)
+            }).catch(() => {})
+          }
+        }, intervalMs)
+      }
     }
 
-    // Delivery khatam ya koi delivery order nahi — GPS band karo
-    if (!isDelivering) {
+    // Offline aur koi active delivery nahi — GPS poori tarah band karo
+    if (!shouldTrack) {
       if (locationWatchRef.current != null) {
         navigator.geolocation.clearWatch(locationWatchRef.current)
         locationWatchRef.current = null
@@ -546,9 +559,10 @@ export default function DeliveryPage() {
         clearInterval(locationIntervalRef.current)
         locationIntervalRef.current = null
       }
+      intervalCadenceRef.current = null
       lastLocRef.current = null
     }
-  }, [orders])
+  }, [orders, isOnline])
 
   // Cleanup on unmount
   useEffect(() => {

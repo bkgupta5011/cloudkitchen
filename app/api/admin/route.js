@@ -168,6 +168,15 @@ async function ensureDeliveryColumns(sql) {
   } catch (e) {}
 }
 
+// Ensure the live-location columns exist (same migration as app/api/delivery/location/route.js)
+async function ensureLocationColumns(sql) {
+  try {
+    await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS current_lat  DECIMAL(10,8) DEFAULT NULL`
+    await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS current_lng  DECIMAL(11,8) DEFAULT NULL`
+    await sql`ALTER TABLE delivery_boys ADD COLUMN IF NOT EXISTS location_updated_at TIMESTAMP DEFAULT NULL`
+  } catch {}
+}
+
 // Ensure payment_records table exists
 async function ensurePaymentTable(sql) {
   try {
@@ -374,6 +383,22 @@ export async function GET(request) {
       ORDER BY db.name
     `
     return NextResponse.json({ boys })
+  }
+
+  // Lightweight, frequently-polled endpoint for the admin live "Track" map —
+  // deliberately excludes earnings/aadhar/etc. so polling every 15s stays cheap.
+  if (type === 'rider_locations') {
+    const user = adminOnly(request)
+    if (!user) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+    await ensureLocationColumns(sql)
+    const riders = await sql`
+      SELECT id, name, phone, vehicle_number, is_online,
+             current_lat, current_lng, location_updated_at
+      FROM delivery_boys
+      WHERE status = 'approved' OR status IS NULL
+      ORDER BY name
+    `
+    return NextResponse.json({ riders })
   }
 
   if (type === 'payment_history') {

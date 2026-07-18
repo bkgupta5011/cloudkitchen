@@ -34,6 +34,165 @@ async function reverseGeocodeAdmin(lat, lng) {
   return ''
 }
 
+// ── Live Rider Tracking (Leaflet + OpenStreetMap — FREE, admin safety-monitoring view) ──
+// Mirrors the loadLeaflet()/divIcon pattern used for customer live-order tracking
+// (app/orders/page.js), generalized to many markers instead of just one.
+function loadLeafletAdmin() {
+  return new Promise((resolve) => {
+    if (window.L) { resolve(window.L); return }
+    if (!document.getElementById('leaflet-css')) {
+      const link = document.createElement('link')
+      link.id = 'leaflet-css'
+      link.rel = 'stylesheet'
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      document.head.appendChild(link)
+    }
+    if (document.getElementById('leaflet-js')) {
+      const wait = setInterval(() => { if (window.L) { clearInterval(wait); resolve(window.L) } }, 100)
+      return
+    }
+    const script = document.createElement('script')
+    script.id = 'leaflet-js'
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+    script.onload = () => resolve(window.L)
+    document.head.appendChild(script)
+  })
+}
+
+const RIDER_STALE_MS = 2 * 60 * 1000 // 2 minutes — flags a rider who's online but not sending updates
+
+function makeRiderIcon(L, stale) {
+  return L.divIcon({
+    html: `<div style="font-size:28px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4));opacity:${stale ? 0.4 : 1}">🛵</div>`,
+    className: '', iconSize: [34, 34], iconAnchor: [17, 34]
+  })
+}
+
+function RiderTrackMap() {
+  const mapElRef     = useRef(null)
+  const mapInstance  = useRef(null)
+  const markersRef   = useRef({})
+  const hasFitRef    = useRef(false)
+  const [riders, setRiders]     = useState([])
+  const [mapReady, setMapReady] = useState(false)
+
+  // Init map once
+  useEffect(() => {
+    let cancelled = false
+    loadLeafletAdmin().then(L => {
+      if (cancelled || mapInstance.current || !mapElRef.current) return
+      const map = L.map(mapElRef.current, { zoomControl: true }).setView([25.5941, 85.1376], 12)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+      mapInstance.current = map
+      setMapReady(true)
+    })
+    return () => {
+      cancelled = true
+      mapInstance.current?.remove()
+      mapInstance.current = null
+    }
+  }, [])
+
+  // Poll rider locations every 15s
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const d = await fetch('/api/admin?type=rider_locations').then(r => r.json())
+        if (!cancelled) setRiders(d.riders || [])
+      } catch {}
+    }
+    load()
+    const t = setInterval(load, 15000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
+
+  // Sync markers whenever new rider data arrives
+  useEffect(() => {
+    if (!mapReady || !mapInstance.current || !window.L) return
+    const L = window.L
+    const liveIds = new Set()
+    riders.forEach(r => {
+      // Only plot riders who are currently online — an offline rider can still have old
+      // current_lat/lng sitting in the DB from a past shift, and showing that as a "stale"
+      // marker would be misleading (they're not silently lost, they just clocked off).
+      if (!r.is_online || !r.current_lat || !r.current_lng) return
+      liveIds.add(r.id)
+      const isStale = !r.location_updated_at || (Date.now() - new Date(r.location_updated_at).getTime()) > RIDER_STALE_MS
+      const pos = [parseFloat(r.current_lat), parseFloat(r.current_lng)]
+      if (!markersRef.current[r.id]) {
+        markersRef.current[r.id] = L.marker(pos, { icon: makeRiderIcon(L, isStale) }).addTo(mapInstance.current)
+      } else {
+        markersRef.current[r.id].setLatLng(pos)
+      }
+      markersRef.current[r.id].setIcon(makeRiderIcon(L, isStale))
+      markersRef.current[r.id].bindPopup(`<b>${r.name}</b><br/>${r.phone}${isStale ? '<br/>⚠️ stale' : ''}`)
+    })
+    // Drop markers for riders who are no longer online/trackable
+    Object.keys(markersRef.current).forEach(id => {
+      if (!liveIds.has(id)) {
+        mapInstance.current.removeLayer(markersRef.current[id])
+        delete markersRef.current[id]
+      }
+    })
+    // Auto-fit the view once, the first time riders show up — don't re-fit on every
+    // poll or it'll keep yanking the admin's zoom/pan back while they're watching.
+    if (!hasFitRef.current && liveIds.size > 0) {
+      hasFitRef.current = true
+      const pts = Object.values(markersRef.current).map(m => m.getLatLng())
+      try {
+        if (pts.length === 1) mapInstance.current.setView(pts[0], 15)
+        else mapInstance.current.fitBounds(pts, { padding: [40, 40] })
+      } catch {}
+    }
+  }, [riders, mapReady])
+
+  const focusRider = (r) => {
+    if (!mapInstance.current || !r.current_lat || !r.current_lng) return
+    mapInstance.current.setView([parseFloat(r.current_lat), parseFloat(r.current_lng)], 16, { animate: true })
+    markersRef.current[r.id]?.openPopup()
+  }
+
+  const trackable   = riders.filter(r => r.is_online && r.current_lat && r.current_lng)
+  const untrackable = riders.filter(r => !r.is_online || !r.current_lat || !r.current_lng)
+
+  return (
+    <div>
+      <div ref={mapElRef} style={{ height: 420, width: '100%', borderRadius: 14, overflow: 'hidden', border: '1.5px solid var(--bdr)' }} />
+      <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6 }}>📍 Trackable now ({trackable.length})</div>
+          {trackable.map(r => {
+            const isStale = !r.location_updated_at || (Date.now() - new Date(r.location_updated_at).getTime()) > RIDER_STALE_MS
+            const mins = r.location_updated_at ? Math.round((Date.now() - new Date(r.location_updated_at).getTime()) / 60000) : null
+            return (
+              <div key={r.id} onClick={() => focusRider(r)}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isStale ? '#fef2f2' : '#f0fdf4', marginBottom: 4 }}>
+                <span>{isStale ? '⚠️' : '🛵'}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{r.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--t3)' }}>{mins != null ? `last seen ${mins}m ago` : ''}{isStale ? ' — signal lost?' : ''}</div>
+                </div>
+              </div>
+            )
+          })}
+          {trackable.length === 0 && <div style={{ fontSize: 12, color: 'var(--t3)' }}>Abhi koi bhi rider trackable nahi hai</div>}
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--t2)', marginBottom: 6 }}>⚫ Not trackable ({untrackable.length})</div>
+          {untrackable.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: 'var(--bg2)', marginBottom: 4, opacity: 0.7 }}>
+              <span>{r.is_online ? '🟡' : '⚫'}</span>
+              <div style={{ fontSize: 12 }}>{r.name} {r.is_online ? '(online, GPS ka wait hai)' : '(offline)'}</div>
+            </div>
+          ))}
+          {untrackable.length === 0 && <div style={{ fontSize: 12, color: 'var(--t3)' }}>—</div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const SECTIONS = [
   { id: 'orders',    label: '📋 Orders',           badge: 'orders' },
   { id: 'menu',      label: '🍛 Menu Items' },
@@ -66,6 +225,7 @@ export default function AdminPage() {
   const [menuItems, setMenuItems] = useState([])
   const [offers, setOffers] = useState([])
   const [boys, setBoys] = useState([])
+  const [boysView, setBoysView] = useState('table') // 'table' | 'track'
   const [pendingBoys, setPendingBoys] = useState([])
   const [pricing, setPricing] = useState([])
   const [analytics, setAnalytics] = useState(null)
@@ -1768,6 +1928,10 @@ export default function AdminPage() {
               <div style={{ display:'flex', gap:8, alignItems:'center' }}>
                 <span style={{ fontSize:12, padding:'4px 10px', borderRadius:12, background:'#dcfce7', color:'#16a34a', fontWeight:600 }}>🟢 {boys.filter(b=>b.is_online).length} Online</span>
                 <span style={{ fontSize:12, padding:'4px 10px', borderRadius:12, background:'#fee2e2', color:'#dc2626', fontWeight:600 }}>⚫ {boys.filter(b=>!b.is_online).length} Offline</span>
+                <button className="btn btn-secondary" style={{ fontSize:12, padding:'5px 12px' }}
+                  onClick={() => setBoysView(v => v === 'table' ? 'track' : 'table')}>
+                  {boysView === 'table' ? '📍 Track' : '📋 List View'}
+                </button>
               </div>
             </div>
             {/* Summary cards */}
@@ -1790,7 +1954,9 @@ export default function AdminPage() {
               </div>
             </div>
 
-            <div className={styles.table}>
+            {boysView === 'track' && <RiderTrackMap />}
+
+            {boysView === 'table' && <div className={styles.table}>
               <div className={`${styles.tHead}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr 1fr' }}>
                 <span>Name</span><span>Phone</span><span>Vehicle</span><span>Total Earned</span><span>Total Paid</span><span>💳 Due</span><span>Actions</span>
               </div>
@@ -1822,7 +1988,7 @@ export default function AdminPage() {
                   </div>
                 )
               })}
-            </div>
+            </div>}
           </>
         )}
 

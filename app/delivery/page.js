@@ -512,16 +512,30 @@ export default function DeliveryPage() {
   }, [])
 
   // ── Live Location Sender ──────────────────────────────────────────
-  // Rider ONLINE rehte hi GPS chalta hai (order live ho ya na ho) — safety monitoring ke liye,
-  // taaki admin panel se kabhi bhi track kiya ja sake, sirf active delivery ke dauran nahi.
+  // GPS chalta hai jab tak rider is page pe logged in hai — safety tracking ab "Online"
+  // shift-toggle se bilkul independent hai (offline mark karne se tracking band NAHI hoti,
+  // sirf order-assignment eligibility badalti hai). Tracking sirf tab rukti hai jab rider
+  // page se hat jaye/logout kare (cleanup effect neeche) — ya jab app hi background/closed ho,
+  // jo ek phone/browser-level limitation hai, is web code se solve nahi hota (Flutter app mein
+  // native background-location service chahiye — see memory: order-alert-reliability jaisa hi
+  // background-execution issue).
   // Active out_for_delivery order → har 15s (precise, customer live-tracking ke liye).
-  // Online lekin idle (koi active order nahi) → har 45s (safety heartbeat, battery-friendly).
+  // Idle (koi active order nahi, online ho ya offline) → har 45s (safety heartbeat, battery-friendly).
   useEffect(() => {
     const isDelivering = orders.some(o => o.status === 'out_for_delivery')
-    const shouldTrack = isOnline || isDelivering
     const intervalMs = isDelivering ? 15000 : 45000
 
-    if (shouldTrack && navigator.geolocation) {
+    const sendNow = () => {
+      if (lastLocRef.current) {
+        fetch('/api/delivery/location', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(lastLocRef.current)
+        }).catch(() => {})
+      }
+    }
+
+    if (navigator.geolocation) {
       if (!locationWatchRef.current) {
         locationWatchRef.current = navigator.geolocation.watchPosition(
           pos => {
@@ -537,34 +551,19 @@ export default function DeliveryPage() {
       if (locationIntervalRef.current == null || intervalCadenceRef.current !== intervalMs) {
         if (locationIntervalRef.current) clearInterval(locationIntervalRef.current)
         intervalCadenceRef.current = intervalMs
-        locationIntervalRef.current = setInterval(() => {
-          if (lastLocRef.current) {
-            fetch('/api/delivery/location', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(lastLocRef.current)
-            }).catch(() => {})
-          }
-        }, intervalMs)
+        locationIntervalRef.current = setInterval(sendNow, intervalMs)
       }
     }
 
-    // Offline aur koi active delivery nahi — GPS poori tarah band karo
-    if (!shouldTrack) {
-      if (locationWatchRef.current != null) {
-        navigator.geolocation.clearWatch(locationWatchRef.current)
-        locationWatchRef.current = null
-      }
-      if (locationIntervalRef.current) {
-        clearInterval(locationIntervalRef.current)
-        locationIntervalRef.current = null
-      }
-      intervalCadenceRef.current = null
-      lastLocRef.current = null
-    }
-  }, [orders, isOnline])
+    // Tab/app dobara foreground mein aate hi ek fresh ping bhej do — mobile browsers
+    // background mein timers throttle/pause kar dete hain, to resume ke turant baad
+    // admin ko stale marker ki jagah turant updated location mil jaye.
+    const onVisible = () => { if (document.visibilityState === 'visible') sendNow() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [orders])
 
-  // Cleanup on unmount
+  // Cleanup on unmount (logout / navigating away from this page)
   useEffect(() => {
     return () => {
       if (locationWatchRef.current != null) navigator.geolocation.clearWatch(locationWatchRef.current)

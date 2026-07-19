@@ -12,12 +12,28 @@ async function ensureColumns(sql) {
   } catch {}
 }
 
-// PATCH — delivery boy sends live GPS coordinates
+// Accepts either the normal ck_token session cookie (foreground web/WebView
+// JS, unchanged) OR an Authorization: Bearer <token> issued by
+// /api/delivery/location-token (the Flutter background service — it has no
+// access to the httpOnly cookie sitting in the WebView's cookie jar).
+function authenticate(request) {
+  const cookieToken = request.cookies.get('ck_token')?.value
+  const cookieUser = verifyToken(cookieToken)
+  if (cookieUser?.role === 'delivery') return cookieUser
+
+  const authHeader = request.headers.get('authorization') || ''
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const bearerUser = bearerToken ? verifyToken(bearerToken) : null
+  if (bearerUser?.role === 'delivery-location') return bearerUser
+
+  return null
+}
+
+// PATCH — delivery boy sends live GPS coordinates (foreground JS or background service)
 export async function PATCH(request) {
   const sql = getDb()
-  const token = request.cookies.get('ck_token')?.value
-  const user  = verifyToken(token)
-  if (!user || user.role !== 'delivery') {
+  const user = authenticate(request)
+  if (!user) {
     return NextResponse.json({ error: 'Delivery login required' }, { status: 401 })
   }
 

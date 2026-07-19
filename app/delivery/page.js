@@ -371,6 +371,20 @@ export default function DeliveryPage() {
         }
         sendFcm()
         if (typeof window !== 'undefined') window.addEventListener('foodfi-fcm-ready', sendFcm)
+
+        // Running inside the FoodFi app (window.foodfiApp==='1', set by the native
+        // WebView wrapper) — hand the native side a location-scoped token so its
+        // background service can keep sending GPS even after the app is minimised
+        // or killed, not just while this page's JS is alive.
+        const sendLocationToken = () => {
+          if (typeof window === 'undefined' || window.foodfiApp !== '1' || !window.FoodfiLocationToken) return
+          fetch('/api/delivery/location-token', { method: 'POST' })
+            .then(r => r.json())
+            .then(({ token }) => { if (token) window.FoodfiLocationToken.postMessage(token) })
+            .catch(() => {})
+        }
+        sendLocationToken()
+        if (typeof window !== 'undefined') window.addEventListener('foodfi-app-ready', sendLocationToken)
       })
 
     pollRef.current = setInterval(async () => {

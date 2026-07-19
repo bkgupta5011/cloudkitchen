@@ -73,16 +73,21 @@ function RiderTrackMap() {
   const mapInstance  = useRef(null)
   const markersRef   = useRef({})
   const hasFitRef    = useRef(false)
-  const [riders, setRiders]     = useState([])
-  const [mapReady, setMapReady] = useState(false)
+  const addrCacheRef = useRef({}) // riderId -> { key: "lat,lng rounded", address }
+  const [riders, setRiders]       = useState([])
+  const [mapReady, setMapReady]   = useState(false)
+  const [addresses, setAddresses] = useState({}) // riderId -> human-readable address
 
-  // Init map once
+  // Init map once — CartoDB Voyager tiles (clear street/locality labels, free, no key),
+  // much easier to read than raw OpenStreetMap tiles which stay blank in less-mapped areas.
   useEffect(() => {
     let cancelled = false
     loadLeafletAdmin().then(L => {
       if (cancelled || mapInstance.current || !mapElRef.current) return
       const map = L.map(mapElRef.current, { zoomControl: true }).setView([25.5941, 85.1376], 12)
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap, © CARTO', maxZoom: 19
+      }).addTo(map)
       mapInstance.current = map
       setMapReady(true)
     })
@@ -92,6 +97,24 @@ function RiderTrackMap() {
       mapInstance.current = null
     }
   }, [])
+
+  // Reverse-geocode each trackable rider's position into a readable address (reuses the
+  // same Google Geocoding helper used elsewhere in admin) — only re-fetches when a rider's
+  // position actually moves by a meaningful amount, not on every 15s poll.
+  useEffect(() => {
+    riders.forEach(r => {
+      if (!r.is_online || !r.current_lat || !r.current_lng) return
+      const lat = parseFloat(r.current_lat), lng = parseFloat(r.current_lng)
+      const key = `${lat.toFixed(3)},${lng.toFixed(3)}` // ~110m precision
+      if (addrCacheRef.current[r.id]?.key === key) return
+      addrCacheRef.current[r.id] = { key, address: addrCacheRef.current[r.id]?.address || '' }
+      reverseGeocodeAdmin(lat, lng).then(addr => {
+        if (!addr) return
+        addrCacheRef.current[r.id] = { key, address: addr }
+        setAddresses(prev => ({ ...prev, [r.id]: addr }))
+      })
+    })
+  }, [riders])
 
   // Poll rider locations every 15s
   useEffect(() => {
@@ -126,7 +149,8 @@ function RiderTrackMap() {
         markersRef.current[r.id].setLatLng(pos)
       }
       markersRef.current[r.id].setIcon(makeRiderIcon(L, isStale))
-      markersRef.current[r.id].bindPopup(`<b>${r.name}</b><br/>${r.phone}${isStale ? '<br/>⚠️ stale' : ''}`)
+      const addr = addresses[r.id]
+      markersRef.current[r.id].bindPopup(`<b>${r.name}</b><br/>${r.phone}${addr ? `<br/>📍 ${addr}` : ''}${isStale ? '<br/>⚠️ stale' : ''}`)
     })
     // Drop markers for riders who are no longer online/trackable
     Object.keys(markersRef.current).forEach(id => {
@@ -141,11 +165,13 @@ function RiderTrackMap() {
       hasFitRef.current = true
       const pts = Object.values(markersRef.current).map(m => m.getLatLng())
       try {
+        // Cap how far it zooms in — riders standing close together shouldn't zoom to a
+        // near-empty block with no street/place labels visible (that's what happened before).
         if (pts.length === 1) mapInstance.current.setView(pts[0], 15)
-        else mapInstance.current.fitBounds(pts, { padding: [40, 40] })
+        else mapInstance.current.fitBounds(pts, { padding: [40, 40], maxZoom: 15 })
       } catch {}
     }
-  }, [riders, mapReady])
+  }, [riders, mapReady, addresses])
 
   const focusRider = (r) => {
     if (!mapInstance.current || !r.current_lat || !r.current_lng) return
@@ -165,14 +191,23 @@ function RiderTrackMap() {
           {trackable.map(r => {
             const isStale = !r.location_updated_at || (Date.now() - new Date(r.location_updated_at).getTime()) > RIDER_STALE_MS
             const mins = r.location_updated_at ? Math.round((Date.now() - new Date(r.location_updated_at).getTime()) / 60000) : null
+            const addr = addresses[r.id]
+            const gmapsUrl = `https://www.google.com/maps?q=${r.current_lat},${r.current_lng}`
             return (
-              <div key={r.id} onClick={() => focusRider(r)}
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isStale ? '#fef2f2' : '#f0fdf4', marginBottom: 4 }}>
-                <span>{isStale ? '⚠️' : '🛵'}</span>
-                <div style={{ flex: 1 }}>
+              <div key={r.id}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isStale ? '#fef2f2' : '#f0fdf4', marginBottom: 4 }}>
+                <span onClick={() => focusRider(r)} style={{ cursor: 'pointer' }}>{isStale ? '⚠️' : '🛵'}</span>
+                <div onClick={() => focusRider(r)} style={{ flex: 1, cursor: 'pointer' }}>
                   <div style={{ fontSize: 12, fontWeight: 600 }}>{r.name}</div>
+                  <div style={{ fontSize: 10, color: 'var(--t3)' }}>
+                    {addr ? `📍 ${addr}` : 'address load ho raha…'}
+                  </div>
                   <div style={{ fontSize: 10, color: 'var(--t3)' }}>{mins != null ? `last seen ${mins}m ago` : ''}{isStale ? ' — signal lost?' : ''}</div>
                 </div>
+                <a href={gmapsUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: '#fff', border: '1px solid var(--bdr)', color: 'var(--bl)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                  🗺️ Google Maps
+                </a>
               </div>
             )
           })}
